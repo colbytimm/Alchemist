@@ -16,6 +16,7 @@ func Root() *cobra.Command {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
 	rootCmd.AddCommand(AddAccountCmd())
+	rootCmd.AddCommand(ListAccountCmd())
 
 	return rootCmd
 }

@@ -9,6 +9,13 @@ import (
 
 var db *sql.DB
 
+type AccountOptions struct {
+	Id               int
+	Name             string
+	ConnectionString string
+	Tag              string
+}
+
 func OpenDatabase() error {
 	var err error
 
@@ -23,8 +30,8 @@ func OpenDatabase() error {
 func CreateAccountTable() {
 	createTableSQL := `CREATE TABLE IF NOT EXISTS account (
 		"id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-		"connectionString" TEXT,
 		"name" TEXT,
+		"connectionString" TEXT,
 		"tag" TEXT
 	  );`
 
@@ -37,13 +44,13 @@ func CreateAccountTable() {
 	log.Println("Alchemist account table created")
 }
 
-func InsertAccount(connectionString string, name string, tag string) {
-	insertAccountSQL := `INSERT INTO account(connectionString, name, tag) VALUES (?, ?, ?)`
+func InsertAccount(options *AccountOptions) {
+	insertAccountSQL := `INSERT INTO account(name, connectionString, tag) VALUES (?, ?, ?)`
 	statement, err := db.Prepare(insertAccountSQL)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	_, err = statement.Exec(connectionString, name, tag)
+	_, err = statement.Exec(options.Name, options.ConnectionString, options.Tag)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -51,21 +58,20 @@ func InsertAccount(connectionString string, name string, tag string) {
 	log.Println("Inserted account successfully")
 }
 
-func GetAccounts() {
-	row, err := db.Query("SELECT * FROM account ORDER BY name")
+func GetAccounts() []AccountOptions {
+	var accounts []AccountOptions
+	row, err := db.Query("SELECT a.id, a.name, a.connectionString, a.tag FROM account as a ORDER BY name")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer row.Close()
 
 	for row.Next() {
-		var id int
-		var connectionString string
-		var name string
-		var tag string
-		row.Scan(&id, &connectionString, &name, &tag)
-		log.Println("[", tag, "] ", connectionString, "—", name)
+		var account AccountOptions
+		row.Scan(&account.Id, &account.Name, &account.ConnectionString, &account.Tag)
+		accounts = append(accounts, account)
 	}
+	return accounts
 }
 
 func DeleteAccountById(id int) error {
