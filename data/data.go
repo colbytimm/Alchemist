@@ -105,7 +105,7 @@ func GetAccounts() []AccountOptions {
 }
 
 func DeleteAccountByName(name string) error {
-	statement, err := db.Prepare("DELETE FROM items WHERE name = ?")
+	statement, err := db.Prepare("DELETE FROM account WHERE name = ?")
 	if err != nil {
 		log.Fatalf("prepare delete statement error: %v", err)
 	}
