@@ -11,7 +11,6 @@ func AddAccountCmd() *cobra.Command {
 	addAccountCmd := &cobra.Command{
 		Use:                   "add-account",
 		Short:                 "Add Cosmos DB account",
-		Long:                  "Add Cosmos DB account",
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
