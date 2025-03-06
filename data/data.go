@@ -28,7 +28,7 @@ func OpenDatabase() error {
 	return db.Ping()
 }
 
-func CreateAccountTable() {
+func CreateAccountTable() error {
 	createTableSQL := `CREATE TABLE IF NOT EXISTS account (
 		"id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
 		"name" TEXT UNIQUE,
@@ -39,11 +39,34 @@ func CreateAccountTable() {
 
 	statement, err := db.Prepare(createTableSQL)
 	if err != nil {
-		log.Fatal(err.Error())
+		return err
 	}
 
-	statement.Exec()
-	log.Println("Alchemist account table created")
+	_, err = statement.Exec()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// EnsureAccountTableExists checks if the account table exists and creates it if it doesn't
+func EnsureAccountTableExists() error {
+	// Check if the account table exists
+	var tableName string
+	err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='account'").Scan(&tableName)
+
+	if err != nil {
+		// If the error is "no rows in result set", the table doesn't exist
+		if err.Error() == "sql: no rows in result set" {
+			// Create the table
+			return CreateAccountTable()
+		}
+		return err
+	}
+
+	// Table exists
+	return nil
 }
 
 func InsertAccount(options *AccountOptions) AccountOptions {
@@ -88,20 +111,28 @@ func GetAccountByName(name string) AccountOptions {
 	return AccountOptions{}
 }
 
-func GetAccounts() []AccountOptions {
+func GetAccounts() ([]AccountOptions, error) {
 	var accounts []AccountOptions
 	row, err := db.Query("SELECT a.id, a.name, a.connectionString, a.tag, a.isDefault FROM account as a ORDER BY id")
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	defer row.Close()
 
 	for row.Next() {
 		var account AccountOptions
-		row.Scan(&account.Id, &account.Name, &account.ConnectionString, &account.Tag, &account.IsDefault)
+		err := row.Scan(&account.Id, &account.Name, &account.ConnectionString, &account.Tag, &account.IsDefault)
+		if err != nil {
+			return nil, err
+		}
 		accounts = append(accounts, account)
 	}
-	return accounts
+
+	if err = row.Err(); err != nil {
+		return nil, err
+	}
+
+	return accounts, nil
 }
 
 func DeleteAccountByName(name string) error {
@@ -121,27 +152,23 @@ func DeleteAccountByName(name string) error {
 }
 
 func UpdateDefaultItem(name string) error {
-	notDefaultStatement, err := db.Prepare("UPDATE account SET isDefault = 0")
+	resetStmt, err := db.Prepare("UPDATE account SET isDefault = 0")
 	if err != nil {
-		log.Fatalf("prepare account isDefault false for items error: %v", err)
+		return err
 	}
-	defer notDefaultStatement.Close()
-
-	isDefaultStatement, err := db.Prepare("UPDATE account SET isDefault = 1 WHERE name = ?")
+	_, err = resetStmt.Exec()
 	if err != nil {
-		log.Fatalf("prepare account isDefault true for items error: %v", err)
-	}
-	defer isDefaultStatement.Close()
-
-	_, err = notDefaultStatement.Exec()
-	if err != nil {
-		log.Fatalf("executing account isDefault false for items error: %v", err)
-	}
-	_, err = isDefaultStatement.Exec(name)
-	if err != nil {
-		log.Fatalf("executing account isDefault true error: %v", err)
+		return err
 	}
 
-	// log.Println("isDefault account successfully updated")
+	updateStmt, err := db.Prepare("UPDATE account SET isDefault = 1 WHERE name = ?")
+	if err != nil {
+		return err
+	}
+	_, err = updateStmt.Exec(name)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }

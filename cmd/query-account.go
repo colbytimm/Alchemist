@@ -22,12 +22,16 @@ type QueryOptions struct {
 }
 
 func ExtractAndModifyQuery(inputQuery string) (*QueryOptions, error) {
+	if inputQuery == "" {
+		return nil, errors.New("query cannot be empty, use --query flag to specify a query")
+	}
+
 	var queryOptions QueryOptions
 	re := regexp.MustCompile(`SELECT\s+(.*\s+)?FROM\s+([^.]+)\.([^\s]+)\s+as\s+c\s*(.*)`)
 
 	matches := re.FindStringSubmatch(inputQuery)
 	if matches == nil || len(matches) < 5 {
-		return nil, errors.New("cosmos client is nil")
+		return nil, errors.New("invalid query format, expected: SELECT * FROM database.container as c WHERE ...")
 	}
 
 	queryOptions.DatabaseId = matches[2]
@@ -52,25 +56,67 @@ func QueryAccountCmd() *cobra.Command {
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			data.OpenDatabase()
-			accounts := data.GetAccounts()
+			// Open database with error handling
+			err := data.OpenDatabase()
+			if err != nil {
+				fmt.Printf("Error: Could not open database: %v\n", err)
+				fmt.Println("Hint: Make sure you've added at least one account using 'alchemist add-account'")
+				return
+			}
+
+			// Check if account table exists and create it if it doesn't
+			err = data.EnsureAccountTableExists()
+			if err != nil {
+				fmt.Printf("Error: Could not ensure account table exists: %v\n", err)
+				return
+			}
+
+			// Get accounts with error handling
+			accounts, err := data.GetAccounts()
+			if err != nil {
+				fmt.Printf("Error: Could not retrieve accounts: %v\n", err)
+				return
+			}
+			
+			// Check if there are any accounts
+			if len(accounts) == 0 {
+				fmt.Println("No accounts found. Add an account using 'alchemist add-account'")
+				return
+			}
+
 			account := accounts[0]
 			cosmos.Connect(account.ConnectionString)
-			queryOptions, _ := ExtractAndModifyQuery(query)
-			containerProperties, _ := cosmos.GetContainerProperties(
+
+			queryOptions, err := ExtractAndModifyQuery(query)
+			if err != nil {
+				fmt.Printf("Error: Could not parse query: %v\n", err)
+				return
+			}
+
+			containerProperties, err := cosmos.GetContainerProperties(
 				queryOptions.DatabaseId,
 				queryOptions.ContainerId,
 			)
-			fmt.Printf("Query: %s, db: %s, container: %s", queryOptions.Query, queryOptions.DatabaseId, queryOptions.ContainerId)
+			if err != nil {
+				fmt.Printf("Error: Could not get container properties: %v\n", err)
+				return
+			}
 
-			items, requestCharge := cosmos.ReadQuery(
+			fmt.Printf("Query: %s, db: %s, container: %s\n", queryOptions.Query, queryOptions.DatabaseId, queryOptions.ContainerId)
+
+			items, requestCharge, err := cosmos.ReadQuery(
 				queryOptions.DatabaseId,
 				queryOptions.ContainerId,
 				queryOptions.Query,
 				containerProperties.PartitionKeyDefinition.Paths[0],
 			)
-			fmt.Printf("Request charge: %f", requestCharge)
-			fmt.Print(items)
+			if err != nil {
+				fmt.Printf("Error: Could not execute query: %v\n", err)
+				return
+			}
+
+			fmt.Printf("Request charge: %f\n", requestCharge)
+			fmt.Println(items)
 		},
 	}
 	queryAccountCmd.Flags().StringVarP(&query, "query", "q", "", "NoSQL query")

@@ -49,10 +49,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "d", "enter":
-			data.OpenDatabase()
+			err := data.OpenDatabase()
+			if err != nil {
+				fmt.Printf("Error opening database: %v\n", err)
+				return m, tea.Quit
+			}
+			
 			rowName := m.table.SelectedRow()[1]
-			data.UpdateDefaultItem(rowName)
-			accounts := data.GetAccounts()
+			err = data.UpdateDefaultItem(rowName)
+			if err != nil {
+				fmt.Printf("Error updating default account: %v\n", err)
+				return m, tea.Quit
+			}
+			
+			accounts, err := data.GetAccounts()
+			if err != nil {
+				fmt.Printf("Error retrieving accounts: %v\n", err)
+				return m, tea.Quit
+			}
+			
 			var rows []table.Row
 			for _, account := range accounts {
 				rows = append(rows, table.Row{
@@ -105,8 +120,34 @@ func ListAccountCmd() *cobra.Command {
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			data.OpenDatabase()
-			accounts := data.GetAccounts()
+			// Open database with error handling
+			err := data.OpenDatabase()
+			if err != nil {
+				fmt.Printf("Error: Could not open database: %v\n", err)
+				fmt.Println("Hint: Make sure you've added at least one account using 'alchemist add-account'")
+				return
+			}
+
+			// Check if account table exists and create it if it doesn't
+			err = data.EnsureAccountTableExists()
+			if err != nil {
+				fmt.Printf("Error: Could not ensure account table exists: %v\n", err)
+				return
+			}
+
+			// Get accounts with error handling
+			accounts, err := data.GetAccounts()
+			if err != nil {
+				fmt.Printf("Error: Could not retrieve accounts: %v\n", err)
+				return
+			}
+
+			// Check if there are any accounts
+			if len(accounts) == 0 {
+				fmt.Println("No accounts found. Add an account using 'alchemist add-account'")
+				return
+			}
+
 			columns := []table.Column{
 				{Title: "Default", Width: 8},
 				{Title: "Name", Width: 20},
