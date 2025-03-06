@@ -77,7 +77,7 @@ func QueryAccountCmd() *cobra.Command {
 				fmt.Printf("Error: Could not retrieve accounts: %v\n", err)
 				return
 			}
-			
+
 			// Check if there are any accounts
 			if len(accounts) == 0 {
 				fmt.Println("No accounts found. Add an account using 'alchemist add-account'")
