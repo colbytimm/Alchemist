@@ -58,6 +58,15 @@ alchemist query-account --query "SELECT * FROM database.container as c WHERE c.i
 
 The query syntax follows the Cosmos DB SQL syntax, with the database and container specified in the FROM clause.
 
+All queries are executed as cross-partition queries by default using the Cosmos DB REST API, retrieving documents across all partitions regardless of their partition key.
+
+#### List All Documents
+```bash
+alchemist query-account --list-all --database <database_id> --container <container_id>
+```
+
+This command lists all documents in a container without requiring a SQL query.
+
 ## Examples
 
 ```bash
@@ -67,8 +76,20 @@ alchemist add-account --name "dev-account" --connection-string "AccountEndpoint=
 # List all configured accounts
 alchemist list-account
 
-# Query data from a container
+# Query data from a container with a SQL query
 alchemist query-account --query "SELECT * FROM mydb.users as c WHERE c.country = 'USA'"
+
+# List all documents in a container
+alchemist query-account --list-all --database mydb --container users
+
+# Output query results in table format
+alchemist query-account --query "SELECT * FROM mydb.orders as c" --output-format table
+
+# Save query results to a file
+alchemist query-account --query "SELECT * FROM mydb.logs as c" --output-file results.json
+
+# Show verbose output with request details
+alchemist query-account --query "SELECT * FROM mydb.users as c" --verbose
 ```
 
 ## Data Storage
