@@ -120,7 +120,6 @@ func ListAccountCmd() *cobra.Command {
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			// Open database with error handling
 			err := data.OpenDatabase()
 			if err != nil {
 				fmt.Printf("Error: Could not open database: %v\n", err)
@@ -128,21 +127,18 @@ func ListAccountCmd() *cobra.Command {
 				return
 			}
 
-			// Check if account table exists and create it if it doesn't
 			err = data.EnsureAccountTableExists()
 			if err != nil {
 				fmt.Printf("Error: Could not ensure account table exists: %v\n", err)
 				return
 			}
 
-			// Get accounts with error handling
 			accounts, err := data.GetAccounts()
 			if err != nil {
 				fmt.Printf("Error: Could not retrieve accounts: %v\n", err)
 				return
 			}
 
-			// Check if there are any accounts
 			if len(accounts) == 0 {
 				fmt.Println("No accounts found. Add an account using 'alchemist add-account'")
 				return
