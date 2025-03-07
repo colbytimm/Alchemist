@@ -2,6 +2,7 @@ package data
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -69,46 +70,63 @@ func EnsureAccountTableExists() error {
 	return nil
 }
 
-func InsertAccount(options *AccountOptions) AccountOptions {
+func InsertAccount(options *AccountOptions) (AccountOptions, error) {
+	// Check if this is the first account
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM account").Scan(&count)
+	if err != nil {
+		return AccountOptions{}, fmt.Errorf("error checking account count: %v", err)
+	}
+
+	isDefault := 0
+	if count == 0 {
+		isDefault = 1
+	}
+
 	insertAccountSQL := `INSERT INTO account(name, connectionString, tag, isDefault) VALUES (?, ?, ?, ?)`
 	statement, err := db.Prepare(insertAccountSQL)
 	if err != nil {
-		log.Fatalln(err)
+		return AccountOptions{}, fmt.Errorf("error preparing insert statement: %v", err)
 	}
-	_, err = statement.Exec(options.Name, options.ConnectionString, options.Tag, 0)
+	defer statement.Close()
+
+	_, err = statement.Exec(options.Name, options.ConnectionString, options.Tag, isDefault)
 	if err != nil {
-		log.Fatalln(err)
+		return AccountOptions{}, fmt.Errorf("error executing insert statement: %v", err)
 	}
 
 	log.Println("Inserted account successfully")
 
-	account := GetAccountByName(options.Name)
-	return account
+	account, err := GetAccountByName(options.Name)
+	if err != nil {
+		return AccountOptions{}, fmt.Errorf("error retrieving inserted account: %v", err)
+	}
+	return account, nil
 }
 
-func GetAccountByName(name string) AccountOptions {
+func GetAccountByName(name string) (AccountOptions, error) {
 	queryStatement, err := db.Prepare("SELECT a.id, a.name, a.connectionString, a.tag, a.isDefault FROM account as a WHERE name = ?")
 	if err != nil {
-		log.Fatal(err)
+		return AccountOptions{}, fmt.Errorf("error preparing query statement: %v", err)
 	}
 	defer queryStatement.Close()
 
 	row, err := queryStatement.Query(name)
 	if err != nil {
-		log.Fatal(err)
+		return AccountOptions{}, fmt.Errorf("error executing query: %v", err)
 	}
 	defer row.Close()
 
 	for row.Next() {
 		var account AccountOptions
-		row.Scan(&account.Id, &account.Name, &account.ConnectionString, &account.Tag)
-		return account
-	}
-	if err := row.Err(); err != nil {
-		log.Fatal(err)
+		err := row.Scan(&account.Id, &account.Name, &account.ConnectionString, &account.Tag, &account.IsDefault)
+		if err != nil {
+			return AccountOptions{}, fmt.Errorf("error scanning row: %v", err)
+		}
+		return account, nil
 	}
 
-	return AccountOptions{}
+	return AccountOptions{}, fmt.Errorf("account with name '%s' not found", name)
 }
 
 func GetAccounts() ([]AccountOptions, error) {

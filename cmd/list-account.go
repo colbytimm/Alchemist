@@ -54,20 +54,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				fmt.Printf("Error opening database: %v\n", err)
 				return m, tea.Quit
 			}
-			
+
 			rowName := m.table.SelectedRow()[1]
 			err = data.UpdateDefaultItem(rowName)
 			if err != nil {
 				fmt.Printf("Error updating default account: %v\n", err)
 				return m, tea.Quit
 			}
-			
+
 			accounts, err := data.GetAccounts()
 			if err != nil {
 				fmt.Printf("Error retrieving accounts: %v\n", err)
 				return m, tea.Quit
 			}
-			
+
 			var rows []table.Row
 			for _, account := range accounts {
 				rows = append(rows, table.Row{
