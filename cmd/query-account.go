@@ -10,7 +10,6 @@ import (
 
 	"github.com/colbytimm/alchemist/cosmos"
 	"github.com/colbytimm/alchemist/data"
-	"github.com/logrusorgru/aurora/v4"
 	"github.com/spf13/cobra"
 )
 
@@ -46,8 +45,8 @@ func ExtractAndModifyQuery(inputQuery string) (*QueryOptions, error) {
 	re := regexp.MustCompile(`SELECT\s+(.*\s+)?FROM\s+([^.]+)\.([^\s]+)\s+as\s+c\s*(.*)`)
 
 	matches := re.FindStringSubmatch(inputQuery)
-	if matches == nil || len(matches) < 5 {
-		return nil, errors.New("invalid query format, expected: SELECT * FROM database.container as c WHERE ...")
+	if len(matches) < 5 {
+		return nil, errors.New("invalid query format, expected: SELECT * FROM database.container as c WHERE")
 	}
 
 	queryOptions.DatabaseId = matches[2]
@@ -87,10 +86,8 @@ func ValidateQuery(query string) error {
 func FormatOutput(jsonData string, format OutputFormat) (string, error) {
 	switch format {
 	case JSON:
-		// The data is already in pretty-printed JSON format
 		return jsonData, nil
 	case RAW:
-		// Convert to raw (compact) JSON
 		var data interface{}
 		if err := json.Unmarshal([]byte(jsonData), &data); err != nil {
 			return "", fmt.Errorf("error parsing JSON: %v", err)
@@ -101,9 +98,6 @@ func FormatOutput(jsonData string, format OutputFormat) (string, error) {
 		}
 		return string(rawBytes), nil
 	case TABLE:
-		// Attempt to format as a table (simplified implementation)
-		// A more robust implementation would analyze the data structure
-		// and create an appropriate table
 		return fmt.Sprintf("Table formatting not fully implemented yet.\n%s", jsonData), nil
 	default:
 		return jsonData, nil
@@ -120,6 +114,8 @@ func QueryAccountCmd() *cobra.Command {
 		debug        bool
 		createTest   bool
 		listAll      bool
+		databaseId   string
+		containerId  string
 	)
 
 	queryAccountCmd := &cobra.Command{
@@ -134,7 +130,12 @@ Examples:
   alchemist query-account --query "SELECT * FROM mydb.users as c WHERE c.country = 'USA'"
   alchemist query-account --query "SELECT c.id, c.name FROM mydb.products as c" --account "dev-account"
   alchemist query-account --query "SELECT * FROM mydb.orders as c" --output-format table
-  alchemist query-account --query "SELECT * FROM mydb.logs as c" --output-file results.json`,
+  alchemist query-account --query "SELECT * FROM mydb.logs as c" --output-file results.json
+  alchemist query-account --list-all --database mydb --container users
+
+Notes:
+  All queries are executed as cross-partition queries by default using the Cosmos DB REST API,
+  which retrieves documents across all partitions regardless of their partition key.`,
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -198,102 +199,46 @@ Examples:
 
 			cosmos.Connect(selectedAccount.ConnectionString)
 
-			re := regexp.MustCompile(`FROM\s+([^.]+)\.([^\s]+)\s+as\s+c`)
-			matches := re.FindStringSubmatch(query)
-			if matches == nil || len(matches) < 3 {
-				fmt.Println("Error: Could not parse database and container from query")
-				fmt.Println("Please use the format: SELECT * FROM database.container as c")
-				return
-			}
-
-			databaseId := matches[1]
-			containerId := matches[2]
-
-			if createTest {
-				docId, err := cosmos.CreateTestDocument(databaseId, containerId)
-				if err != nil {
-					fmt.Printf("Error creating test document: %v\n", err)
-					return
-				}
-				fmt.Printf("Created test document with ID: %s\n", docId)
-				fmt.Println("You can now query it with:")
-				fmt.Printf("  alchemist query-account -q \"SELECT * FROM %s.%s as c WHERE c.id = '%s'\"\n",
-					databaseId, containerId, docId)
+			if !listAll && query == "" {
+				fmt.Println("Error: Either --query or --list-all must be provided")
 				return
 			}
 
 			if listAll {
+				if databaseId == "" || containerId == "" {
+					fmt.Println("Error: Database ID and Container ID are required with --list-all")
+					fmt.Println("Use: alchemist query-account --list-all --database mydb --container mycoll")
+					return
+				}
+
 				fmt.Printf("Listing all documents in %s.%s...\n", databaseId, containerId)
 
-				containerProperties, err := cosmos.GetContainerProperties(databaseId, containerId)
+				connectionString := selectedAccount.ConnectionString
+
+				results, err := cosmos.CrossPartitionQuery(databaseId, containerId, connectionString, "SELECT * FROM c", verbose)
 				if err != nil {
-					fmt.Printf("Error: Could not get container properties: %v\n", err)
+					fmt.Printf("Error listing all documents: %v\n", err)
 					return
 				}
 
-				partitionKeys, err := cosmos.GetPartitionKeyValues(databaseId, containerId)
-				if err != nil {
-					fmt.Printf("Error getting partition keys: %v\n", err)
-					return
-				}
-
-				if len(partitionKeys) == 0 {
-					fmt.Println("No partition key values found. The container appears to be empty.")
-					return
-				}
-
-				fmt.Printf("Found %d partition key values\n", len(partitionKeys))
-
-				var allItems []map[string]interface{}
-				var totalRequestCharge float32
-
-				for _, pkValue := range partitionKeys {
-					fmt.Printf("Querying partition: %s\n", pkValue)
-
-					partitionQuery := fmt.Sprintf("SELECT * FROM c WHERE c.%s = '%s'",
-						strings.TrimPrefix(containerProperties.PartitionKeyDefinition.Paths[0], "/"),
-						pkValue)
-
-					items, requestCharge, err := cosmos.ReadQuery(
-						databaseId,
-						containerId,
-						partitionQuery,
-						containerProperties.PartitionKeyDefinition.Paths[0],
-					)
-					if err != nil {
-						fmt.Printf("Error querying partition %s: %v\n", pkValue, err)
-						continue
-					}
-
-					totalRequestCharge += requestCharge
-
-					var partitionItems []map[string]interface{}
-					err = json.Unmarshal([]byte(items), &partitionItems)
-					if err != nil {
-						fmt.Printf("Error parsing items from partition %s: %v\n", pkValue, err)
-						continue
-					}
-
-					allItems = append(allItems, partitionItems...)
-				}
-
-				jsonData, err := json.MarshalIndent(allItems, "", "    ")
-				if err != nil {
-					fmt.Printf("Error formatting output: %v\n", err)
-					return
-				}
-
-				output, err := FormatOutput(string(jsonData), OutputFormat(outputFormat))
-				if err != nil {
-					fmt.Printf("Error formatting output: %v\n", err)
-					return
-				}
-
-				fmt.Printf("Total request charge: %f RUs\n", totalRequestCharge)
-				fmt.Printf("Found %d documents\n", len(allItems))
-
-				if len(allItems) == 0 {
+				if results == "null" || results == "[]" {
 					fmt.Println("No documents found in the container.")
+					return
+				}
+
+				output, err := FormatOutput(results, OutputFormat(outputFormat))
+				if err != nil {
+					fmt.Printf("Error formatting output: %v\n", err)
+					return
+				}
+
+				if outputFile != "" {
+					err := os.WriteFile(outputFile, []byte(output), 0644)
+					if err != nil {
+						fmt.Printf("Error writing to file %s: %v\n", outputFile, err)
+						return
+					}
+					fmt.Printf("Results written to %s\n", outputFile)
 				} else {
 					fmt.Println(output)
 				}
@@ -301,52 +246,62 @@ Examples:
 				return
 			}
 
-			containerProperties, err := cosmos.GetContainerProperties(databaseId, containerId)
-			if err != nil {
-				fmt.Printf("Error: Could not get container properties: %v\n", err)
+			re := regexp.MustCompile(`FROM\s+([^.]+)\.([^\s]+)\s+as\s+c`)
+			matches := re.FindStringSubmatch(query)
+			if len(matches) < 3 {
+				fmt.Println("Error: Could not parse database and container from query")
+				fmt.Println("Please use the format: SELECT * FROM database.container as c")
 				return
 			}
 
-			// Execute the query
+			queryDatabaseId := matches[1]
+			queryContainerId := matches[2]
+
+			if createTest {
+				docId, err := cosmos.CreateTestDocument(queryDatabaseId, queryContainerId)
+				if err != nil {
+					fmt.Printf("Error creating test document: %v\n", err)
+					return
+				}
+				fmt.Printf("Created test document with ID: %s\n", docId)
+				fmt.Println("You can now query it with:")
+				fmt.Printf("  alchemist query-account -q \"SELECT * FROM %s.%s as c WHERE c.id = '%s'\"\n",
+					queryDatabaseId, queryContainerId, docId)
+				return
+			}
+
+			fmt.Printf("Executing query on %s.%s...\n", queryDatabaseId, queryContainerId)
+
+			connectionString := selectedAccount.ConnectionString
+
 			queryOptions, err := ExtractAndModifyQuery(query)
 			if err != nil {
 				fmt.Printf("Error: Could not parse query: %v\n", err)
 				return
 			}
 
-			if verbose {
-				fmt.Printf("Database: %s\nContainer: %s\nModified Query: %s\n",
-					queryOptions.DatabaseId,
-					queryOptions.ContainerId,
-					queryOptions.Query)
-				fmt.Printf("Partition Key Path: %s\n", containerProperties.PartitionKeyDefinition.Paths[0])
-			}
+			fmt.Printf("Using SQL query: %s\n", queryOptions.Query)
 
-			items, requestCharge, err := cosmos.ReadQuery(
-				queryOptions.DatabaseId,
-				queryOptions.ContainerId,
-				queryOptions.Query,
-				containerProperties.PartitionKeyDefinition.Paths[0],
-			)
+			results, err := cosmos.CrossPartitionQuery(queryDatabaseId, queryContainerId, connectionString, queryOptions.Query, verbose)
 			if err != nil {
-				fmt.Printf("Error: Could not execute query: %v\n", err)
+				fmt.Printf("Error executing query: %v\n", err)
 				return
 			}
 
-			output, err := FormatOutput(items, OutputFormat(outputFormat))
-			if err != nil {
-				fmt.Printf("Error formatting output: %v\n", err)
-				return
-			}
-
-			fmt.Printf("Request charge: %f RUs\n", requestCharge)
-
-			if items == "[]" {
-				fmt.Println(aurora.Yellow("Warning: Query returned no results. This could be because:"))
+			if results == "null" || results == "[]" {
+				fmt.Println("No documents found in the container.")
+				fmt.Println("This could be because:")
 				fmt.Println("  - The container is empty")
 				fmt.Println("  - Your query conditions don't match any documents")
 				fmt.Println("  - There might be an issue with the query syntax")
 				fmt.Println("\nTry creating a test document with --create-test")
+				return
+			}
+
+			output, err := FormatOutput(results, OutputFormat(outputFormat))
+			if err != nil {
+				fmt.Printf("Error formatting output: %v\n", err)
+				return
 			}
 
 			if outputFile != "" {
@@ -362,8 +317,7 @@ Examples:
 		},
 	}
 
-	queryAccountCmd.Flags().StringVarP(&query, "query", "q", "", "NoSQL query (required)")
-	queryAccountCmd.MarkFlagRequired("query")
+	queryAccountCmd.Flags().StringVarP(&query, "query", "q", "", "NoSQL query (required for non list-all operations)")
 
 	queryAccountCmd.Flags().StringVarP(&accountName, "account", "a", "", "Account name to use (uses default if not specified)")
 
@@ -376,14 +330,17 @@ Examples:
 	queryAccountCmd.Flags().BoolVarP(&verbose, "verbose", "v", false,
 		"Show verbose output")
 
-	queryAccountCmd.Flags().BoolVarP(&debug, "debug", "d", false,
+	queryAccountCmd.Flags().BoolVarP(&debug, "debug", "", false,
 		"Show debug information")
 
 	queryAccountCmd.Flags().BoolVarP(&createTest, "create-test", "t", false,
 		"Create a test document in the container")
 
 	queryAccountCmd.Flags().BoolVarP(&listAll, "list-all", "l", false,
-		"List all documents in the container")
+		"List all documents in a container (requires --database and --container)")
+
+	queryAccountCmd.Flags().StringVar(&databaseId, "database", "", "Database ID (used with --list-all)")
+	queryAccountCmd.Flags().StringVar(&containerId, "container", "", "Container ID (used with --list-all)")
 
 	return queryAccountCmd
 }
