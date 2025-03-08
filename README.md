@@ -49,6 +49,12 @@ alchemist delete-account --name <account_name>
 alchemist list-account
 ```
 
+The list-account command provides an interactive interface where you can:
+- View all configured accounts
+- Set an account as default by selecting it and pressing 'd' or Enter
+- Delete an account by selecting it and pressing 'x' (with confirmation)
+- Refresh the account list by pressing 'r'
+
 ### Querying
 
 #### Query Account
