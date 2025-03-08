@@ -1,14 +1,16 @@
 package cmd
 
 import (
-	"fmt"
-
+	"github.com/charmbracelet/log"
 	"github.com/colbytimm/alchemist/data"
 	"github.com/spf13/cobra"
 )
 
 func AddAccountCmd() *cobra.Command {
-	var options data.AccountOptions
+	var (
+		options data.AccountOptions
+		verbose bool
+	)
 
 	addAccountCmd := &cobra.Command{
 		Use:                   "add-account",
@@ -16,28 +18,38 @@ func AddAccountCmd() *cobra.Command {
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
+			// Configure logger
+			log.SetReportTimestamp(false)
+
+			if verbose {
+				log.SetLevel(log.DebugLevel)
+				log.Debug("Debug logging enabled")
+			} else {
+				log.SetLevel(log.InfoLevel)
+			}
+
 			err := data.OpenDatabase()
 			if err != nil {
-				fmt.Printf("Error: Could not open database: %v\n", err)
+				log.Error("Could not open database", "error", err)
 				return
 			}
 
 			err = data.EnsureAccountTableExists()
 			if err != nil {
-				fmt.Printf("Error: Could not ensure account table exists: %v\n", err)
+				log.Error("Could not ensure account table exists", "error", err)
 				return
 			}
 
 			account, err := data.InsertAccount(&options)
 			if err != nil {
-				fmt.Printf("Error: Could not insert account: %v\n", err)
+				log.Error("Could not insert account", "error", err)
 				return
 			}
 
 			if account.IsDefault {
-				fmt.Printf("Account '%s' added successfully and set as default\n", account.Name)
+				log.Info("Account added successfully and set as default", "name", account.Name)
 			} else {
-				fmt.Printf("Account '%s' added successfully\n", account.Name)
+				log.Info("Account added successfully", "name", account.Name)
 			}
 		},
 	}
@@ -47,6 +59,7 @@ func AddAccountCmd() *cobra.Command {
 	addAccountCmd.MarkFlagRequired("connection")
 	addAccountCmd.Flags().StringVarP(&options.Tag, "tag", "t", "", "Account tag (e.g. dev, QA, etc.)")
 	addAccountCmd.MarkFlagRequired("tag")
+	addAccountCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output with debug logging")
 
 	return addAccountCmd
 }

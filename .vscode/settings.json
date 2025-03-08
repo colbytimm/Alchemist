@@ -1,11 +1,13 @@
 {
     "cSpell.words": [
+        "AUTOINCREMENT",
         "azcore",
         "azcosmos",
         "bubbletea",
         "charmbracelet",
         "Checkmark",
         "colbytimm",
+        "colls",
         "Colour",
         "documentdb",
         "enablecrosspartition",
@@ -13,6 +15,7 @@
         "isquery",
         "lipgloss",
         "logrusorgru",
+        "mattn",
         "mycoll",
         "mydb"
     ]

@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 func CrossPartitionQuery(databaseId, containerId, connectionString string, customQuery string, verbose bool) (string, error) {
@@ -39,7 +41,7 @@ func CrossPartitionQuery(databaseId, containerId, connectionString string, custo
 		databaseAccount, url.PathEscape(databaseId), url.PathEscape(containerId))
 
 	if verbose {
-		fmt.Printf("Documents URL: %s\n", documentsUrl)
+		log.Debug("Documents URL", "url", documentsUrl)
 	}
 
 	var req *http.Request
@@ -48,7 +50,7 @@ func CrossPartitionQuery(databaseId, containerId, connectionString string, custo
 
 	if customQuery != "" {
 		if verbose {
-			fmt.Printf("Using custom query: %s\n", customQuery)
+			log.Debug("Using custom query", "query", customQuery)
 		}
 		verb = "POST"
 
@@ -89,7 +91,7 @@ func CrossPartitionQuery(databaseId, containerId, connectionString string, custo
 	req.Header.Set("Authorization", token)
 
 	if verbose {
-		fmt.Printf("Executing direct cross-partition query using REST API %s /docs...\n", verb)
+		log.Debug("Executing direct cross-partition query", "method", verb, "endpoint", "/docs")
 	}
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -108,8 +110,7 @@ func CrossPartitionQuery(databaseId, containerId, connectionString string, custo
 	}
 
 	if verbose {
-		fmt.Printf("Response status: %d\n", resp.StatusCode)
-		fmt.Printf("Request charge: %s RUs\n", resp.Header.Get("x-ms-request-charge"))
+		log.Debug("Response received", "status", resp.StatusCode, "requestCharge", resp.Header.Get("x-ms-request-charge")+" RUs")
 	}
 
 	var response struct {
@@ -122,7 +123,7 @@ func CrossPartitionQuery(databaseId, containerId, connectionString string, custo
 	}
 
 	if verbose {
-		fmt.Printf("Found %d documents\n", len(response.Documents))
+		log.Debug("Documents found", "count", len(response.Documents))
 	}
 
 	jsonData, err := json.MarshalIndent(response.Documents, "", "    ")
@@ -142,7 +143,7 @@ func generateAuthorizationToken(verb, resourceType, resourceLink, date, key stri
 
 	masterKey, err := base64.StdEncoding.DecodeString(key)
 	if err != nil {
-		fmt.Printf("Error decoding master key: %v\n", err)
+		log.Error("Error decoding master key", "error", err)
 		return ""
 	}
 

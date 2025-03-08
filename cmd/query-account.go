@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/charmbracelet/log"
+
 	"github.com/colbytimm/alchemist/cosmos"
 	"github.com/colbytimm/alchemist/data"
 	"github.com/spf13/cobra"
@@ -138,27 +140,36 @@ Notes:
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
+			log.SetReportTimestamp(false)
+
+			if verbose {
+				log.SetLevel(log.DebugLevel)
+				log.Debug("Debug logging enabled")
+			} else {
+				log.SetLevel(log.InfoLevel)
+			}
+
 			err := data.OpenDatabase()
 			if err != nil {
-				fmt.Printf("Error: Could not open database: %v\n", err)
-				fmt.Println("Hint: Make sure you've added at least one account using 'alchemist add-account'")
+				log.Error("Could not open database", "error", err)
+				log.Info("Make sure you've added at least one account using 'alchemist add-account'")
 				return
 			}
 
 			err = data.EnsureAccountTableExists()
 			if err != nil {
-				fmt.Printf("Error: Could not ensure account table exists: %v\n", err)
+				log.Error("Could not ensure account table exists", "error", err)
 				return
 			}
 
 			accounts, err := data.GetAccounts()
 			if err != nil {
-				fmt.Printf("Error: Could not retrieve accounts: %v\n", err)
+				log.Error("Could not retrieve accounts", "error", err)
 				return
 			}
 
 			if len(accounts) == 0 {
-				fmt.Println("No accounts found. Add an account using 'alchemist add-account'")
+				log.Info("No accounts found. Add an account using 'alchemist add-account'")
 				return
 			}
 
@@ -173,7 +184,7 @@ Notes:
 					}
 				}
 				if !found {
-					fmt.Printf("Error: Account '%s' not found\n", accountName)
+					log.Error("Account not found", "name", accountName)
 					return
 				}
 			} else {
@@ -188,40 +199,40 @@ Notes:
 
 				if !defaultFound {
 					selectedAccount = accounts[0]
-					fmt.Println("Warning: No default account found. Using the first available account.")
+					log.Warn("No default account found. Using the first available account.")
 				}
 			}
 
-			if verbose {
-				fmt.Printf("Using account: %s\n", selectedAccount.Name)
-			}
+			log.Debug("Using account", "name", selectedAccount.Name)
 
 			cosmos.Connect(selectedAccount.ConnectionString)
 
-			if !listAll && query == "" {
-				fmt.Println("Error: Either --query or --list-all must be provided")
+			if query == "" && !listAll {
+				log.Error("Missing required parameter. Either --query or --list-all must be provided")
+				log.Info("Use: alchemist query-account --query \"SELECT * FROM database.container as c\"")
+				log.Info("  or: alchemist query-account --list-all --database <database_id> --container <container_id>")
 				return
 			}
 
 			if listAll {
 				if databaseId == "" || containerId == "" {
-					fmt.Println("Error: Database ID and Container ID are required with --list-all")
-					fmt.Println("Use: alchemist query-account --list-all --database mydb --container mycoll")
+					log.Error("Missing parameters. Database ID and Container ID are required with --list-all")
+					log.Info("Use: alchemist query-account --list-all --database mydb --container mycoll")
 					return
 				}
 
-				fmt.Printf("Listing all documents in %s.%s...\n", databaseId, containerId)
+				log.Info("Listing all documents", "database", databaseId, "container", containerId)
 
 				connectionString := selectedAccount.ConnectionString
 
 				results, err := cosmos.CrossPartitionQuery(databaseId, containerId, connectionString, "SELECT * FROM c", verbose)
 				if err != nil {
-					fmt.Printf("Error listing all documents: %v\n", err)
+					log.Error("Error listing all documents", "error", err)
 					return
 				}
 
 				if results == "null" || results == "[]" {
-					fmt.Println("No documents found in the container.")
+					log.Info("No documents found in the container")
 					return
 				}
 
@@ -248,54 +259,54 @@ Notes:
 			re := regexp.MustCompile(`FROM\s+([^.]+)\.([^\s]+)\s+as\s+c`)
 			matches := re.FindStringSubmatch(query)
 			if len(matches) < 3 {
-				fmt.Println("Error: Could not parse database and container from query")
-				fmt.Println("Please use the format: SELECT * FROM database.container as c")
+				log.Error("Could not parse database and container from query")
+				log.Info("Please use the format: SELECT * FROM database.container as c")
 				return
 			}
 
 			queryDatabaseId := matches[1]
 			queryContainerId := matches[2]
 
-			fmt.Printf("Executing query on %s.%s...\n", queryDatabaseId, queryContainerId)
+			log.Info("Executing query", "database", queryDatabaseId, "container", queryContainerId)
 
 			connectionString := selectedAccount.ConnectionString
 
 			queryOptions, err := ExtractAndModifyQuery(query)
 			if err != nil {
-				fmt.Printf("Error: Could not parse query: %v\n", err)
+				log.Error("Could not parse query", "error", err)
 				return
 			}
 
-			fmt.Printf("Using SQL query: %s\n", queryOptions.Query)
+			log.Debug("Using SQL query", "query", queryOptions.Query)
 
 			results, err := cosmos.CrossPartitionQuery(queryDatabaseId, queryContainerId, connectionString, queryOptions.Query, verbose)
 			if err != nil {
-				fmt.Printf("Error executing query: %v\n", err)
+				log.Error("Error executing query", "error", err)
 				return
 			}
 
 			if results == "null" || results == "[]" {
-				fmt.Println("No documents found in the container.")
-				fmt.Println("This could be because:")
-				fmt.Println("  - The container is empty")
-				fmt.Println("  - Your query conditions don't match any documents")
-				fmt.Println("  - There might be an issue with the query syntax")
+				log.Info("No documents found in the container")
+				log.Info("This could be because:")
+				log.Info("  - The container is empty")
+				log.Info("  - Your query conditions don't match any documents")
+				log.Info("  - There might be an issue with the query syntax")
 				return
 			}
 
 			output, err := FormatOutput(results, OutputFormat(outputFormat))
 			if err != nil {
-				fmt.Printf("Error formatting output: %v\n", err)
+				log.Error("Error formatting output", "error", err)
 				return
 			}
 
 			if outputFile != "" {
 				err := os.WriteFile(outputFile, []byte(output), 0644)
 				if err != nil {
-					fmt.Printf("Error writing to file %s: %v\n", outputFile, err)
+					log.Error("Error writing to file", "file", outputFile, "error", err)
 					return
 				}
-				fmt.Printf("Results written to %s\n", outputFile)
+				log.Info("Results written to file", "file", outputFile)
 			} else {
 				fmt.Println(output)
 			}

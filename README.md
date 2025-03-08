@@ -36,12 +36,12 @@ alchemist [command] [flags]
 
 #### Add Account
 ```bash
-alchemist add-account --name <account_name> --connection-string <connection_string> [--tag <tag>] [--default]
+alchemist add-account --name <account_name> --connection-string <connection_string> [--tag <tag>] [--default] [--verbose]
 ```
 
 #### Delete Account
 ```bash
-alchemist delete-account --name <account_name>
+alchemist delete-account --name <account_name> [--verbose]
 ```
 
 #### List Accounts
@@ -55,11 +55,28 @@ The list-account command provides an interactive interface where you can:
 - Delete an account by selecting it and pressing 'x' (with confirmation)
 - Refresh the account list by pressing 'r'
 
+#### Account Details
+```bash
+alchemist account-details [--account <account_name>] [--verbose]
+```
+
+The account-details command displays a table of all databases in a Cosmos DB account, showing:
+- Database ID
+- Number of containers in each database
+
+This interactive table view allows you to:
+- Navigate between databases using arrow keys
+- View detailed container information by pressing Enter on a selected database
+- See container properties including ID, partition key, and indexing mode
+- Return to the database list with Backspace or Escape
+
+This provides a clean and intuitive interface for exploring your Cosmos DB account structure.
+
 ### Querying
 
 #### Query Account
 ```bash
-alchemist query-account --query "SELECT * FROM database.container as c WHERE c.id = '123'"
+alchemist query-account --query "SELECT * FROM database.container as c WHERE c.id = '123'" [--verbose]
 ```
 
 The query syntax follows the Cosmos DB SQL syntax, with the database and container specified in the FROM clause.
@@ -68,7 +85,7 @@ All queries are executed as cross-partition queries by default using the Cosmos 
 
 #### List All Documents
 ```bash
-alchemist query-account --list-all --database <database_id> --container <container_id>
+alchemist query-account --list-all --database <database_id> --container <container_id> [--verbose]
 ```
 
 This command lists all documents in a container without requiring a SQL query.
@@ -96,6 +113,18 @@ alchemist query-account --query "SELECT * FROM mydb.logs as c" --output-file res
 
 # Show verbose output with request details
 alchemist query-account --query "SELECT * FROM mydb.users as c" --verbose
+
+# Display database list from the default Cosmos DB account
+alchemist account-details
+
+# Display database list for a specific account
+alchemist account-details --account "dev-account"
+
+# Display database list with verbose debug logging
+alchemist account-details --verbose
+
+# Delete an account with detailed logging
+alchemist delete-account --name "dev-account" --verbose
 ```
 
 ## Data Storage

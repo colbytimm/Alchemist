@@ -2,13 +2,13 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/log"
 	"github.com/colbytimm/alchemist/data"
 	"github.com/spf13/cobra"
 )
@@ -201,46 +201,40 @@ func ListAccountCmd() *cobra.Command {
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			// Open database with error handling
 			err := data.OpenDatabase()
 			if err != nil {
-				fmt.Printf("Error: Could not open database: %v\n", err)
-				fmt.Println("Hint: Make sure you've added at least one account using 'alchemist add-account'")
+				log.Error("Could not open database", "error", err)
+				log.Info("Hint: Make sure you've added at least one account using 'alchemist add-account'")
 				return
 			}
 
-			// Check if account table exists and create it if it doesn't
 			err = data.EnsureAccountTableExists()
 			if err != nil {
-				fmt.Printf("Error: Could not ensure account table exists: %v\n", err)
+				log.Error("Could not ensure account table exists", "error", err)
+				log.Info("Hint: Make sure you've added at least one account using 'alchemist add-account'")
 				return
 			}
 
-			// Get accounts with error handling
 			accounts, err := data.GetAccounts()
 			if err != nil {
-				fmt.Printf("Error: Could not retrieve accounts: %v\n", err)
+				log.Error("Could not retrieve accounts", "error", err)
 				return
 			}
 
-			// Check if there are any accounts
 			if len(accounts) == 0 {
-				fmt.Println("No accounts found. Add an account using 'alchemist add-account'")
+				log.Info("No accounts found. Add an account using 'alchemist add-account'")
 				return
 			}
 
-			// Initialize the model with account table
 			initialTable := createAccountTable(accounts)
 			initialModel := model{
 				table:    initialTable,
 				accounts: accounts,
 			}
 
-			// Create and run the program
 			p := tea.NewProgram(initialModel)
 			if _, err := p.Run(); err != nil {
-				fmt.Println("Error running program:", err)
-				os.Exit(1)
+				log.Fatal("Error running program", "error", err)
 			}
 		},
 	}
@@ -248,7 +242,6 @@ func ListAccountCmd() *cobra.Command {
 	return addAccountCmd
 }
 
-// Helper function to create the account table
 func createAccountTable(accounts []data.AccountOptions) table.Model {
 	columns := []table.Column{
 		{Title: "Default", Width: 8},

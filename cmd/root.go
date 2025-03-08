@@ -19,6 +19,7 @@ func Root() *cobra.Command {
 	rootCmd.AddCommand(DeleteAccountCmd())
 	rootCmd.AddCommand(ListAccountCmd())
 	rootCmd.AddCommand(QueryAccountCmd())
+	rootCmd.AddCommand(AccountDetailsCmd())
 
 	return rootCmd
 }

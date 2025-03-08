@@ -51,27 +51,21 @@ func CreateAccountTable() error {
 	return nil
 }
 
-// EnsureAccountTableExists checks if the account table exists and creates it if it doesn't
 func EnsureAccountTableExists() error {
-	// Check if the account table exists
 	var tableName string
 	err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='account'").Scan(&tableName)
 
 	if err != nil {
-		// If the error is "no rows in result set", the table doesn't exist
 		if err.Error() == "sql: no rows in result set" {
-			// Create the table
 			return CreateAccountTable()
 		}
 		return err
 	}
 
-	// Table exists
 	return nil
 }
 
 func InsertAccount(options *AccountOptions) (AccountOptions, error) {
-	// Check if this is the first account
 	var count int
 	err := db.QueryRow("SELECT COUNT(*) FROM account").Scan(&count)
 	if err != nil {
@@ -111,22 +105,16 @@ func GetAccountByName(name string) (AccountOptions, error) {
 	}
 	defer queryStatement.Close()
 
-	row, err := queryStatement.Query(name)
+	var account AccountOptions
+	err = queryStatement.QueryRow(name).Scan(&account.Id, &account.Name, &account.ConnectionString, &account.Tag, &account.IsDefault)
 	if err != nil {
-		return AccountOptions{}, fmt.Errorf("error executing query: %v", err)
-	}
-	defer row.Close()
-
-	for row.Next() {
-		var account AccountOptions
-		err := row.Scan(&account.Id, &account.Name, &account.ConnectionString, &account.Tag, &account.IsDefault)
-		if err != nil {
-			return AccountOptions{}, fmt.Errorf("error scanning row: %v", err)
+		if err == sql.ErrNoRows {
+			return AccountOptions{}, fmt.Errorf("account with name '%s' not found", name)
 		}
-		return account, nil
+		return AccountOptions{}, fmt.Errorf("error querying account: %v", err)
 	}
 
-	return AccountOptions{}, fmt.Errorf("account with name '%s' not found", name)
+	return account, nil
 }
 
 func GetAccounts() ([]AccountOptions, error) {
@@ -156,16 +144,24 @@ func GetAccounts() ([]AccountOptions, error) {
 func DeleteAccountByName(name string) error {
 	statement, err := db.Prepare("DELETE FROM account WHERE name = ?")
 	if err != nil {
-		log.Fatalf("prepare delete statement error: %v", err)
+		return fmt.Errorf("failed to prepare delete statement: %v", err)
 	}
 	defer statement.Close()
 
-	_, err = statement.Exec(name)
+	result, err := statement.Exec(name)
 	if err != nil {
-		log.Fatalf("executing delete error: %v", err)
+		return fmt.Errorf("failed to execute delete statement: %v", err)
 	}
 
-	log.Println("Deleted account successfully")
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %v", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("no account with name '%s' found", name)
+	}
+
 	return nil
 }
 
