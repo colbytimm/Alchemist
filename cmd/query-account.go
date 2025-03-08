@@ -112,7 +112,6 @@ func QueryAccountCmd() *cobra.Command {
 		outputFile   string
 		verbose      bool
 		debug        bool
-		createTest   bool
 		listAll      bool
 		databaseId   string
 		containerId  string
@@ -257,19 +256,6 @@ Notes:
 			queryDatabaseId := matches[1]
 			queryContainerId := matches[2]
 
-			if createTest {
-				docId, err := cosmos.CreateTestDocument(queryDatabaseId, queryContainerId)
-				if err != nil {
-					fmt.Printf("Error creating test document: %v\n", err)
-					return
-				}
-				fmt.Printf("Created test document with ID: %s\n", docId)
-				fmt.Println("You can now query it with:")
-				fmt.Printf("  alchemist query-account -q \"SELECT * FROM %s.%s as c WHERE c.id = '%s'\"\n",
-					queryDatabaseId, queryContainerId, docId)
-				return
-			}
-
 			fmt.Printf("Executing query on %s.%s...\n", queryDatabaseId, queryContainerId)
 
 			connectionString := selectedAccount.ConnectionString
@@ -294,7 +280,6 @@ Notes:
 				fmt.Println("  - The container is empty")
 				fmt.Println("  - Your query conditions don't match any documents")
 				fmt.Println("  - There might be an issue with the query syntax")
-				fmt.Println("\nTry creating a test document with --create-test")
 				return
 			}
 
@@ -332,9 +317,6 @@ Notes:
 
 	queryAccountCmd.Flags().BoolVarP(&debug, "debug", "", false,
 		"Show debug information")
-
-	queryAccountCmd.Flags().BoolVarP(&createTest, "create-test", "t", false,
-		"Create a test document in the container")
 
 	queryAccountCmd.Flags().BoolVarP(&listAll, "list-all", "l", false,
 		"List all documents in a container (requires --database and --container)")
