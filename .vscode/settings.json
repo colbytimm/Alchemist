@@ -17,6 +17,7 @@
         "logrusorgru",
         "mattn",
         "mycoll",
-        "mydb"
+        "mydb",
+        "textinput"
     ]
 }
