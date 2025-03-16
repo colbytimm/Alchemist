@@ -47,19 +47,21 @@ func ExtractAndModifyQuery(inputQuery string) (*QueryOptions, error) {
 	re := regexp.MustCompile(`SELECT\s+(.*\s+)?FROM\s+([^.]+)\.([^\s]+)\s+as\s+c\s*(.*)`)
 
 	matches := re.FindStringSubmatch(inputQuery)
+	// TODO: Possible improvement: Might not need a where clause
 	if len(matches) < 5 {
 		return nil, errors.New("invalid query format, expected: SELECT * FROM database.container as c WHERE")
 	}
 
+	selectPart := matches[1]
 	queryOptions.DatabaseId = matches[2]
 	queryOptions.ContainerId = matches[3]
+	modifiedQuerySuffix := matches[4]
 
-	selectPart := matches[1]
+	// TODO: Might throw an error if selectPart is empty
 	if selectPart == "" {
 		selectPart = "* "
 	}
 
-	modifiedQuerySuffix := matches[4]
 	if modifiedQuerySuffix != "" && modifiedQuerySuffix[:1] != " " {
 		modifiedQuerySuffix = " " + modifiedQuerySuffix
 	}
@@ -86,6 +88,7 @@ func ValidateQuery(query string) error {
 }
 
 func FormatOutput(jsonData string, format OutputFormat) (string, error) {
+	// TODO: Test this
 	switch format {
 	case JSON:
 		return jsonData, nil
