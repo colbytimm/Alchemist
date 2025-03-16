@@ -151,12 +151,22 @@ go test ./cmd/test/... -run TestDeleteAccount
 go test ./... -short
 ```
 
-The test suite includes:
-- Unit tests for individual functions
-- Integration tests for command execution
-- Mock implementations to avoid external dependencies
 
-When writing new features, make sure to add appropriate tests and run the test suite to ensure everything works as expected.
+When writing new features, make sure to add appropriate unit tests and run the test suite to ensure everything works as expected.
+
+## Features
+
+Current features:
+- [x] Account management (add, list, delete)
+- [x] Database and container exploration
+- [x] SQL query execution against Cosmos DB containers
+- [x] Cross-partition querying via REST API
+- [x] Batch document upload with retry mechanism
+- [x] Local account credentials storage via SQLite
+- [x] Interactive TUI for exploring databases and containers
+- [] Simulate joins across containers
+- [] Ability to save queries
+- [] Settings to configure hard coded defaults
 
 ## License
 
