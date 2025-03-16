@@ -9,6 +9,52 @@ import (
 )
 
 var db *sql.DB
+var inTestMode bool = false
+var mockActive bool = false
+
+// TODO: Improve testing for this file
+// Mock function variables that can be set in tests
+var (
+	OpenDatabaseMock             func() error
+	EnsureAccountTableExistsMock func() error
+	InsertAccountMock            func(*AccountOptions) (AccountOptions, error)
+	GetAccountByNameMock         func(string) (AccountOptions, error)
+	GetAccountsMock              func() ([]AccountOptions, error)
+	DeleteAccountByNameMock      func(string) error
+	UpdateDefaultItemMock        func(string) error
+)
+
+// GetDB returns the current database connection for testing purposes
+func GetDB() *sql.DB {
+	return db
+}
+
+// SetDB sets the database connection for testing purposes
+func SetDB(database *sql.DB) {
+	db = database
+
+	if database == nil {
+		inTestMode = true
+	} else {
+		inTestMode = false
+	}
+}
+
+func ActivateMock() {
+	mockActive = true
+}
+
+func DeactivateMock() {
+	mockActive = false
+	// Reset all mock functions
+	OpenDatabaseMock = nil
+	EnsureAccountTableExistsMock = nil
+	InsertAccountMock = nil
+	GetAccountByNameMock = nil
+	GetAccountsMock = nil
+	DeleteAccountByNameMock = nil
+	UpdateDefaultItemMock = nil
+}
 
 type AccountOptions struct {
 	Id               int
@@ -19,7 +65,19 @@ type AccountOptions struct {
 }
 
 func OpenDatabase() error {
+	if mockActive && OpenDatabaseMock != nil {
+		return OpenDatabaseMock()
+	}
+
 	var err error
+
+	if db != nil {
+		return nil
+	}
+
+	if inTestMode {
+		return fmt.Errorf("database connection is not initialized")
+	}
 
 	db, err = sql.Open("sqlite3", "./alchemist-database.db")
 	if err != nil {
@@ -30,6 +88,10 @@ func OpenDatabase() error {
 }
 
 func CreateAccountTable() error {
+	if db == nil {
+		return fmt.Errorf("database connection is not initialized")
+	}
+
 	createTableSQL := `CREATE TABLE IF NOT EXISTS account (
 		"id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
 		"name" TEXT UNIQUE,
@@ -52,6 +114,18 @@ func CreateAccountTable() error {
 }
 
 func EnsureAccountTableExists() error {
+	if mockActive && EnsureAccountTableExistsMock != nil {
+		return EnsureAccountTableExistsMock()
+	}
+
+	if mockActive {
+		return nil
+	}
+
+	if db == nil {
+		return fmt.Errorf("database connection is not initialized")
+	}
+
 	var tableName string
 	err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='account'").Scan(&tableName)
 
@@ -66,6 +140,24 @@ func EnsureAccountTableExists() error {
 }
 
 func InsertAccount(options *AccountOptions) (AccountOptions, error) {
+	if mockActive && InsertAccountMock != nil {
+		return InsertAccountMock(options)
+	}
+
+	if mockActive {
+		return AccountOptions{
+			Id:               1,
+			Name:             options.Name,
+			ConnectionString: options.ConnectionString,
+			Tag:              options.Tag,
+			IsDefault:        true,
+		}, nil
+	}
+
+	if db == nil {
+		return AccountOptions{}, fmt.Errorf("database connection is not initialized")
+	}
+
 	var count int
 	err := db.QueryRow("SELECT COUNT(*) FROM account").Scan(&count)
 	if err != nil {
@@ -99,6 +191,24 @@ func InsertAccount(options *AccountOptions) (AccountOptions, error) {
 }
 
 func GetAccountByName(name string) (AccountOptions, error) {
+	if mockActive && GetAccountByNameMock != nil {
+		return GetAccountByNameMock(name)
+	}
+
+	if mockActive {
+		return AccountOptions{
+			Id:               1,
+			Name:             name,
+			ConnectionString: "mock-connection-string",
+			Tag:              "mock",
+			IsDefault:        true,
+		}, nil
+	}
+
+	if db == nil {
+		return AccountOptions{}, fmt.Errorf("database connection is not initialized")
+	}
+
 	queryStatement, err := db.Prepare("SELECT a.id, a.name, a.connectionString, a.tag, a.isDefault FROM account as a WHERE name = ?")
 	if err != nil {
 		return AccountOptions{}, fmt.Errorf("error preparing query statement: %v", err)
@@ -118,6 +228,18 @@ func GetAccountByName(name string) (AccountOptions, error) {
 }
 
 func GetAccounts() ([]AccountOptions, error) {
+	if mockActive && GetAccountsMock != nil {
+		return GetAccountsMock()
+	}
+
+	if mockActive {
+		return []AccountOptions{}, nil
+	}
+
+	if db == nil {
+		return nil, fmt.Errorf("database connection is not initialized")
+	}
+
 	var accounts []AccountOptions
 	row, err := db.Query("SELECT a.id, a.name, a.connectionString, a.tag, a.isDefault FROM account as a ORDER BY id")
 	if err != nil {
@@ -142,6 +264,18 @@ func GetAccounts() ([]AccountOptions, error) {
 }
 
 func DeleteAccountByName(name string) error {
+	if mockActive && DeleteAccountByNameMock != nil {
+		return DeleteAccountByNameMock(name)
+	}
+
+	if mockActive {
+		return nil
+	}
+
+	if db == nil {
+		return fmt.Errorf("database connection is not initialized")
+	}
+
 	statement, err := db.Prepare("DELETE FROM account WHERE name = ?")
 	if err != nil {
 		return fmt.Errorf("failed to prepare delete statement: %v", err)
@@ -166,6 +300,18 @@ func DeleteAccountByName(name string) error {
 }
 
 func UpdateDefaultItem(name string) error {
+	if mockActive && UpdateDefaultItemMock != nil {
+		return UpdateDefaultItemMock(name)
+	}
+
+	if mockActive {
+		return nil
+	}
+
+	if db == nil {
+		return fmt.Errorf("database connection is not initialized")
+	}
+
 	resetStmt, err := db.Prepare("UPDATE account SET isDefault = 0")
 	if err != nil {
 		return err
@@ -185,4 +331,8 @@ func UpdateDefaultItem(name string) error {
 	}
 
 	return nil
+}
+
+func IsInTestMode() bool {
+	return inTestMode
 }
