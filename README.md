@@ -131,6 +131,33 @@ alchemist delete-account --name "dev-account" --verbose
 
 Alchemist stores account information locally in an SQLite database file (`alchemist-database.db`) in the directory where the command is run.
 
+## Development
+
+### Running Tests
+
+Alchemist includes a comprehensive test suite that uses in-memory databases to avoid creating real files during testing.
+
+```bash
+# Run all tests
+go test ./... -v
+
+# Run tests for a specific package
+go test ./cmd/test/... -v
+
+# Run specific tests matching a pattern
+go test ./cmd/test/... -run TestDeleteAccount
+
+# Run tests with short flag (skips long-running tests)
+go test ./... -short
+```
+
+The test suite includes:
+- Unit tests for individual functions
+- Integration tests for command execution
+- Mock implementations to avoid external dependencies
+
+When writing new features, make sure to add appropriate tests and run the test suite to ensure everything works as expected.
+
 ## License
 
 [License information]
