@@ -195,9 +195,9 @@ func isDefaultCheckmark(value bool) string {
 }
 
 func ListAccountCmd() *cobra.Command {
-	addAccountCmd := &cobra.Command{
+	listAccountCmd := &cobra.Command{
 		Use:                   "list-account",
-		Short:                 "List Cosmos DB accounts",
+		Short:                 "List and manage Cosmos DB accounts",
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -239,7 +239,7 @@ func ListAccountCmd() *cobra.Command {
 		},
 	}
 
-	return addAccountCmd
+	return listAccountCmd
 }
 
 func createAccountTable(accounts []data.AccountOptions) table.Model {
