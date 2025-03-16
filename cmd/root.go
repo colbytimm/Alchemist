@@ -20,6 +20,7 @@ func Root() *cobra.Command {
 	rootCmd.AddCommand(ListAccountCmd())
 	rootCmd.AddCommand(QueryAccountCmd())
 	rootCmd.AddCommand(AccountDetailsCmd())
+	rootCmd.AddCommand(BatchUploadCmd())
 
 	return rootCmd
 }
