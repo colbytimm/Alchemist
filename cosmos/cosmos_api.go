@@ -2,6 +2,7 @@ package cosmos
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -17,7 +18,7 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-func ExtractCosmosCredentials(connectionString string) (accountEndpoint string, accountKey string, err error) {
+func ExtractCosmosCredentials(connectionString string) (accountEndpoint, accountKey string, err error) {
 	parts := strings.Split(connectionString, ";")
 	for _, part := range parts {
 		if strings.HasPrefix(part, "AccountEndpoint=") {
@@ -34,7 +35,7 @@ func ExtractCosmosCredentials(connectionString string) (accountEndpoint string, 
 	return accountEndpoint, accountKey, nil
 }
 
-func CrossPartitionQuery(databaseId string, containerId string, connectionString string, customQuery string, verbose bool) (string, error) {
+func CrossPartitionQuery(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error) {
 	accountEndpoint, accountKey, err := ExtractCosmosCredentials(connectionString)
 	if err != nil {
 		return "", err
@@ -42,7 +43,7 @@ func CrossPartitionQuery(databaseId string, containerId string, connectionString
 
 	parsedURL, err := url.Parse(accountEndpoint)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse account endpoint: %v", err)
+		return "", fmt.Errorf("failed to parse account endpoint: %w", err)
 	}
 	databaseAccount := strings.Split(parsedURL.Host, ".")[0]
 
@@ -67,23 +68,23 @@ func CrossPartitionQuery(databaseId string, containerId string, connectionString
 			"query":      customQuery,
 			"parameters": []interface{}{},
 		}
-		requestBodyBytes, err := json.Marshal(requestBody)
+		requestBodyJSON, err := json.Marshal(requestBody)
 		if err != nil {
-			return "", fmt.Errorf("failed to marshal request body: %v", err)
+			return "", fmt.Errorf("failed to marshal request body: %w", err)
 		}
 
-		req, err = http.NewRequest(verb, documentsUrl, bytes.NewBuffer(requestBodyBytes))
+		req, err = http.NewRequestWithContext(context.Background(), verb, documentsUrl, bytes.NewBuffer(requestBodyJSON))
 		if err != nil {
-			return "", fmt.Errorf("failed to create HTTP request: %v", err)
+			return "", fmt.Errorf("failed to create HTTP request: %w", err)
 		}
 
 		req.Header.Set("Content-Type", "application/query+json")
 		req.Header.Set("x-ms-documentdb-isquery", "true")
 	} else {
 		verb = "GET"
-		req, err = http.NewRequest(verb, documentsUrl, nil)
+		req, err = http.NewRequestWithContext(context.Background(), verb, documentsUrl, http.NoBody)
 		if err != nil {
-			return "", fmt.Errorf("failed to create HTTP request: %v", err)
+			return "", fmt.Errorf("failed to create HTTP request: %w", err)
 		}
 	}
 
@@ -106,13 +107,13 @@ func CrossPartitionQuery(databaseId string, containerId string, connectionString
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to execute HTTP request: %v", err)
+		return "", fmt.Errorf("failed to execute HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %v", err)
+		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -128,7 +129,8 @@ func CrossPartitionQuery(databaseId string, containerId string, connectionString
 		Count     int               `json:"_count"`
 	}
 
-	if err := json.Unmarshal(body, &response); err != nil {
+	unmarshalErr := json.Unmarshal(body, &response)
+	if unmarshalErr != nil {
 		return string(body), nil
 	}
 
@@ -138,7 +140,7 @@ func CrossPartitionQuery(databaseId string, containerId string, connectionString
 
 	jsonData, err := json.MarshalIndent(response.Documents, "", "    ")
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal results to JSON: %v", err)
+		return "", fmt.Errorf("failed to marshal results to JSON: %w", err)
 	}
 
 	return string(jsonData), nil
@@ -193,10 +195,31 @@ func defaultBatchUploadOptions() BatchUploadOptions {
 	}
 }
 
-// BatchUpload uploads multiple documents to a Cosmos DB container in batches
-// Documents should be a slice of maps where each map contains the document properties
-// Each document must have a unique "id" field, and should have the partition key field
-func BatchUpload(databaseId string, containerId string, connectionString string, documents []map[string]interface{}, options *BatchUploadOptions) (*BatchUploadResult, error) {
+// BatchUpload uploads multiple documents to a Cosmos DB container in batches.
+// Documents should be a slice of maps where each map contains the document properties.
+// Each document must have a unique "id" field, and should have the partition key field.
+func BatchUpload(databaseId, containerId, connectionString string, documents []map[string]interface{}, options *BatchUploadOptions) (*BatchUploadResult, error) {
+	opts := getUploadOptions(options)
+
+	documentsUrl, accountKey, err := prepareDocumentsUrl(connectionString, databaseId, containerId)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &BatchUploadResult{
+		Successful:      0,
+		Failed:          0,
+		TotalRUs:        0,
+		FailedDocuments: []map[string]interface{}{},
+		Errors:          []string{},
+	}
+
+	processDocumentsInBatches(documents, opts, documentsUrl, accountKey, result)
+
+	return result, nil
+}
+
+func getUploadOptions(options *BatchUploadOptions) *BatchUploadOptions {
 	opts := defaultBatchUploadOptions()
 	if options != nil {
 		if options.BatchSize > 0 {
@@ -211,29 +234,30 @@ func BatchUpload(databaseId string, containerId string, connectionString string,
 			opts.BatchPauseMs = options.BatchPauseMs
 		}
 	}
+	return &opts
+}
 
-	accountEndpoint, accountKey, err := ExtractCosmosCredentials(connectionString)
+func prepareDocumentsUrl(connectionString, databaseId, containerId string) (documentsUrl, accountKey string, err error) {
+	var accountEndpoint string
+	accountEndpoint, accountKey, err = ExtractCosmosCredentials(connectionString)
 	if err != nil {
-		return nil, err
+		return "", "", err
 	}
 
-	parsedURL, err := url.Parse(accountEndpoint)
+	var parsedURL *url.URL
+	parsedURL, err = url.Parse(accountEndpoint)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse account endpoint: %v", err)
+		return "", "", fmt.Errorf("failed to parse account endpoint: %w", err)
 	}
 	databaseAccount := strings.Split(parsedURL.Host, ".")[0]
 
-	documentsUrl := fmt.Sprintf("https://%s.documents.azure.com/dbs/%s/colls/%s/docs",
+	documentsUrl = fmt.Sprintf("https://%s.documents.azure.com/dbs/%s/colls/%s/docs",
 		databaseAccount, url.PathEscape(databaseId), url.PathEscape(containerId))
 
-	result := &BatchUploadResult{
-		Successful:      0,
-		Failed:          0,
-		TotalRUs:        0,
-		FailedDocuments: []map[string]interface{}{},
-		Errors:          []string{},
-	}
+	return documentsUrl, accountKey, nil
+}
 
+func processDocumentsInBatches(documents []map[string]interface{}, opts *BatchUploadOptions, documentsUrl, accountKey string, result *BatchUploadResult) {
 	// Process in batches
 	totalBatches := (len(documents) + opts.BatchSize - 1) / opts.BatchSize
 	for batchNum := 0; batchNum < totalBatches; batchNum++ {
@@ -249,68 +273,82 @@ func BatchUpload(databaseId string, containerId string, connectionString string,
 			log.Info("Processing batch", "batch", batchNum+1, "of", totalBatches, "documents", len(batchDocuments))
 		}
 
-		for _, doc := range batchDocuments {
-			if _, hasID := doc["id"]; !hasID {
-				result.Failed++
-				result.FailedDocuments = append(result.FailedDocuments, doc)
-				result.Errors = append(result.Errors, "document missing 'id' field")
-				continue
-			}
-
-			docBytes, err := json.Marshal(doc)
-			if err != nil {
-				result.Failed++
-				result.FailedDocuments = append(result.FailedDocuments, doc)
-				result.Errors = append(result.Errors, fmt.Sprintf("failed to marshal document: %v", err))
-				continue
-			}
-
-			success := false
-			var lastError error
-			for retryCount := 0; retryCount <= opts.MaxRetries; retryCount++ {
-				if retryCount > 0 && opts.Verbose {
-					log.Info("Retrying document upload", "id", doc["id"], "retry", retryCount)
-				}
-
-				uploaded, rus, err := uploadSingleDocument(documentsUrl, docBytes, accountKey, opts.Verbose)
-				result.TotalRUs += rus
-
-				if err == nil && uploaded {
-					success = true
-					result.Successful++
-					break
-				}
-
-				lastError = err
-				if !opts.Retry {
-					break
-				}
-			}
-
-			if !success {
-				result.Failed++
-				result.FailedDocuments = append(result.FailedDocuments, doc)
-				if lastError != nil {
-					result.Errors = append(result.Errors, lastError.Error())
-				} else {
-					result.Errors = append(result.Errors, "unknown error during upload")
-				}
-			}
-		}
+		processDocumentBatch(batchDocuments, opts, documentsUrl, accountKey, result)
 
 		// Pause between batches to avoid rate limiting
 		if batchNum < totalBatches-1 && opts.BatchPauseMs > 0 {
 			time.Sleep(time.Duration(opts.BatchPauseMs) * time.Millisecond)
 		}
 	}
-
-	return result, nil
 }
 
-func uploadSingleDocument(documentsUrl string, docBytes []byte, accountKey string, verbose bool) (bool, float64, error) {
-	req, err := http.NewRequest("POST", documentsUrl, bytes.NewBuffer(docBytes))
+func processDocumentBatch(documents []map[string]interface{}, opts *BatchUploadOptions, documentsUrl, accountKey string, result *BatchUploadResult) {
+	for _, doc := range documents {
+		if !isValidDocument(doc, result) {
+			continue
+		}
+
+		docBytes, err := json.Marshal(doc)
+		if err != nil {
+			handleFailedDocument(doc, fmt.Sprintf("failed to marshal document: %v", err), result)
+			continue
+		}
+
+		uploadWithRetries(doc, docBytes, opts, documentsUrl, accountKey, result)
+	}
+}
+
+func isValidDocument(doc map[string]interface{}, result *BatchUploadResult) bool {
+	if _, hasID := doc["id"]; !hasID {
+		handleFailedDocument(doc, "document missing 'id' field", result)
+		return false
+	}
+	return true
+}
+
+func handleFailedDocument(doc map[string]interface{}, errorMsg string, result *BatchUploadResult) {
+	result.Failed++
+	result.FailedDocuments = append(result.FailedDocuments, doc)
+	result.Errors = append(result.Errors, errorMsg)
+}
+
+func uploadWithRetries(doc map[string]interface{}, docBytes []byte, opts *BatchUploadOptions, documentsUrl, accountKey string, result *BatchUploadResult) {
+	success := false
+	var lastError error
+
+	for retryCount := 0; retryCount <= opts.MaxRetries; retryCount++ {
+		if retryCount > 0 && opts.Verbose {
+			log.Info("Retrying document upload", "id", doc["id"], "retry", retryCount)
+		}
+
+		uploaded, rus, err := uploadSingleDocument(documentsUrl, docBytes, accountKey, opts.Verbose)
+		result.TotalRUs += rus
+
+		if err == nil && uploaded {
+			success = true
+			result.Successful++
+			break
+		}
+
+		lastError = err
+		if !opts.Retry {
+			break
+		}
+	}
+
+	if !success {
+		errorMsg := "unknown error during upload"
+		if lastError != nil {
+			errorMsg = lastError.Error()
+		}
+		handleFailedDocument(doc, errorMsg, result)
+	}
+}
+
+func uploadSingleDocument(documentsUrl string, docBytes []byte, accountKey string, verbose bool) (success bool, requestCharge float64, err error) {
+	req, err := http.NewRequestWithContext(context.Background(), "POST", documentsUrl, bytes.NewBuffer(docBytes))
 	if err != nil {
-		return false, 0, fmt.Errorf("failed to create HTTP request: %v", err)
+		return false, 0, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
 	currentTime := time.Now().UTC().Format(http.TimeFormat)
@@ -346,11 +384,11 @@ func uploadSingleDocument(documentsUrl string, docBytes []byte, accountKey strin
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, 0, fmt.Errorf("failed to execute HTTP request: %v", err)
+		return false, 0, fmt.Errorf("failed to execute HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	requestCharge := 0.0
+	requestCharge = 0.0
 	if chargeStr := resp.Header.Get("x-ms-request-charge"); chargeStr != "" {
 		fmt.Sscanf(chargeStr, "%f", &requestCharge)
 	}

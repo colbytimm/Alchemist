@@ -1,10 +1,32 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/charmbracelet/log"
 	"github.com/colbytimm/alchemist/data"
 	"github.com/spf13/cobra"
 )
+
+func DeleteAccountInternal(accountName string, verbose bool) error {
+	dbManager := data.GetDefaultManager()
+
+	err := dbManager.OpenDatabase()
+	if err != nil {
+		return fmt.Errorf("could not open database: %w", err)
+	}
+
+	if verbose {
+		log.Debug("Attempting to delete account", "name", accountName)
+	}
+
+	err = dbManager.DeleteAccountByName(accountName)
+	if err != nil {
+		return fmt.Errorf("failed to delete account %s: %w", accountName, err)
+	}
+
+	return nil
+}
 
 func DeleteAccountCmd() *cobra.Command {
 	var (
@@ -27,17 +49,9 @@ func DeleteAccountCmd() *cobra.Command {
 				log.SetLevel(log.InfoLevel)
 			}
 
-			err := data.OpenDatabase()
+			err := DeleteAccountInternal(options.Name, verbose)
 			if err != nil {
-				log.Error("Could not open database", "error", err)
-				return
-			}
-
-			log.Debug("Attempting to delete account", "name", options.Name)
-
-			err = data.DeleteAccountByName(options.Name)
-			if err != nil {
-				log.Error("Failed to delete account", "name", options.Name, "error", err)
+				log.Error(err.Error())
 				return
 			}
 

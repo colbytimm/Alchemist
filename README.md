@@ -168,6 +168,75 @@ Current features:
 - [] Ability to save queries
 - [] Settings to configure hard coded defaults
 
+## Development Setup
+
+This project uses several tools to maintain code quality and consistency. Here's how to set up your development environment:
+
+### Prerequisites
+
+- Go 1.19 or later
+- Make (optional, but recommended)
+
+### Installing Development Tools
+
+You can install all required development tools with:
+
+```bash
+make install-tools
+```
+
+Or manually:
+
+```bash
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+go install golang.org/x/tools/cmd/goimports@latest
+go install honnef.co/go/tools/cmd/staticcheck@latest
+```
+
+### Development Workflow
+
+1. Format your code:
+```bash
+make fmt
+```
+
+2. Lint your code:
+```bash
+make lint
+```
+
+3. Run tests:
+```bash
+make test
+```
+
+4. Build the application:
+```bash
+make build
+```
+
+5. Do all of the above:
+```bash
+make all
+```
+
+### Git Pre-commit Hook
+
+A pre-commit hook is included to automatically format and lint your code before each commit. It's installed when you run `make install-tools`.
+
+### VS Code Integration
+
+If you're using VS Code, the included `.vscode/settings.json` configures the editor to:
+- Format code on save using goimports
+- Run linters automatically
+- Provide better testing experience
+
+Make sure to install the official Go extension for VS Code.
+
+### GitHub Actions
+
+This project uses GitHub Actions for CI/CD. The workflow is defined in `.github/workflows/go.yml` and runs on each push and pull request to the main branch.
+
 ## License
 
 [License information]

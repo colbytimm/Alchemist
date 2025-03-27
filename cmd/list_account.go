@@ -10,12 +10,25 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
 	"github.com/colbytimm/alchemist/data"
+	"github.com/colbytimm/alchemist/util"
 	"github.com/spf13/cobra"
 )
 
-var baseStyle = lipgloss.NewStyle().
-	BorderStyle(lipgloss.NormalBorder()).
-	BorderForeground(lipgloss.Color("240"))
+func ListAccountsInternal() ([]data.AccountOptions, error) {
+	dbManager := data.GetDefaultManager()
+
+	err := dbManager.OpenDatabase()
+	if err != nil {
+		return nil, fmt.Errorf("could not open database: %w", err)
+	}
+
+	accounts, err := dbManager.GetAccounts()
+	if err != nil {
+		return nil, fmt.Errorf("could not retrieve accounts: %w", err)
+	}
+
+	return accounts, nil
+}
 
 func GetEnvironmentCellColour(environment string) string {
 	switch strings.ToLower(environment) {
@@ -51,13 +64,9 @@ type refreshAccountsMsg struct {
 
 func loadAccounts() tea.Cmd {
 	return func() tea.Msg {
-		var accounts []data.AccountOptions
-		err := data.OpenDatabase()
-		if err == nil {
-			accounts, err = data.GetAccounts()
-			if err != nil {
-				accounts = []data.AccountOptions{}
-			}
+		accounts, err := ListAccountsInternal()
+		if err != nil {
+			return refreshAccountsMsg{accounts: []data.AccountOptions{}}
 		}
 		return refreshAccountsMsg{accounts: accounts}
 	}
@@ -65,9 +74,10 @@ func loadAccounts() tea.Cmd {
 
 func deleteAccount(name string) tea.Cmd {
 	return func() tea.Msg {
-		err := data.OpenDatabase()
+		dbManager := data.GetDefaultManager()
+		err := dbManager.OpenDatabase()
 		if err == nil {
-			err = data.DeleteAccountByName(name)
+			err = dbManager.DeleteAccountByName(name)
 			if err != nil {
 				fmt.Printf("Error deleting account: %v\n", err)
 			}
@@ -76,11 +86,11 @@ func deleteAccount(name string) tea.Cmd {
 	}
 }
 
-func (m model) Init() tea.Cmd {
+func (m *model) Init() tea.Cmd {
 	return loadAccounts()
 }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case refreshAccountsMsg:
 		m.accounts = msg.accounts
@@ -112,7 +122,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "d", "enter":
-			err := data.OpenDatabase()
+			dbManager := data.GetDefaultManager()
+			err := dbManager.OpenDatabase()
 			if err != nil {
 				fmt.Printf("Error opening database: %v\n", err)
 				return m, tea.Quit
@@ -123,7 +134,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			err = data.UpdateDefaultItem(rowName)
+			err = dbManager.UpdateDefaultItem(rowName)
 			if err != nil {
 				fmt.Printf("Error updating default account: %v\n", err)
 				return m, tea.Quit
@@ -140,9 +151,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectedAccount = rowName
 			m.showConfirm = true
 			return m, nil
-
-		case "r":
-			return m, loadAccounts()
 		}
 	}
 
@@ -151,7 +159,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tableCmd
 }
 
-func (m model) View() string {
+func (m *model) View() string {
 	if m.showConfirm {
 		confirmStyle := lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
@@ -166,18 +174,10 @@ func (m model) View() string {
 		return confirmStyle.Render(message)
 	}
 
-	tableView := baseStyle.Render(m.table.View()) + "\n"
+	tableView := util.SharedTableStyle.Render(m.table.View())
+	helpText := "\nUse arrow keys to navigate | d or enter to set account as default | x to delete account | q or ctrl+c to quit"
 
-	helpSection := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Width(100).
-		Render("Help:\n" +
-			"  d or enter: Set account as default\n" +
-			"  x: Delete account (with confirmation)\n" +
-			"  r: Refresh account list\n" +
-			"  q or ctrl+c: Quit\n")
-
-	return tableView + helpSection
+	return tableView + helpText
 }
 
 func maskConnectionString(connectionString string) string {
@@ -201,21 +201,23 @@ func ListAccountCmd() *cobra.Command {
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			err := data.OpenDatabase()
+			dbManager := data.GetDefaultManager()
+
+			err := dbManager.OpenDatabase()
 			if err != nil {
 				log.Error("Could not open database", "error", err)
 				log.Info("Hint: Make sure you've added at least one account using 'alchemist add-account'")
 				return
 			}
 
-			err = data.EnsureAccountTableExists()
+			err = dbManager.EnsureAccountTableExists()
 			if err != nil {
 				log.Error("Could not ensure account table exists", "error", err)
 				log.Info("Hint: Make sure you've added at least one account using 'alchemist add-account'")
 				return
 			}
 
-			accounts, err := data.GetAccounts()
+			accounts, err := dbManager.GetAccounts()
 			if err != nil {
 				log.Error("Could not retrieve accounts", "error", err)
 				return
@@ -227,7 +229,7 @@ func ListAccountCmd() *cobra.Command {
 			}
 
 			initialTable := createAccountTable(accounts)
-			initialModel := model{
+			initialModel := &model{
 				table:    initialTable,
 				accounts: accounts,
 			}
@@ -266,13 +268,6 @@ func createAccountTable(accounts []data.AccountOptions) table.Model {
 		table.WithFocused(true),
 		table.WithHeight(7),
 	)
-
-	s := table.DefaultStyles()
-	s.Selected = s.Selected.
-		Foreground(lipgloss.Color("229")).
-		Background(lipgloss.Color("57")).
-		Bold(false)
-	t.SetStyles(s)
 
 	return t
 }

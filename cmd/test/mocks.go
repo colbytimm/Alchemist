@@ -4,7 +4,7 @@ import (
 	"github.com/colbytimm/alchemist/data"
 )
 
-// MockDB is a mock implementation of the data layer for testing
+// MockDB is a mock implementation of the data layer for testing.
 type MockDB struct {
 	OpenDatabaseFunc             func() error
 	EnsureAccountTableExistsFunc func() error

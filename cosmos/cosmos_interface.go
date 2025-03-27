@@ -4,7 +4,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 )
 
-// CosmosManager is an interface for cosmos operations that can be mocked in tests
+// CosmosManager is an interface for cosmos operations that can be mocked in tests.
 type CosmosManager interface {
 	CrossPartitionQuery(databaseID, containerID, connectionString, query string, verbose bool) (string, error)
 	GetDatabaseIds() []string

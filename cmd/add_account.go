@@ -1,10 +1,33 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/charmbracelet/log"
 	"github.com/colbytimm/alchemist/data"
 	"github.com/spf13/cobra"
 )
+
+func AddAccountInternal(options *data.AccountOptions, verbose bool) (data.AccountOptions, error) {
+	dbManager := data.GetDefaultManager()
+
+	err := dbManager.OpenDatabase()
+	if err != nil {
+		return data.AccountOptions{}, fmt.Errorf("could not open database: %w", err)
+	}
+
+	err = dbManager.EnsureAccountTableExists()
+	if err != nil {
+		return data.AccountOptions{}, fmt.Errorf("could not ensure account table exists: %w", err)
+	}
+
+	account, err := dbManager.InsertAccount(options)
+	if err != nil {
+		return data.AccountOptions{}, fmt.Errorf("could not insert account: %w", err)
+	}
+
+	return account, nil
+}
 
 func AddAccountCmd() *cobra.Command {
 	var (
@@ -18,7 +41,6 @@ func AddAccountCmd() *cobra.Command {
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			// Configure logger
 			log.SetReportTimestamp(false)
 
 			if verbose {
@@ -28,21 +50,9 @@ func AddAccountCmd() *cobra.Command {
 				log.SetLevel(log.InfoLevel)
 			}
 
-			err := data.OpenDatabase()
+			account, err := AddAccountInternal(&options, verbose)
 			if err != nil {
-				log.Error("Could not open database", "error", err)
-				return
-			}
-
-			err = data.EnsureAccountTableExists()
-			if err != nil {
-				log.Error("Could not ensure account table exists", "error", err)
-				return
-			}
-
-			account, err := data.InsertAccount(&options)
-			if err != nil {
-				log.Error("Could not insert account", "error", err)
+				log.Error(err.Error())
 				return
 			}
 
@@ -54,11 +64,17 @@ func AddAccountCmd() *cobra.Command {
 		},
 	}
 	addAccountCmd.Flags().StringVarP(&options.Name, "name", "n", "", "Account name")
-	addAccountCmd.MarkFlagRequired("name")
+	if err := addAccountCmd.MarkFlagRequired("name"); err != nil {
+		log.Fatal("Failed to mark 'name' flag as required", "error", err)
+	}
 	addAccountCmd.Flags().StringVarP(&options.ConnectionString, "connection", "c", "", "Account connection string")
-	addAccountCmd.MarkFlagRequired("connection")
+	if err := addAccountCmd.MarkFlagRequired("connection"); err != nil {
+		log.Fatal("Failed to mark 'connection' flag as required", "error", err)
+	}
 	addAccountCmd.Flags().StringVarP(&options.Tag, "tag", "t", "", "Account tag (e.g. dev, QA, etc.)")
-	addAccountCmd.MarkFlagRequired("tag")
+	if err := addAccountCmd.MarkFlagRequired("tag"); err != nil {
+		log.Fatal("Failed to mark 'tag' flag as required", "error", err)
+	}
 	addAccountCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output with debug logging")
 
 	return addAccountCmd

@@ -1,0 +1,105 @@
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+  allow-parallel-runners: true
+
+linters:
+  disable:
+    - noctx
+  enable:
+    # Default linters
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+
+    # Additional linters for code quality
+    - misspell
+    - gofmt
+    - goimports
+    - revive
+    - errname
+    - errorlint
+    - bodyclose
+    - gosec
+
+    # More sophisticated linters
+    - gocritic
+    - whitespace
+    - unconvert
+    - unparam
+    - godot
+    - gocognit
+    - nilnil
+
+linters-settings:
+  errorlint:
+    errorf: true
+    asserts: true
+    comparison: true
+  gofmt:
+    simplify: true
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+  misspell:
+    locale: US
+  revive:
+    rules:
+      - name: var-naming
+        disabled: true
+      - name: exported
+        disabled: true
+      - name: unused-parameter
+        disabled: true
+      - name: blank-imports
+        disabled: true
+      - name: var-declaration
+        disabled: true
+      - name: indent-error-flow
+        disabled: true
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on tests files.
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+        - govet
+        - revive
+        - unused
+    - path: cmd/
+      linters:
+        - errcheck
+      text: "Error return value of `.*MarkFlagRequired` is not checked"
+    - path: cosmos/
+      linters:
+        - errcheck
+      text: "Error return value of `fmt.Sscanf` is not checked"
+    - path: cmd/
+      linters:
+        - gosec
+      text: "G306: Expect WriteFile permissions to be 0600 or less"
+
+  # Maximum issues count per one linter. Set to 0 to disable.
+  max-issues-per-linter: 0
+  # Maximum count of issues with the same text. Set to 0 to disable.
+  max-same-issues: 0
+
+# Output configuration options
+output:
+  # colored-line-number|line-number|json|tab|checkstyle|code-climate
+  formats:
+    - format: colored-line-number
+  # print lines of code with issue
+  print-issued-lines: true
+  # print linter name in the end of issue text
+  print-linter-name: true

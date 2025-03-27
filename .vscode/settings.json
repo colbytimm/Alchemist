@@ -3,6 +3,7 @@
         "AUTOINCREMENT",
         "azcore",
         "azcosmos",
+        "bodyclose",
         "bubbletea",
         "charmbracelet",
         "Checkmark",
@@ -11,13 +12,61 @@
         "Colour",
         "documentdb",
         "enablecrosspartition",
+        "errcheck",
+        "errname",
+        "errorf",
+        "errorlint",
+        "gocognit",
         "gocosmos",
+        "gocritic",
+        "gofmt",
+        "goimports",
+        "golangci",
+        "gosec",
+        "gosimple",
+        "govet",
+        "honnef",
+        "ineffassign",
         "isquery",
         "lipgloss",
         "logrusorgru",
         "mattn",
         "mycoll",
         "mydb",
-        "textinput"
-    ]
+        "newcontainer",
+        "nilnil",
+        "noctx",
+        "Sscanf",
+        "staticcheck",
+        "testcontainer",
+        "testdb",
+        "textinput",
+        "unconvert",
+        "unparam"
+    ],
+    "go.useLanguageServer": true,
+    "go.lintTool": "golangci-lint",
+    "go.lintFlags": [
+        "--fast"
+    ],
+    "go.formatTool": "goimports",
+    "go.formatFlags": [],
+    "go.testFlags": [
+        "-v"
+    ],
+    "go.testTimeout": "300s",
+    "go.coverOnSave": true,
+    "go.coverageDecorator": {
+        "type": "highlight",
+        "coveredHighlightColor": "rgba(64,128,128,0.5)",
+        "uncoveredHighlightColor": "rgba(128,64,64,0.25)"
+    },
+    "go.toolsManagement.autoUpdate": true,
+    "editor.formatOnSave": true,
+    "[go]": {
+        "editor.defaultFormatter": "golang.go",
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
+    }
 }
