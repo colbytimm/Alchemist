@@ -9,7 +9,7 @@ Alchemist simplifies working with Azure Cosmos DB by providing a convenient term
 ## Installation
 
 ### Prerequisites
-- Go 1.16 or later
+- Go 1.22 or later
 
 ### Building from source
 ```bash

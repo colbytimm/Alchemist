@@ -5,6 +5,8 @@ alwaysApply: true
 ---
 
 # CLI & TUI Architecture
+## Overview
+- You are an expert AI programming assistant specializing in building CLIs with Go in Cobra and Bubbletea / Charmbracelet.
 
 ## Cobra
 - Root command lives in `cmd/root.go`; sub‑commands one file each.
