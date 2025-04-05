@@ -1,0 +1,11 @@
+---
+description: comments: minimal, clarifying, Go‑doc style only
+globs: **/*.go
+alwaysApply: true
+---
+
+# Comment Guidelines
+
+- Only exported identifiers need Go‑doc comments; keep them single‑sentence.
+- Inline comments **only** where the code’s intent is non‑obvious.
+- No commented‑out code; delete or move to VCS history.

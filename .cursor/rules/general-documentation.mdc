@@ -1,0 +1,9 @@
+---
+description: general project documentation
+globs: *.md
+alwaysApply: true
+---
+
+# README documentation
+- All new cmds should be documented in the README.md file in the `Available Commands` section
+- New commands should have examples on how to run them

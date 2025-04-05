@@ -1,0 +1,8 @@
+---
+description: data
+globs: data/**
+alwaysApply: true
+---
+
+# Data
+- Local data for the CLI is stored in a sqlite database stored locally

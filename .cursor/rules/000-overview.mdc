@@ -1,0 +1,7 @@
+---
+description: project overview
+alwaysApply: true
+---
+
+# Overview
+- The purpose of this CLI application is to provide users the ability to interact with their Azure Cosmos DB account

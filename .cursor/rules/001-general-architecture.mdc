@@ -1,0 +1,16 @@
+---
+description: cobra+bubbletea: structuring CLI commands and TUI models
+globs: cmd/**
+alwaysApply: true
+---
+
+# CLI & TUI Architecture
+
+## Cobra
+- Root command lives in `cmd/root.go`; sub‑commands one file each.
+- All commands accept a `*cobra.Command` parent for injection testing.
+- Persistent flags are defined in `root.go`; local flags in the sub‑command.
+
+## Bubbletea / Charmbracelet
+- Keep each `tea.Model` in its own file; state is immutable structs.
+- Never perform blocking I/O in `Update`; delegate to goroutines and return msgs.

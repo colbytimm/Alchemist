@@ -1,0 +1,10 @@
+---
+description: cosmos db structure
+globs: cosmos/**
+alwaysApply: true
+---
+
+# Cosmos DB
+- All Cosmos DB functions live in folder `cosmos/**`
+- `cosmos.go` are functions that use the microsoft/gocosmos sdk
+- `cosmos_api.go` are functions that interact directly with the Cosmos DB API due to their functionality not being supported by the Cosmos DB sdk
