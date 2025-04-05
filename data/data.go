@@ -24,10 +24,12 @@ type DatabaseManager interface {
 	GetSavedQueries() ([]SavedQueryOptions, error)
 	GetSavedQueryByName(name string) (SavedQueryOptions, error)
 	DeleteSavedQueryByName(name string) error
+	Close() error
 }
 
 type SQLiteManager struct {
-	db *sql.DB
+	db         *sql.DB
+	dbFilePath string
 }
 
 var defaultManager DatabaseManager = &SQLiteManager{}
@@ -55,6 +57,38 @@ func SetDB(database *sql.DB) {
 	}
 }
 
+// NewSQLiteManager creates a new SQLiteManager with optional custom database path.
+func NewSQLiteManager(customDbPath string) *SQLiteManager {
+	dbPath := customDbPath
+	if dbPath == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			// Default to current directory if user home can't be determined
+			dbPath = filepath.Join(".", "alchemist.db")
+		} else {
+			dataDir := filepath.Join(homeDir, ".alchemist")
+			dbPath = filepath.Join(dataDir, "alchemist.db")
+		}
+	}
+
+	return &SQLiteManager{
+		dbFilePath: dbPath,
+	}
+}
+
+// Close closes the database connection.
+func (m *SQLiteManager) Close() error {
+	if m.db != nil {
+		return m.db.Close()
+	}
+	return nil
+}
+
+// SetDB sets the database connection for testing purposes.
+func (m *SQLiteManager) SetDB(db *sql.DB) {
+	m.db = db
+}
+
 type AccountOptions struct {
 	Id               int
 	Name             string
@@ -65,19 +99,19 @@ type AccountOptions struct {
 
 func (m *SQLiteManager) OpenDatabase() error {
 	var err error
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("error getting home directory: %w", err)
+
+	// Create directory if it doesn't exist and path isn't custom
+	if !filepath.IsAbs(m.dbFilePath) {
+		dirPath := filepath.Dir(m.dbFilePath)
+		if dirPath != "." {
+			err = os.MkdirAll(dirPath, 0o700)
+			if err != nil {
+				return fmt.Errorf("error creating data directory: %w", err)
+			}
+		}
 	}
 
-	dataDir := filepath.Join(homeDir, ".alchemist")
-	err = os.MkdirAll(dataDir, 0o700)
-	if err != nil {
-		return fmt.Errorf("error creating data directory: %w", err)
-	}
-
-	dbPath := filepath.Join(dataDir, "alchemist.db")
-	m.db, err = sql.Open("sqlite3", dbPath)
+	m.db, err = sql.Open("sqlite3", m.dbFilePath)
 	if err != nil {
 		return fmt.Errorf("error opening database: %w", err)
 	}

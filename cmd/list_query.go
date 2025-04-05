@@ -7,10 +7,11 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/colbytimm/alchemist/data"
+	"github.com/colbytimm/alchemist/services"
 	"github.com/spf13/cobra"
 )
 
-func ListQueryCmd() *cobra.Command {
+func ListQueryCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
 		verbose bool
 	)
@@ -34,7 +35,7 @@ Examples:
 				log.SetLevel(log.InfoLevel)
 			}
 
-			savedQueries, err := ListQueriesInternal()
+			savedQueries, err := ListQueriesInternal(sp.DatabaseManager)
 			if err != nil {
 				log.Error("Could not retrieve saved queries", "error", err)
 				return
@@ -81,9 +82,7 @@ Examples:
 	return listQueryCmd
 }
 
-func ListQueriesInternal() ([]data.SavedQueryOptions, error) {
-	dbManager := data.GetDefaultManager()
-
+func ListQueriesInternal(dbManager data.DatabaseManager) ([]data.SavedQueryOptions, error) {
 	err := dbManager.OpenDatabase()
 	if err != nil {
 		return nil, fmt.Errorf("could not open database: %w", err)

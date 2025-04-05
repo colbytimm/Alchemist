@@ -10,13 +10,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
 	"github.com/colbytimm/alchemist/data"
+	"github.com/colbytimm/alchemist/services"
 	"github.com/colbytimm/alchemist/util"
 	"github.com/spf13/cobra"
 )
 
-func ListAccountsInternal() ([]data.AccountOptions, error) {
-	dbManager := data.GetDefaultManager()
-
+func ListAccountInternal(dbManager data.DatabaseManager, verbose bool) ([]data.AccountOptions, error) {
 	err := dbManager.OpenDatabase()
 	if err != nil {
 		return nil, fmt.Errorf("could not open database: %w", err)
@@ -56,15 +55,16 @@ type model struct {
 	showConfirm     bool
 	selectedAccount string
 	deleteAction    deleteAction
+	dbManager       data.DatabaseManager
 }
 
 type refreshAccountsMsg struct {
 	accounts []data.AccountOptions
 }
 
-func loadAccounts() tea.Cmd {
+func (m *model) loadAccounts() tea.Cmd {
 	return func() tea.Msg {
-		accounts, err := ListAccountsInternal()
+		accounts, err := ListAccountInternal(m.dbManager, false)
 		if err != nil {
 			return refreshAccountsMsg{accounts: []data.AccountOptions{}}
 		}
@@ -72,22 +72,21 @@ func loadAccounts() tea.Cmd {
 	}
 }
 
-func deleteAccount(name string) tea.Cmd {
+func (m *model) deleteAccount(name string) tea.Cmd {
 	return func() tea.Msg {
-		dbManager := data.GetDefaultManager()
-		err := dbManager.OpenDatabase()
+		err := m.dbManager.OpenDatabase()
 		if err == nil {
-			err = dbManager.DeleteAccountByName(name)
+			err = m.dbManager.DeleteAccountByName(name)
 			if err != nil {
 				fmt.Printf("Error deleting account: %v\n", err)
 			}
 		}
-		return loadAccounts()()
+		return m.loadAccounts()()
 	}
 }
 
 func (m *model) Init() tea.Cmd {
-	return loadAccounts()
+	return m.loadAccounts()
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -103,7 +102,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "y", "Y":
 				m.showConfirm = false
 				m.deleteAction = confirmDelete
-				return m, deleteAccount(m.selectedAccount)
+				cmd := m.deleteAccount(m.selectedAccount)
+				return m, cmd
 			case "n", "N", "esc":
 				m.showConfirm = false
 				m.deleteAction = cancelDelete
@@ -122,8 +122,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "d", "enter":
-			dbManager := data.GetDefaultManager()
-			err := dbManager.OpenDatabase()
+			err := m.dbManager.OpenDatabase()
 			if err != nil {
 				fmt.Printf("Error opening database: %v\n", err)
 				return m, tea.Quit
@@ -134,13 +133,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			err = dbManager.UpdateDefaultItem(rowName)
+			err = m.dbManager.UpdateDefaultItem(rowName)
 			if err != nil {
 				fmt.Printf("Error updating default account: %v\n", err)
 				return m, tea.Quit
 			}
 
-			return m, loadAccounts()
+			cmd := m.loadAccounts()
+			return m, cmd
 
 		case "x":
 			rowName := m.table.SelectedRow()[1]
@@ -194,30 +194,32 @@ func isDefaultCheckmark(value bool) string {
 	return ""
 }
 
-func ListAccountCmd() *cobra.Command {
+func ListAccountCmd(sp *services.ServiceProvider) *cobra.Command {
+	var verbose bool
+
 	listAccountCmd := &cobra.Command{
-		Use:                   "list-account",
+		Use:                   "list-accounts",
 		Short:                 "List and manage Cosmos DB accounts",
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			dbManager := data.GetDefaultManager()
+			util.SetupLogging(verbose)
 
-			err := dbManager.OpenDatabase()
+			err := sp.DatabaseManager.OpenDatabase()
 			if err != nil {
 				log.Error("Could not open database", "error", err)
 				log.Info("Hint: Make sure you've added at least one account using 'alchemist add-account'")
 				return
 			}
 
-			err = dbManager.EnsureAccountTableExists()
+			err = sp.DatabaseManager.EnsureAccountTableExists()
 			if err != nil {
 				log.Error("Could not ensure account table exists", "error", err)
 				log.Info("Hint: Make sure you've added at least one account using 'alchemist add-account'")
 				return
 			}
 
-			accounts, err := dbManager.GetAccounts()
+			accounts, err := sp.DatabaseManager.GetAccounts()
 			if err != nil {
 				log.Error("Could not retrieve accounts", "error", err)
 				return
@@ -230,8 +232,9 @@ func ListAccountCmd() *cobra.Command {
 
 			initialTable := createAccountTable(accounts)
 			initialModel := &model{
-				table:    initialTable,
-				accounts: accounts,
+				table:     initialTable,
+				accounts:  accounts,
+				dbManager: sp.DatabaseManager,
 			}
 
 			p := tea.NewProgram(initialModel)
@@ -240,6 +243,8 @@ func ListAccountCmd() *cobra.Command {
 			}
 		},
 	}
+
+	listAccountCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for debug logging")
 
 	return listAccountCmd
 }

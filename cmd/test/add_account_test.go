@@ -6,6 +6,7 @@ import (
 
 	"github.com/colbytimm/alchemist/cmd"
 	"github.com/colbytimm/alchemist/data"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAddAccount_Success(t *testing.T) {
@@ -37,14 +38,14 @@ func TestAddAccount_Success(t *testing.T) {
 	}
 
 	// Get the internal function that handles adding accounts
-	result, err := cmd.AddAccountInternal(accountOptions, false)
+	result, err := cmd.AddAccountInternal(accountOptions, mockManager, false)
 
 	// Assertions
-	AssertNoError(t, err)
-	AssertEqual(t, "test-account", result.Name)
-	AssertEqual(t, "test-connection-string", result.ConnectionString)
-	AssertEqual(t, "test", result.Tag)
-	AssertEqual(t, true, result.IsDefault)
+	assert.NoError(t, err)
+	assert.Equal(t, "test-account", result.Name)
+	assert.Equal(t, "test-connection-string", result.ConnectionString)
+	assert.Equal(t, "test", result.Tag)
+	assert.Equal(t, true, result.IsDefault)
 }
 
 func TestAddAccount_DatabaseError(t *testing.T) {
@@ -62,11 +63,11 @@ func TestAddAccount_DatabaseError(t *testing.T) {
 	}
 
 	// Get the internal function that handles adding accounts
-	_, err := cmd.AddAccountInternal(accountOptions, false)
+	_, err := cmd.AddAccountInternal(accountOptions, mockManager, false)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "database error")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "database error")
 }
 
 func TestAddAccount_TableError(t *testing.T) {
@@ -88,11 +89,11 @@ func TestAddAccount_TableError(t *testing.T) {
 	}
 
 	// Get the internal function that handles adding accounts
-	_, err := cmd.AddAccountInternal(accountOptions, false)
+	_, err := cmd.AddAccountInternal(accountOptions, mockManager, false)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "table error")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "table error")
 }
 
 func TestAddAccount_InsertError(t *testing.T) {
@@ -118,9 +119,9 @@ func TestAddAccount_InsertError(t *testing.T) {
 	}
 
 	// Get the internal function that handles adding accounts
-	_, err := cmd.AddAccountInternal(accountOptions, false)
+	_, err := cmd.AddAccountInternal(accountOptions, mockManager, false)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "insert error")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "insert error")
 }

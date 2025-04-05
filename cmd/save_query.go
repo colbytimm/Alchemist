@@ -3,10 +3,11 @@ package cmd
 import (
 	"github.com/charmbracelet/log"
 	"github.com/colbytimm/alchemist/data"
+	"github.com/colbytimm/alchemist/services"
 	"github.com/spf13/cobra"
 )
 
-func SaveQueryCmd() *cobra.Command {
+func SaveQueryCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
 		queryName   string
 		queryString string
@@ -59,7 +60,7 @@ Examples:
 				return
 			}
 
-			dbManager := data.GetDefaultManager()
+			dbManager := sp.DatabaseManager
 
 			err = dbManager.OpenDatabase()
 			if err != nil {

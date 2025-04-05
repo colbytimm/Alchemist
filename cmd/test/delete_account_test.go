@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/colbytimm/alchemist/cmd"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestDeleteAccount_Success(t *testing.T) {
@@ -18,10 +19,10 @@ func TestDeleteAccount_Success(t *testing.T) {
 	}
 
 	// Test the internal function directly
-	err := cmd.DeleteAccountInternal("test-account", false)
+	err := cmd.DeleteAccountInternal("test-account", mockManager, false)
 
 	// Assertions
-	AssertNoError(t, err)
+	assert.NoError(t, err)
 }
 
 func TestDeleteAccount_DatabaseError(t *testing.T) {
@@ -31,11 +32,11 @@ func TestDeleteAccount_DatabaseError(t *testing.T) {
 	}
 
 	// Test the internal function directly
-	err := cmd.DeleteAccountInternal("test-account", false)
+	err := cmd.DeleteAccountInternal("test-account", mockManager, false)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "database error")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "database error")
 }
 
 func TestDeleteAccount_DeleteError(t *testing.T) {
@@ -49,11 +50,11 @@ func TestDeleteAccount_DeleteError(t *testing.T) {
 	}
 
 	// Test the internal function directly
-	err := cmd.DeleteAccountInternal("test-account", false)
+	err := cmd.DeleteAccountInternal("test-account", mockManager, false)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "delete error")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "delete error")
 }
 
 func TestDeleteAccount_AccountNotFoundError(t *testing.T) {
@@ -67,11 +68,11 @@ func TestDeleteAccount_AccountNotFoundError(t *testing.T) {
 	}
 
 	// Test the internal function directly
-	err := cmd.DeleteAccountInternal("test-account", false)
+	err := cmd.DeleteAccountInternal("test-account", mockManager, false)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "account with name 'test-account' not found")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "account with name 'test-account' not found")
 }
 
 func TestDeleteAccount_VerboseOutput(t *testing.T) {
@@ -85,8 +86,8 @@ func TestDeleteAccount_VerboseOutput(t *testing.T) {
 	}
 
 	// Test the internal function directly with verbose flag
-	err := cmd.DeleteAccountInternal("test-account", true)
+	err := cmd.DeleteAccountInternal("test-account", mockManager, true)
 
 	// Assertions
-	AssertNoError(t, err)
+	assert.NoError(t, err)
 }

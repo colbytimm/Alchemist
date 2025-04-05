@@ -5,12 +5,12 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/colbytimm/alchemist/data"
+	"github.com/colbytimm/alchemist/services"
+	"github.com/colbytimm/alchemist/util"
 	"github.com/spf13/cobra"
 )
 
-func AddAccountInternal(options *data.AccountOptions, verbose bool) (data.AccountOptions, error) {
-	dbManager := data.GetDefaultManager()
-
+func AddAccountInternal(options *data.AccountOptions, dbManager data.DatabaseManager, verbose bool) (data.AccountOptions, error) {
 	err := dbManager.OpenDatabase()
 	if err != nil {
 		return data.AccountOptions{}, fmt.Errorf("could not open database: %w", err)
@@ -29,7 +29,7 @@ func AddAccountInternal(options *data.AccountOptions, verbose bool) (data.Accoun
 	return account, nil
 }
 
-func AddAccountCmd() *cobra.Command {
+func AddAccountCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
 		options data.AccountOptions
 		verbose bool
@@ -41,16 +41,9 @@ func AddAccountCmd() *cobra.Command {
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			log.SetReportTimestamp(false)
+			util.SetupLogging(verbose)
 
-			if verbose {
-				log.SetLevel(log.DebugLevel)
-				log.Debug("Debug logging enabled")
-			} else {
-				log.SetLevel(log.InfoLevel)
-			}
-
-			account, err := AddAccountInternal(&options, verbose)
+			account, err := AddAccountInternal(&options, sp.DatabaseManager, verbose)
 			if err != nil {
 				log.Error(err.Error())
 				return
@@ -75,7 +68,7 @@ func AddAccountCmd() *cobra.Command {
 	if err := addAccountCmd.MarkFlagRequired("tag"); err != nil {
 		log.Fatal("Failed to mark 'tag' flag as required", "error", err)
 	}
-	addAccountCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output with debug logging")
+	addAccountCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for debug logging")
 
 	return addAccountCmd
 }

@@ -5,53 +5,31 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/charmbracelet/log"
 	"github.com/colbytimm/alchemist/cosmos"
 	"github.com/colbytimm/alchemist/data"
+	"github.com/colbytimm/alchemist/services"
+	"github.com/colbytimm/alchemist/util"
 	"github.com/spf13/cobra"
 )
 
-var BatchUploadImpl = cosmos.BatchUpload
-
-var ConnectImpl = cosmos.Connect
-
-func BatchUploadInternal(accountName, databaseId, containerId, jsonFile string, options *cosmos.BatchUploadOptions) (*cosmos.BatchUploadResult, error) {
-	if databaseId == "" {
-		return nil, errors.New("database ID is required")
+func BatchUploadInternal(
+	accountName, databaseId, containerId, inputFile string,
+	batchSize int, retry bool, maxRetries int, verbose bool, batchPauseMs int,
+	dbManager data.DatabaseManager,
+	cosmosManager cosmos.CosmosManager,
+) (*cosmos.BatchUploadResult, error) {
+	if databaseId == "" || containerId == "" || inputFile == "" {
+		return nil, errors.New("database ID, container ID, and input file are required")
 	}
-
-	if containerId == "" {
-		return nil, errors.New("container ID is required")
-	}
-
-	if jsonFile == "" {
-		return nil, errors.New("JSON file is required")
-	}
-
-	fileExt := filepath.Ext(jsonFile)
-	if fileExt != ".json" {
-		return nil, fmt.Errorf("file must have .json extension: %s", jsonFile)
-	}
-
-	// Make sure the file exists.
-	if _, err := os.Stat(jsonFile); os.IsNotExist(err) {
-		return nil, fmt.Errorf("file does not exist: %s", jsonFile)
-	}
-
-	dbManager := data.GetDefaultManager()
 
 	err := dbManager.OpenDatabase()
 	if err != nil {
 		return nil, fmt.Errorf("could not open database: %w", err)
 	}
 
-	var account data.AccountOptions
-	var accounts []data.AccountOptions
-
-	// Get accounts and resolve which one to use.
-	accounts, err = dbManager.GetAccounts()
+	accounts, err := dbManager.GetAccounts()
 	if err != nil {
 		return nil, fmt.Errorf("could not retrieve accounts: %w", err)
 	}
@@ -60,8 +38,9 @@ func BatchUploadInternal(accountName, databaseId, containerId, jsonFile string, 
 		return nil, errors.New("no accounts found")
 	}
 
+	var account data.AccountOptions
 	if accountName == "" {
-		// Find default account.
+		// Find default account
 		for _, acc := range accounts {
 			if acc.IsDefault {
 				account = acc
@@ -73,163 +52,128 @@ func BatchUploadInternal(accountName, databaseId, containerId, jsonFile string, 
 			account = accounts[0]
 		}
 	} else {
-		account, err = dbManager.GetAccountByName(accountName)
-		if err != nil {
-			return nil, fmt.Errorf("could not retrieve account: %w", err)
+		accountFound := false
+		for _, acc := range accounts {
+			if acc.Name == accountName {
+				account = acc
+				accountFound = true
+				break
+			}
+		}
+
+		if !accountFound {
+			return nil, fmt.Errorf("account not found: %s", accountName)
 		}
 	}
 
-	// Read the JSON file.
-	jsonData, err := os.ReadFile(jsonFile)
+	// Read input file
+	fileData, err := os.ReadFile(inputFile)
 	if err != nil {
-		return nil, fmt.Errorf("error reading JSON file: %w", err)
+		return nil, fmt.Errorf("error reading input file: %w", err)
 	}
 
-	// Parse the JSON data.
+	// Parse JSON data
 	var documents []map[string]interface{}
-	err = json.Unmarshal(jsonData, &documents)
+	err = json.Unmarshal(fileData, &documents)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse JSON file: %w", err)
+		return nil, fmt.Errorf("error parsing JSON: %w", err)
 	}
 
-	// Connect to Cosmos DB.
-	err = ConnectImpl(account.ConnectionString)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to Cosmos DB: %w", err)
+	options := &cosmos.BatchUploadOptions{
+		BatchSize:    batchSize,
+		Retry:        retry,
+		MaxRetries:   maxRetries,
+		Verbose:      verbose,
+		BatchPauseMs: batchPauseMs,
 	}
 
-	// Perform the batch upload.
-	result, err := BatchUploadImpl(databaseId, containerId, account.ConnectionString, documents, options)
+	result, err := cosmosManager.BatchUpload(
+		databaseId,
+		containerId,
+		account.ConnectionString,
+		documents,
+		options,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("error during batch upload: %w", err)
+		return nil, fmt.Errorf("batch upload failed: %w", err)
 	}
 
 	return result, nil
 }
 
-func BatchUploadCmd() *cobra.Command {
+func BatchUploadCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
-		accountName     string
-		databaseId      string
-		containerId     string
-		jsonFile        string
-		batchSize       int
-		verbose         bool
-		noRetry         bool
-		maxRetries      int
-		batchPauseMs    int
-		partitionKeyGen string
+		accountName  string
+		databaseId   string
+		containerId  string
+		inputFile    string
+		batchSize    int
+		retry        bool
+		maxRetries   int
+		verbose      bool
+		batchPauseMs int
 	)
 
 	batchUploadCmd := &cobra.Command{
-		Use:   "batch-upload",
-		Short: "Upload documents in bulk to a Cosmos DB container",
-		Long: `Upload multiple documents from a JSON file to a Cosmos DB container.
-
-Examples:
-  alchemist batch-upload --database mydb --container mycoll --file documents.json
-  alchemist batch-upload --database mydb --container mycoll --file documents.json --account dev-account --verbose`,
+		Use:                   "batch-upload",
+		Short:                 "Upload multiple documents to Cosmos DB container",
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			log.SetReportTimestamp(false)
+			util.SetupLogging(verbose)
 
-			if verbose {
-				log.SetLevel(log.DebugLevel)
-				log.Debug("Debug logging enabled")
-			} else {
-				log.SetLevel(log.InfoLevel)
-			}
-
-			validateRequiredParams(databaseId, containerId, jsonFile)
-
-			options := createBatchUploadOptions(batchSize, noRetry, maxRetries, verbose, batchPauseMs)
-
-			result, err := BatchUploadInternal(accountName, databaseId, containerId, jsonFile, options)
+			result, err := BatchUploadInternal(
+				accountName,
+				databaseId,
+				containerId,
+				inputFile,
+				batchSize,
+				retry,
+				maxRetries,
+				verbose,
+				batchPauseMs,
+				sp.DatabaseManager,
+				sp.CosmosManager,
+			)
 			if err != nil {
-				log.Error("Failed to upload documents", "error", err)
+				log.Error(err.Error())
 				return
 			}
 
-			displayResults(result)
+			log.Info(
+				"Batch upload completed",
+				"successful", result.Successful,
+				"failed", result.Failed,
+				"totalRUs", result.TotalRUs,
+			)
+
+			if result.Failed > 0 && len(result.Errors) > 0 {
+				log.Error("Errors during upload:")
+				for _, errMsg := range result.Errors {
+					log.Error("- " + errMsg)
+				}
+			}
 		},
 	}
 
-	addBatchUploadFlags(batchUploadCmd, &accountName, &databaseId, &containerId, &jsonFile,
-		&batchSize, &verbose, &noRetry, &maxRetries, &batchPauseMs, &partitionKeyGen)
+	batchUploadCmd.Flags().StringVarP(&accountName, "account", "a", "", "Account name to use (default if not specified)")
+	batchUploadCmd.Flags().StringVarP(&databaseId, "database", "d", "", "Database ID")
+	if err := batchUploadCmd.MarkFlagRequired("database"); err != nil {
+		log.Fatal("Failed to mark 'database' flag as required", "error", err)
+	}
+	batchUploadCmd.Flags().StringVarP(&containerId, "container", "c", "", "Container ID")
+	if err := batchUploadCmd.MarkFlagRequired("container"); err != nil {
+		log.Fatal("Failed to mark 'container' flag as required", "error", err)
+	}
+	batchUploadCmd.Flags().StringVarP(&inputFile, "input", "i", "", "Input JSON file containing documents")
+	if err := batchUploadCmd.MarkFlagRequired("input"); err != nil {
+		log.Fatal("Failed to mark 'input' flag as required", "error", err)
+	}
+	batchUploadCmd.Flags().IntVar(&batchSize, "batch-size", 100, "Number of documents per batch")
+	batchUploadCmd.Flags().BoolVar(&retry, "retry", true, "Retry failed documents")
+	batchUploadCmd.Flags().IntVar(&maxRetries, "max-retries", 3, "Maximum number of retries")
+	batchUploadCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for debug logging")
+	batchUploadCmd.Flags().IntVar(&batchPauseMs, "batch-pause", 100, "Pause between batches in milliseconds")
 
 	return batchUploadCmd
-}
-
-func validateRequiredParams(databaseId, containerId, jsonFile string) {
-	if databaseId == "" {
-		log.Fatal("Database ID is required")
-		return
-	}
-
-	if containerId == "" {
-		log.Fatal("Container ID is required")
-		return
-	}
-
-	if jsonFile == "" {
-		log.Fatal("JSON file is required")
-		return
-	}
-}
-
-func createBatchUploadOptions(batchSize int, noRetry bool, maxRetries int, verbose bool, batchPauseMs int) *cosmos.BatchUploadOptions {
-	return &cosmos.BatchUploadOptions{
-		BatchSize:    batchSize,
-		Retry:        !noRetry,
-		MaxRetries:   maxRetries,
-		Verbose:      verbose,
-		BatchPauseMs: batchPauseMs,
-	}
-}
-
-func displayResults(result *cosmos.BatchUploadResult) {
-	log.Info("Upload results",
-		"successful", result.Successful,
-		"failed", result.Failed,
-		"total_requests", result.Successful+result.Failed,
-		"total_RUs", result.TotalRUs)
-
-	if result.Failed > 0 {
-		log.Error("Some documents failed to upload", "count", result.Failed)
-
-		if len(result.Errors) > 0 {
-			log.Error("Error summary (first 5 errors):")
-			for i, err := range result.Errors {
-				if i >= 5 {
-					break
-				}
-				log.Error(fmt.Sprintf("[%d] %s", i+1, err))
-			}
-		}
-	}
-}
-
-func addBatchUploadFlags(cmd *cobra.Command, accountName, databaseId, containerId, jsonFile *string,
-	batchSize *int, verbose, noRetry *bool, maxRetries, batchPauseMs *int, partitionKeyGen *string) {
-	cmd.Flags().StringVarP(accountName, "account", "a", "", "Account name to use (uses default if not specified)")
-	cmd.Flags().StringVarP(databaseId, "database", "d", "", "Database ID (required)")
-	cmd.Flags().StringVarP(containerId, "container", "c", "", "Container ID (required)")
-	cmd.Flags().StringVarP(jsonFile, "file", "f", "", "JSON file containing documents (required)")
-	cmd.Flags().IntVarP(batchSize, "batch-size", "b", 100, "Maximum documents per batch")
-	cmd.Flags().BoolVarP(verbose, "verbose", "v", false, "Enable verbose output")
-	cmd.Flags().BoolVar(noRetry, "no-retry", false, "Disable retries for failed documents")
-	cmd.Flags().IntVar(maxRetries, "max-retries", 3, "Maximum retry attempts")
-	cmd.Flags().IntVar(batchPauseMs, "batch-pause", 100, "Pause between batches in milliseconds")
-	cmd.Flags().StringVarP(partitionKeyGen, "partition-key", "p", "", "Field to use as partition key (will be added if missing)")
-
-	if err := cmd.MarkFlagRequired("database"); err != nil {
-		log.Fatal("Error marking database flag as required", "error", err)
-	}
-	if err := cmd.MarkFlagRequired("container"); err != nil {
-		log.Fatal("Error marking container flag as required", "error", err)
-	}
-	if err := cmd.MarkFlagRequired("file"); err != nil {
-		log.Fatal("Error marking file flag as required", "error", err)
-	}
 }

@@ -13,6 +13,7 @@ type MockDatabaseManager struct {
 	GetSavedQueriesMock             func() ([]SavedQueryOptions, error)
 	GetSavedQueryByNameMock         func(string) (SavedQueryOptions, error)
 	DeleteSavedQueryByNameMock      func(string) error
+	CloseMock                       func() error
 }
 
 func NewMockDatabaseManager() *MockDatabaseManager {
@@ -24,19 +25,14 @@ func NewMockDatabaseManager() *MockDatabaseManager {
 			return nil
 		},
 		InsertAccountMock: func(options *AccountOptions) (AccountOptions, error) {
-			return AccountOptions{
-				Id:               1,
-				Name:             options.Name,
-				ConnectionString: options.ConnectionString,
-				Tag:              options.Tag,
-				IsDefault:        options.IsDefault,
-			}, nil
+			options.Id = 1
+			return *options, nil
 		},
 		GetAccountByNameMock: func(name string) (AccountOptions, error) {
 			return AccountOptions{
 				Id:               1,
 				Name:             name,
-				ConnectionString: "mock-connection-string",
+				ConnectionString: "AccountEndpoint=https://mock.documents.azure.com:443/;AccountKey=mock;",
 				Tag:              "mock",
 				IsDefault:        true,
 			}, nil
@@ -45,8 +41,8 @@ func NewMockDatabaseManager() *MockDatabaseManager {
 			return []AccountOptions{
 				{
 					Id:               1,
-					Name:             "default-account",
-					ConnectionString: "mock-connection-string",
+					Name:             "mock-account",
+					ConnectionString: "AccountEndpoint=https://mock.documents.azure.com:443/;AccountKey=mock;",
 					Tag:              "mock",
 					IsDefault:        true,
 				},
@@ -62,20 +58,23 @@ func NewMockDatabaseManager() *MockDatabaseManager {
 			return nil
 		},
 		SaveQueryMock: func(options *SavedQueryOptions) (SavedQueryOptions, error) {
-			return SavedQueryOptions{
-				Id:           1,
-				Name:         options.Name,
-				QueryString:  options.QueryString,
-				DatabaseId:   options.DatabaseId,
-				ContainerId:  options.ContainerId,
-				AccountName:  options.AccountName,
-				Description:  options.Description,
-				DateCreated:  "mock-date",
-				DateModified: "mock-date",
-			}, nil
+			options.Id = 1
+			return *options, nil
 		},
 		GetSavedQueriesMock: func() ([]SavedQueryOptions, error) {
-			return []SavedQueryOptions{}, nil
+			return []SavedQueryOptions{
+				{
+					Id:           1,
+					Name:         "mock-query",
+					QueryString:  "SELECT * FROM c",
+					DatabaseId:   "mock-db",
+					ContainerId:  "mock-container",
+					AccountName:  "mock-account",
+					Description:  "A mock query",
+					DateCreated:  "2023-01-01",
+					DateModified: "2023-01-01",
+				},
+			}, nil
 		},
 		GetSavedQueryByNameMock: func(name string) (SavedQueryOptions, error) {
 			return SavedQueryOptions{
@@ -91,6 +90,9 @@ func NewMockDatabaseManager() *MockDatabaseManager {
 			}, nil
 		},
 		DeleteSavedQueryByNameMock: func(name string) error {
+			return nil
+		},
+		CloseMock: func() error {
 			return nil
 		},
 	}
@@ -142,4 +144,11 @@ func (m *MockDatabaseManager) GetSavedQueryByName(name string) (SavedQueryOption
 
 func (m *MockDatabaseManager) DeleteSavedQueryByName(name string) error {
 	return m.DeleteSavedQueryByNameMock(name)
+}
+
+func (m *MockDatabaseManager) Close() error {
+	if m.CloseMock != nil {
+		return m.CloseMock()
+	}
+	return nil
 }

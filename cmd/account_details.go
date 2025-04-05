@@ -905,14 +905,7 @@ func AccountDetailsCmd(sp *services.ServiceProvider) *cobra.Command {
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			log.SetReportTimestamp(false)
-
-			if verbose {
-				log.SetLevel(log.DebugLevel)
-				log.Debug("Debug logging enabled")
-			} else {
-				log.SetLevel(log.InfoLevel)
-			}
+			util.SetupLogging(verbose)
 
 			account, err := GetAccountDetailsInternal(accountName, sp.DatabaseManager)
 			if err != nil {

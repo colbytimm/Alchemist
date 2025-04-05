@@ -4,13 +4,61 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 	"github.com/colbytimm/alchemist/cmd"
+	"github.com/colbytimm/alchemist/cosmos"
 	"github.com/colbytimm/alchemist/data"
+	"github.com/stretchr/testify/assert"
 )
 
 var mockCrossPartitionQuery func(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error)
 
 var originalCrossPartitionQuery = cmd.CrossPartitionQueryImpl
+
+type mockCosmosManager struct {
+	CrossPartitionQueryMock func(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error)
+}
+
+func (m *mockCosmosManager) Connect(connectionString string) error {
+	return nil
+}
+
+func (m *mockCosmosManager) CrossPartitionQuery(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error) {
+	if m.CrossPartitionQueryMock != nil {
+		return m.CrossPartitionQueryMock(databaseId, containerId, connectionString, customQuery, verbose)
+	}
+	return "", errors.New("not implemented")
+}
+
+func (m *mockCosmosManager) GetDatabaseIds() []string {
+	return []string{}
+}
+
+func (m *mockCosmosManager) GetContainerIds(databaseID string) []string {
+	return []string{}
+}
+
+func (m *mockCosmosManager) GetDatabaseProperties(databaseID string) *azcosmos.DatabaseProperties {
+	return nil
+}
+
+func (m *mockCosmosManager) GetContainerProperties(databaseID, containerID string) *azcosmos.ContainerProperties {
+	return nil
+}
+
+func (m *mockCosmosManager) CreateDatabase(databaseId string) (*azcosmos.DatabaseProperties, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockCosmosManager) CreateContainer(databaseId, containerId, partitionKeyPath string) (*azcosmos.ContainerProperties, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockCosmosManager) BatchUpload(databaseId, containerId, connectionString string, documents []map[string]interface{}, options *cosmos.BatchUploadOptions) (*cosmos.BatchUploadResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+var mockCosmos = &mockCosmosManager{}
 
 func setupCosmosTest() {
 	mockCrossPartitionQuery = func(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error) {
@@ -18,6 +66,10 @@ func setupCosmosTest() {
 	}
 
 	cmd.CrossPartitionQueryImpl = func(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error) {
+		return mockCrossPartitionQuery(databaseId, containerId, connectionString, customQuery, verbose)
+	}
+
+	mockCosmos.CrossPartitionQueryMock = func(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error) {
 		return mockCrossPartitionQuery(databaseId, containerId, connectionString, customQuery, verbose)
 	}
 }
@@ -41,11 +93,13 @@ func TestQueryAccount_DatabaseError(t *testing.T) {
 		false, // not list-all
 		"",    // database ID not needed with query
 		"",    // container ID not needed with query
+		mockManager,
+		mockCosmos,
 	)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "database error")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "database error")
 }
 
 func TestQueryAccount_TableError(t *testing.T) {
@@ -67,11 +121,13 @@ func TestQueryAccount_TableError(t *testing.T) {
 		false, // not list-all
 		"",    // database ID not needed with query
 		"",    // container ID not needed with query
+		mockManager,
+		mockCosmos,
 	)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "table error")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "table error")
 }
 
 func TestQueryAccount_GetAccountsError(t *testing.T) {
@@ -97,11 +153,13 @@ func TestQueryAccount_GetAccountsError(t *testing.T) {
 		false, // not list-all
 		"",    // database ID not needed with query
 		"",    // container ID not needed with query
+		mockManager,
+		mockCosmos,
 	)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "accounts error")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "accounts error")
 }
 
 func TestQueryAccount_NoAccounts(t *testing.T) {
@@ -127,11 +185,13 @@ func TestQueryAccount_NoAccounts(t *testing.T) {
 		false, // not list-all
 		"",    // database ID not needed with query
 		"",    // container ID not needed with query
+		mockManager,
+		mockCosmos,
 	)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "no accounts found")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no accounts found")
 }
 
 func TestQueryAccount_AccountNotFound(t *testing.T) {
@@ -165,11 +225,13 @@ func TestQueryAccount_AccountNotFound(t *testing.T) {
 		false, // not list-all
 		"",    // database ID not needed with query
 		"",    // container ID not needed with query
+		mockManager,
+		mockCosmos,
 	)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "account not found")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "account not found")
 }
 
 func TestQueryAccount_MissingQuery(t *testing.T) {
@@ -203,11 +265,13 @@ func TestQueryAccount_MissingQuery(t *testing.T) {
 		false, // not list-all
 		"",    // database ID not needed with query
 		"",    // container ID not needed with query
+		mockManager,
+		mockCosmos,
 	)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "missing query")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing query")
 }
 
 func TestQueryAccount_ListAllMissingParams(t *testing.T) {
@@ -241,11 +305,13 @@ func TestQueryAccount_ListAllMissingParams(t *testing.T) {
 		true, // list-all mode
 		"",   // missing database ID
 		"",   // missing container ID
+		mockManager,
+		mockCosmos,
 	)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "missing parameters")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing parameters")
 }
 
 func TestQueryAccount_InvalidQuery(t *testing.T) {
@@ -284,11 +350,13 @@ func TestQueryAccount_InvalidQuery(t *testing.T) {
 		false,           // not list-all
 		"",              // database ID not needed with query
 		"",              // container ID not needed with query
+		mockManager,
+		mockCosmos,
 	)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "invalid query")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid query")
 }
 
 func TestQueryAccount_Success(t *testing.T) {
@@ -328,10 +396,12 @@ func TestQueryAccount_Success(t *testing.T) {
 		false, // not list-all
 		"",    // database ID not needed with query
 		"",    // container ID not needed with query
+		mockManager,
+		mockCosmos,
 	)
 
 	// Assertions
-	AssertNoError(t, err)
-	AssertStringContains(t, result, "doc1")
-	AssertStringContains(t, result, "42")
+	assert.NoError(t, err)
+	assert.Contains(t, result, "doc1")
+	assert.Contains(t, result, "42")
 }

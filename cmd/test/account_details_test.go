@@ -105,8 +105,8 @@ func TestGetAccountDetails_DatabaseError(t *testing.T) {
 
 	_, err := cmd.GetAccountDetailsInternal("", mockManager)
 
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "database error")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "database error")
 }
 
 func TestGetAccountDetails_NoAccounts(t *testing.T) {
@@ -120,8 +120,8 @@ func TestGetAccountDetails_NoAccounts(t *testing.T) {
 
 	_, err := cmd.GetAccountDetailsInternal("", mockManager)
 
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "no accounts found")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no accounts found")
 }
 
 func TestGetAccountDetails_DefaultAccount(t *testing.T) {
@@ -152,9 +152,9 @@ func TestGetAccountDetails_DefaultAccount(t *testing.T) {
 
 	account, err := cmd.GetAccountDetailsInternal("", mockManager)
 
-	AssertNoError(t, err)
-	AssertEqual(t, "default-account", account.Name)
-	AssertEqual(t, true, account.IsDefault)
+	assert.NoError(t, err)
+	assert.Equal(t, "default-account", account.Name)
+	assert.Equal(t, true, account.IsDefault)
 }
 
 func TestGetAccountDetails_SpecificAccount(t *testing.T) {
@@ -177,9 +177,9 @@ func TestGetAccountDetails_SpecificAccount(t *testing.T) {
 
 	account, err := cmd.GetAccountDetailsInternal("specific-account", mockManager)
 
-	AssertNoError(t, err)
-	AssertEqual(t, "specific-account", account.Name)
-	AssertEqual(t, "specific-connection-string", account.ConnectionString)
+	assert.NoError(t, err)
+	assert.Equal(t, "specific-account", account.Name)
+	assert.Equal(t, "specific-connection-string", account.ConnectionString)
 }
 
 func TestGetAccountDetails_AccountNotFound(t *testing.T) {
@@ -193,8 +193,8 @@ func TestGetAccountDetails_AccountNotFound(t *testing.T) {
 
 	_, err := cmd.GetAccountDetailsInternal("not-found", mockManager)
 
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "not found")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
 }
 
 func TestHandleLoadingState(t *testing.T) {

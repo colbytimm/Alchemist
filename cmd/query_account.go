@@ -12,6 +12,7 @@ import (
 
 	"github.com/colbytimm/alchemist/cosmos"
 	"github.com/colbytimm/alchemist/data"
+	"github.com/colbytimm/alchemist/services"
 	"github.com/colbytimm/alchemist/util"
 	"github.com/spf13/cobra"
 )
@@ -19,9 +20,7 @@ import (
 // CrossPartitionQueryImpl is used for dependency injection.
 var CrossPartitionQueryImpl = cosmos.CrossPartitionQuery
 
-func QueryAccountInternal(accountName, query string, listAll bool, databaseId, containerId string) (string, error) {
-	dbManager := data.GetDefaultManager()
-
+func QueryAccountInternal(accountName, query string, listAll bool, databaseId, containerId string, dbManager data.DatabaseManager, cosmosManager cosmos.CosmosManager) (string, error) {
 	err := dbManager.OpenDatabase()
 	if err != nil {
 		return "", fmt.Errorf("could not open database: %w", err)
@@ -74,7 +73,7 @@ func QueryAccountInternal(accountName, query string, listAll bool, databaseId, c
 			return "", errors.New("missing parameters. Database ID and Container ID are required")
 		}
 
-		return CrossPartitionQueryImpl(databaseId, containerId, account.ConnectionString, "", false)
+		return cosmosManager.CrossPartitionQuery(databaseId, containerId, account.ConnectionString, "", false)
 	} else {
 		if query == "" {
 			return "", errors.New("missing query. Use --query parameter to specify a query")
@@ -85,7 +84,7 @@ func QueryAccountInternal(accountName, query string, listAll bool, databaseId, c
 			return "", fmt.Errorf("invalid query: %w", err)
 		}
 
-		return CrossPartitionQueryImpl(queryOptions.DatabaseId, queryOptions.ContainerId, account.ConnectionString, queryOptions.Query, false)
+		return cosmosManager.CrossPartitionQuery(queryOptions.DatabaseId, queryOptions.ContainerId, account.ConnectionString, queryOptions.Query, false)
 	}
 }
 
@@ -183,23 +182,22 @@ func FormatOutput(jsonData string, format OutputFormat) (string, error) {
 	}
 }
 
-func QueryAccountCmd() *cobra.Command {
+func QueryAccountCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
 		query          string
 		accountName    string
-		outputFormat   string
-		outputFile     string
-		verbose        bool
-		debug          bool
 		listAll        bool
 		databaseId     string
 		containerId    string
+		outputFile     string
+		saveQuery      bool
 		savedQueryName string
+		verbose        bool
 	)
 
 	queryAccountCmd := &cobra.Command{
 		Use:   "query-account",
-		Short: "Interact with your Cosmos DB account",
+		Short: "Query your Cosmos DB account",
 		Long: `Execute queries or list all documents in a Cosmos DB container.
 
 Examples:
@@ -211,251 +209,67 @@ Examples:
 		Run: func(cmd *cobra.Command, args []string) {
 			util.SetupLogging(verbose)
 
-			dbManager := data.GetDefaultManager()
+			if saveQuery {
+				if savedQueryName == "" {
+					log.Fatal("Query name is required when saving a query")
+				}
 
-			if err := dbManager.OpenDatabase(); err != nil {
-				handleDatabaseError(err)
-				return
-			}
-
-			if err := dbManager.EnsureAccountTableExists(); err != nil {
-				log.Error("Could not ensure account table exists", "error", err)
-				return
-			}
-
-			// Check for saved query and load if needed.
-			if savedQueryName != "" {
-				loadedQuery, err := loadSavedQuery(savedQueryName)
+				err := sp.DatabaseManager.OpenDatabase()
 				if err != nil {
+					log.Fatal("Error opening database", "error", err)
+				}
+
+				err = sp.DatabaseManager.EnsureSavedQueryTableExists()
+				if err != nil {
+					log.Fatal("Error ensuring saved query table exists", "error", err)
+				}
+
+				savedQueryOptions := &data.SavedQueryOptions{
+					Name:        savedQueryName,
+					QueryString: query,
+					DatabaseId:  databaseId,
+					ContainerId: containerId,
+					AccountName: accountName,
+					Description: "Saved from command line",
+				}
+
+				_, err = sp.DatabaseManager.SaveQuery(savedQueryOptions)
+				if err != nil {
+					log.Fatal("Error saving query", "error", err)
+				}
+
+				log.Info("Query saved successfully", "name", savedQueryName)
+				return
+			}
+
+			result, err := QueryAccountInternal(accountName, query, listAll, databaseId, containerId, sp.DatabaseManager, sp.CosmosManager)
+			if err != nil {
+				log.Error(err.Error())
+				return
+			}
+
+			if outputFile != "" {
+				err = os.WriteFile(outputFile, []byte(result), 0o600)
+				if err != nil {
+					log.Error("Could not write to output file", "error", err)
 					return
 				}
-				query = loadedQuery.QueryString
-				if loadedQuery.AccountName != "" && accountName == "" {
-					accountName = loadedQuery.AccountName
-					log.Debug("Using account from saved query", "account", loadedQuery.AccountName)
-				}
-			}
-
-			// Get account to use
-			selectedAccount, err := getAccountToUse(accountName)
-			if err != nil {
-				return
-			}
-			log.Debug("Using account", "name", selectedAccount.Name)
-
-			err = cosmos.Connect(selectedAccount.ConnectionString)
-			if err != nil {
-				log.Error("Failed to connect to Cosmos DB", "error", err)
-				return
-			}
-
-			// Validate input parameters
-			if !validateQueryParameters(query, listAll, databaseId, containerId) {
-				return
-			}
-
-			// Handle list all documents request
-			if listAll {
-				if err := handleListAll(databaseId, containerId, selectedAccount.ConnectionString, outputFormat, outputFile, verbose); err != nil {
-					return
-				}
-				return
-			}
-
-			// Process regular query
-			if err := processQuery(query, selectedAccount.ConnectionString, outputFormat, outputFile, verbose); err != nil {
-				return
+				log.Info("Results written to file", "file", outputFile)
+			} else {
+				fmt.Println(result)
 			}
 		},
 	}
 
-	// Add command flags
-	addQueryFlags(queryAccountCmd, &query, &accountName, &outputFormat, &outputFile,
-		&verbose, &debug, &listAll, &databaseId, &containerId, &savedQueryName)
+	queryAccountCmd.Flags().StringVarP(&query, "query", "q", "", "Query to execute")
+	queryAccountCmd.Flags().StringVarP(&accountName, "account", "a", "", "Account name to use")
+	queryAccountCmd.Flags().BoolVarP(&listAll, "list-all", "l", false, "List all documents in container")
+	queryAccountCmd.Flags().StringVarP(&databaseId, "database", "d", "", "Database ID")
+	queryAccountCmd.Flags().StringVarP(&containerId, "container", "c", "", "Container ID")
+	queryAccountCmd.Flags().StringVarP(&outputFile, "output", "o", "", "Output file path")
+	queryAccountCmd.Flags().BoolVarP(&saveQuery, "save", "s", false, "Save query for future use")
+	queryAccountCmd.Flags().StringVarP(&savedQueryName, "name", "n", "", "Name for saved query")
+	queryAccountCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for debug logging")
 
 	return queryAccountCmd
-}
-
-func handleDatabaseError(err error) {
-	log.Error("Could not open database", "error", err)
-	log.Info("Make sure you've added at least one account using 'alchemist add-account'")
-}
-
-func loadSavedQuery(queryName string) (*data.SavedQueryOptions, error) {
-	dbManager := data.GetDefaultManager()
-
-	if err := dbManager.EnsureSavedQueryTableExists(); err != nil {
-		log.Error("Could not ensure saved query table exists", "error", err)
-		return nil, err
-	}
-
-	savedQuery, err := dbManager.GetSavedQueryByName(queryName)
-	if err != nil {
-		log.Error("Could not find saved query", "name", queryName, "error", err)
-		log.Info("Use 'alchemist list-query' to see all saved queries")
-		return nil, err
-	}
-
-	log.Info("Using saved query", "name", savedQuery.Name)
-	log.Debug("Query", "value", savedQuery.QueryString)
-
-	return &savedQuery, nil
-}
-
-func getAccountToUse(accountName string) (data.AccountOptions, error) {
-	dbManager := data.GetDefaultManager()
-
-	accounts, err := dbManager.GetAccounts()
-	if err != nil {
-		log.Error("Could not retrieve accounts", "error", err)
-		return data.AccountOptions{}, err
-	}
-
-	if len(accounts) == 0 {
-		log.Info("No accounts found. Add an account using 'alchemist add-account'")
-		return data.AccountOptions{}, fmt.Errorf("no accounts found")
-	}
-
-	if accountName != "" {
-		for _, acc := range accounts {
-			if acc.Name == accountName {
-				return acc, nil
-			}
-		}
-		log.Error("Account not found", "name", accountName)
-		return data.AccountOptions{}, fmt.Errorf("account not found: %s", accountName)
-	}
-
-	// No account name specified, use default.
-	for _, acc := range accounts {
-		if acc.IsDefault {
-			return acc, nil
-		}
-	}
-
-	// No default found, use first account.
-	log.Warn("No default account found. Using the first available account.")
-	return accounts[0], nil
-}
-
-func validateQueryParameters(query string, listAll bool, databaseId, containerId string) bool {
-	if query == "" && !listAll {
-		log.Error("Missing required parameter. Either --query, --saved-query, or --list-all must be provided")
-		log.Info("Use: alchemist query-account --query \"SELECT * FROM database.container as c\"")
-		log.Info("  or: alchemist query-account --saved-query \"my-query\"")
-		log.Info("  or: alchemist query-account --list-all --database <database_id> --container <container_id>")
-		return false
-	}
-
-	if listAll && (databaseId == "" || containerId == "") {
-		log.Error("Missing parameters. Database ID and Container ID are required with --list-all")
-		log.Info("Use: alchemist query-account --list-all --database mydb --container mycoll")
-		return false
-	}
-
-	return true
-}
-
-func handleListAll(databaseId, containerId, connectionString, outputFormat, outputFile string, verbose bool) error {
-	log.Info("Listing all documents", "database", databaseId, "container", containerId)
-
-	results, err := CrossPartitionQueryImpl(databaseId, containerId, connectionString, "SELECT * FROM c", verbose)
-	if err != nil {
-		log.Error("Error listing all documents", "error", err)
-		return err
-	}
-
-	if results == "null" || results == "[]" {
-		log.Info("No documents found in the container")
-		return nil
-	}
-
-	return outputResults(results, outputFormat, outputFile)
-}
-
-func processQuery(query, connectionString, outputFormat, outputFile string, verbose bool) error {
-	re := regexp.MustCompile(`FROM\s+([^.]+)\.(\S+)\s+as\s+c`)
-	matches := re.FindStringSubmatch(query)
-	if len(matches) < 3 {
-		log.Error("Could not parse database and container from query")
-		log.Info("Please use the format: SELECT * FROM database.container as c")
-		return fmt.Errorf("invalid query format")
-	}
-
-	queryDatabaseId := matches[1]
-	queryContainerId := matches[2]
-
-	log.Info("Executing query", "database", queryDatabaseId, "container", queryContainerId)
-
-	queryOptions, err := ExtractAndModifyQuery(query)
-	if err != nil {
-		log.Error("Could not parse query", "error", err)
-		return err
-	}
-
-	log.Debug("Using SQL query", "query", queryOptions.Query)
-
-	results, err := CrossPartitionQueryImpl(queryDatabaseId, queryContainerId, connectionString, queryOptions.Query, verbose)
-	if err != nil {
-		log.Error("Error executing query", "error", err)
-		return err
-	}
-
-	if results == "null" || results == "[]" {
-		log.Info("No documents found in the container")
-		log.Info("This could be because:")
-		log.Info("  - The container is empty")
-		log.Info("  - Your query conditions don't match any documents")
-		log.Info("  - There might be an issue with the query syntax")
-		return nil
-	}
-
-	return outputResults(results, outputFormat, outputFile)
-}
-
-func outputResults(results, outputFormat, outputFile string) error {
-	output, err := FormatOutput(results, OutputFormat(outputFormat))
-	if err != nil {
-		log.Error("Error formatting output", "error", err)
-		return err
-	}
-
-	if outputFile != "" {
-		err := os.WriteFile(outputFile, []byte(output), 0o600)
-		if err != nil {
-			log.Error("Error writing to file", "file", outputFile, "error", err)
-			return err
-		}
-		log.Info("Results written to file", "file", outputFile)
-	} else {
-		fmt.Println(output)
-	}
-
-	return nil
-}
-
-func addQueryFlags(cmd *cobra.Command, query, accountName, outputFormat, outputFile *string,
-	verbose, debug, listAll *bool, databaseId, containerId, savedQueryName *string) {
-	cmd.Flags().StringVarP(query, "query", "q", "", "NoSQL query (required for non list-all operations)")
-
-	cmd.Flags().StringVarP(accountName, "account", "a", "", "Account name to use (uses default if not specified)")
-
-	cmd.Flags().StringVarP(outputFormat, "output-format", "o", string(JSON),
-		"Output format: json, table, or raw")
-
-	cmd.Flags().StringVarP(outputFile, "output-file", "f", "",
-		"Write output to file instead of stdout")
-
-	cmd.Flags().BoolVarP(verbose, "verbose", "v", false,
-		"Show verbose output")
-
-	cmd.Flags().BoolVarP(debug, "debug", "", false,
-		"Show debug information")
-
-	cmd.Flags().BoolVarP(listAll, "list-all", "l", false,
-		"List all documents in a container (requires --database and --container)")
-
-	cmd.Flags().StringVar(databaseId, "database", "", "Database ID (used with --list-all)")
-	cmd.Flags().StringVar(containerId, "container", "", "Container ID (used with --list-all)")
-	cmd.Flags().StringVar(savedQueryName, "saved-query", "", "Name of the saved query to run")
 }

@@ -2,11 +2,12 @@ package cmd
 
 import (
 	"github.com/charmbracelet/log"
-	"github.com/colbytimm/alchemist/data"
+	"github.com/colbytimm/alchemist/services"
+	"github.com/colbytimm/alchemist/util"
 	"github.com/spf13/cobra"
 )
 
-func DeleteQueryCmd() *cobra.Command {
+func DeleteQueryCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
 		queryName string
 		verbose   bool
@@ -22,14 +23,7 @@ Examples:
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			log.SetReportTimestamp(false)
-
-			if verbose {
-				log.SetLevel(log.DebugLevel)
-				log.Debug("Debug logging enabled")
-			} else {
-				log.SetLevel(log.InfoLevel)
-			}
+			util.SetupLogging(verbose)
 
 			if queryName == "" {
 				log.Error("Query name is required")
@@ -37,7 +31,7 @@ Examples:
 				return
 			}
 
-			dbManager := data.GetDefaultManager()
+			dbManager := sp.DatabaseManager
 
 			err := dbManager.OpenDatabase()
 			if err != nil {

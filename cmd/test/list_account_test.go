@@ -6,6 +6,7 @@ import (
 
 	"github.com/colbytimm/alchemist/cmd"
 	"github.com/colbytimm/alchemist/data"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestListAccounts_DatabaseError(t *testing.T) {
@@ -15,12 +16,12 @@ func TestListAccounts_DatabaseError(t *testing.T) {
 	}
 
 	// Test the internal function directly
-	accounts, err := cmd.ListAccountsInternal()
+	accounts, err := cmd.ListAccountInternal(mockManager, false)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "database error")
-	AssertEqual(t, 0, len(accounts)) // Should return nil or empty slice
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "database error")
+	assert.Equal(t, 0, len(accounts)) // Should return nil or empty slice
 }
 
 func TestListAccounts_NoAccounts(t *testing.T) {
@@ -34,11 +35,11 @@ func TestListAccounts_NoAccounts(t *testing.T) {
 	}
 
 	// Test the internal function directly
-	accounts, err := cmd.ListAccountsInternal()
+	accounts, err := cmd.ListAccountInternal(mockManager, false)
 
 	// Assertions
-	AssertNoError(t, err)
-	AssertEqual(t, 0, len(accounts))
+	assert.NoError(t, err)
+	assert.Equal(t, 0, len(accounts))
 }
 
 func TestListAccounts_WithAccounts(t *testing.T) {
@@ -63,15 +64,15 @@ func TestListAccounts_WithAccounts(t *testing.T) {
 	}
 
 	// Test the internal function directly
-	accounts, err := cmd.ListAccountsInternal()
+	accounts, err := cmd.ListAccountInternal(mockManager, false)
 
 	// Assertions
-	AssertNoError(t, err)
-	AssertEqual(t, 1, len(accounts))
-	AssertEqual(t, "test-account", accounts[0].Name)
-	AssertEqual(t, "connection-string", accounts[0].ConnectionString)
-	AssertEqual(t, "dev", accounts[0].Tag)
-	AssertEqual(t, true, accounts[0].IsDefault)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(accounts))
+	assert.Equal(t, "test-account", accounts[0].Name)
+	assert.Equal(t, "connection-string", accounts[0].ConnectionString)
+	assert.Equal(t, "dev", accounts[0].Tag)
+	assert.Equal(t, true, accounts[0].IsDefault)
 }
 
 func TestListAccounts_GetAccountsError(t *testing.T) {
@@ -85,10 +86,10 @@ func TestListAccounts_GetAccountsError(t *testing.T) {
 	}
 
 	// Test the internal function directly
-	accounts, err := cmd.ListAccountsInternal()
+	accounts, err := cmd.ListAccountInternal(mockManager, false)
 
 	// Assertions
-	AssertError(t, err)
-	AssertStringContains(t, err.Error(), "accounts error")
-	AssertEqual(t, 0, len(accounts)) // Should return nil or empty slice
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "accounts error")
+	assert.Equal(t, 0, len(accounts)) // Should return nil or empty slice
 }

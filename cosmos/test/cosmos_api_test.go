@@ -3,6 +3,8 @@ package cosmos
 import (
 	"strings"
 	"testing"
+
+	"github.com/colbytimm/alchemist/cosmos"
 )
 
 func TestExtractCosmosCredentials(t *testing.T) {
@@ -57,7 +59,7 @@ func TestExtractCosmosCredentials(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			endpoint, key, err := ExtractCosmosCredentials(tt.connectionString)
+			endpoint, key, err := cosmos.ExtractCosmosCredentials(tt.connectionString)
 
 			if (err != nil) != tt.wantError {
 				t.Errorf("ExtractCosmosCredentials() error = %v, wantError %v", err, tt.wantError)
