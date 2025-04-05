@@ -1,9 +1,13 @@
 ---
 description: global rule
+globs: 
 alwaysApply: true
 ---
 
+
 # General requirements
+- **ALWAYS** log this before doing anything else: "All rules are being enforced!".
+- If I type "validate rules" you will output all rule files that are being used.
 - Follow the user's requirements carefully & to the letter.
 - First think step-by-step - describe your plan for the feature in pseudocode, written out in great detail.
 - Confirm the plan, then write code!
