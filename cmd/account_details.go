@@ -13,13 +13,12 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/colbytimm/alchemist/cosmos"
 	"github.com/colbytimm/alchemist/data"
+	"github.com/colbytimm/alchemist/services"
 	"github.com/colbytimm/alchemist/util"
 	"github.com/spf13/cobra"
 )
 
-func GetAccountDetailsInternal(accountName string) (data.AccountOptions, error) {
-	dbManager := data.GetDefaultManager()
-
+func GetAccountDetailsInternal(accountName string, dbManager data.DatabaseManager) (data.AccountOptions, error) {
 	err := dbManager.OpenDatabase()
 	if err != nil {
 		return data.AccountOptions{}, fmt.Errorf("could not open database: %w", err)
@@ -587,7 +586,9 @@ func (m *DatabaseModel) HandleCommonKeyCommands(msg tea.KeyMsg) (tea.Model, tea.
 	}
 
 	switch msg.String() {
-	case "q", "ctrl+c", "esc":
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "esc":
 		return m.HandleExitKeyCommand()
 	case "r":
 		if m.CurrentView == DatabaseView {
@@ -623,15 +624,17 @@ func (m *DatabaseModel) HandleExitKeyCommand() (tea.Model, tea.Cmd) {
 	switch m.CurrentView {
 	case ContainerView:
 		m.CurrentView = DatabaseView
+		return m, nil
 	case ConfigureContainersView:
 		m.CurrentView = CreateDatabaseView
 	case CreateContainerView:
 		m.CurrentView = ContainerView
 	case CreateDatabaseView:
 		m.CurrentView = DatabaseView
-		return m, nil
+	default:
+		return m, tea.Quit
 	}
-	return m, tea.Quit
+	return m, nil
 }
 
 func (m *DatabaseModel) HandleEnterKeyForListViews() (tea.Model, tea.Cmd) {
@@ -890,22 +893,30 @@ func createContainerTable(containers []*ContainerInfo) table.Model {
 	return *s
 }
 
-func AccountDetailsCmd() *cobra.Command {
+func AccountDetailsCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
 		accountName string
 		verbose     bool
 	)
 
-	cmd := &cobra.Command{
+	accountDetailsCmd := &cobra.Command{
 		Use:                   "account-details",
-		Short:                 "Display details about all databases and containers in a Cosmos DB account",
+		Short:                 "View and manage Cosmos DB account details",
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			util.SetupLogging(verbose)
+			log.SetReportTimestamp(false)
 
-			account, err := getAccountForDetails(accountName)
+			if verbose {
+				log.SetLevel(log.DebugLevel)
+				log.Debug("Debug logging enabled")
+			} else {
+				log.SetLevel(log.InfoLevel)
+			}
+
+			account, err := GetAccountDetailsInternal(accountName, sp.DatabaseManager)
 			if err != nil {
+				log.Error(err.Error())
 				return
 			}
 
@@ -913,68 +924,10 @@ func AccountDetailsCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&accountName, "account", "a", "", "Account name to use (uses default if not specified)")
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output with debug logging")
+	accountDetailsCmd.Flags().StringVarP(&accountName, "name", "n", "", "Account name to use (uses default if not specified)")
+	accountDetailsCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for debug logging")
 
-	return cmd
-}
-
-func getAccountForDetails(accountName string) (data.AccountOptions, error) {
-	dbManager := data.GetDefaultManager()
-
-	err := dbManager.OpenDatabase()
-	if err != nil {
-		log.Error("Error opening database", "error", err)
-		log.Info("Make sure you've added at least one account with 'alchemist add-account'")
-		return data.AccountOptions{}, err
-	}
-
-	err = dbManager.EnsureAccountTableExists()
-	if err != nil {
-		log.Error("Error ensuring account table exists", "error", err)
-		return data.AccountOptions{}, err
-	}
-
-	accounts, err := dbManager.GetAccounts()
-	if err != nil {
-		log.Error("Error getting accounts", "error", err)
-		return data.AccountOptions{}, err
-	}
-
-	if len(accounts) == 0 {
-		log.Info("No accounts found. Add an account using 'alchemist add-account'")
-		return data.AccountOptions{}, fmt.Errorf("no accounts found")
-	}
-
-	if accountName == "" {
-		return findDefaultAccountForDetails(accounts), nil
-	}
-
-	return findNamedAccountForDetails(accounts, accountName)
-}
-
-func findDefaultAccountForDetails(accounts []data.AccountOptions) data.AccountOptions {
-	// Find default account
-	for _, acc := range accounts {
-		if acc.IsDefault {
-			return acc
-		}
-	}
-
-	// No default found, use first account
-	log.Warn("No default account found. Using the first available account.")
-	return accounts[0]
-}
-
-func findNamedAccountForDetails(accounts []data.AccountOptions, accountName string) (data.AccountOptions, error) {
-	for _, acc := range accounts {
-		if acc.Name == accountName {
-			return acc, nil
-		}
-	}
-
-	log.Error("Account not found", "name", accountName)
-	return data.AccountOptions{}, fmt.Errorf("account not found: %s", accountName)
+	return accountDetailsCmd
 }
 
 func runAccountDetailsUI(account data.AccountOptions) {

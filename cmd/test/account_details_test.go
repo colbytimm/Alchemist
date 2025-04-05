@@ -103,7 +103,7 @@ func TestGetAccountDetails_DatabaseError(t *testing.T) {
 		return errors.New("database error")
 	}
 
-	_, err := cmd.GetAccountDetailsInternal("")
+	_, err := cmd.GetAccountDetailsInternal("", mockManager)
 
 	AssertError(t, err)
 	AssertStringContains(t, err.Error(), "database error")
@@ -118,7 +118,7 @@ func TestGetAccountDetails_NoAccounts(t *testing.T) {
 		return []data.AccountOptions{}, nil
 	}
 
-	_, err := cmd.GetAccountDetailsInternal("")
+	_, err := cmd.GetAccountDetailsInternal("", mockManager)
 
 	AssertError(t, err)
 	AssertStringContains(t, err.Error(), "no accounts found")
@@ -150,7 +150,7 @@ func TestGetAccountDetails_DefaultAccount(t *testing.T) {
 		return testAccounts, nil
 	}
 
-	account, err := cmd.GetAccountDetailsInternal("")
+	account, err := cmd.GetAccountDetailsInternal("", mockManager)
 
 	AssertNoError(t, err)
 	AssertEqual(t, "default-account", account.Name)
@@ -175,7 +175,7 @@ func TestGetAccountDetails_SpecificAccount(t *testing.T) {
 		return data.AccountOptions{}, errors.New("account not found")
 	}
 
-	account, err := cmd.GetAccountDetailsInternal("specific-account")
+	account, err := cmd.GetAccountDetailsInternal("specific-account", mockManager)
 
 	AssertNoError(t, err)
 	AssertEqual(t, "specific-account", account.Name)
@@ -191,7 +191,7 @@ func TestGetAccountDetails_AccountNotFound(t *testing.T) {
 		return data.AccountOptions{}, errors.New("account with name 'not-found' not found")
 	}
 
-	_, err := cmd.GetAccountDetailsInternal("not-found")
+	_, err := cmd.GetAccountDetailsInternal("not-found", mockManager)
 
 	AssertError(t, err)
 	AssertStringContains(t, err.Error(), "not found")
