@@ -18,3 +18,8 @@ func NewServiceProvider() *ServiceProvider {
 		CosmosManager:   cosmos.NewDefaultCosmosManager(),
 	}
 }
+
+// SetDatabaseManager sets the database manager implementation.
+func (sp *ServiceProvider) SetDatabaseManager(manager data.DatabaseManager) {
+	sp.DatabaseManager = manager
+}

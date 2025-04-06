@@ -164,7 +164,6 @@ func ValidateQuery(query string) error {
 }
 
 func FormatOutput(jsonData string, format OutputFormat) (string, error) {
-	// TODO: Test this
 	switch format {
 	case JSON:
 		return jsonData, nil

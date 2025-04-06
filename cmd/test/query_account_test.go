@@ -1,13 +1,16 @@
 package test
 
 import (
+	"bytes"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 	"github.com/colbytimm/alchemist/cmd"
 	"github.com/colbytimm/alchemist/cosmos"
 	"github.com/colbytimm/alchemist/data"
+	"github.com/colbytimm/alchemist/services"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -404,4 +407,95 @@ func TestQueryAccount_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Contains(t, result, "doc1")
 	assert.Contains(t, result, "42")
+}
+
+func TestQueryAccountCmd(t *testing.T) {
+	setupCosmosTest()
+	defer resetCosmosTest()
+
+	// Create a mock service provider
+	sp := &services.ServiceProvider{
+		DatabaseManager: mockManager,
+		CosmosManager:   mockCosmos,
+	}
+
+	// Configure the mock manager for a successful query
+	mockManager.GetAccountsMock = func() ([]data.AccountOptions, error) {
+		return []data.AccountOptions{
+			{
+				Id:               1,
+				Name:             "default-account",
+				ConnectionString: "test-connection-string",
+				Tag:              "test",
+				IsDefault:        true,
+			},
+		}, nil
+	}
+
+	// Mock the query execution
+	mockCrossPartitionQuery = func(_, _, _, _ string, _ bool) (string, error) {
+		return `{"items":[{"id":"1","name":"test"}]}`, nil
+	}
+
+	// Test with query flag
+	t.Run("with query flag", func(t *testing.T) {
+		// Create a new command for this test
+		queryCmd := cmd.QueryAccountCmd(sp)
+
+		// Redirect standard output to capture the query results
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		// Set args for the command
+		queryCmd.SetArgs([]string{"--query", "SELECT * FROM testdb.testcontainer as c"})
+
+		// Execute the command
+		err := queryCmd.Execute()
+
+		// Close the writer to complete the pipe
+		w.Close()
+
+		// Read captured output
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+
+		// Restore stdout
+		os.Stdout = oldStdout
+
+		// Assertions
+		assert.NoError(t, err)
+		assert.Contains(t, buf.String(), `{"items":[{"id":"1","name":"test"}]}`)
+	})
+
+	// Test with list-all flag
+	t.Run("with list-all flag", func(t *testing.T) {
+		// Create a new command for this test
+		queryCmd := cmd.QueryAccountCmd(sp)
+
+		// Redirect standard output to capture the query results
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		// Set args for the command
+		queryCmd.SetArgs([]string{"--list-all", "--database", "testdb", "--container", "testcontainer"})
+
+		// Execute the command
+		err := queryCmd.Execute()
+
+		// Close the writer to complete the pipe
+		w.Close()
+
+		// Read captured output
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+
+		// Restore stdout
+		os.Stdout = oldStdout
+
+		// Assertions
+		assert.NoError(t, err)
+		assert.Contains(t, buf.String(), `{"items":[{"id":"1","name":"test"}]}`)
+	})
 }
