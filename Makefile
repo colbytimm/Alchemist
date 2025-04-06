@@ -1,4 +1,4 @@
-.PHONY: all build test lint fmt clean help
+.PHONY: all build test lint fmt clean help coverage coverage-html
 
 BINARY_NAME=alchemist
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -14,6 +14,11 @@ build:
 test:
 	@echo "Running tests..."
 	@go test -v ./...
+
+coverage-html: coverage
+	@echo "Generating coverage HTML report..."
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
 
 lint:
 	@echo "Running linters..."
@@ -49,6 +54,8 @@ help:
 	@echo "Available commands:"
 	@echo "  make build        - Build the binary"
 	@echo "  make test         - Run tests"
+	@echo "  make coverage     - Generate coverage profile and show function coverage"
+	@echo "  make coverage-html - Generate coverage HTML report"
 	@echo "  make lint         - Run linters"
 	@echo "  make fmt          - Format code"
 	@echo "  make vet          - Run go vet"
