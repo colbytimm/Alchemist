@@ -48,7 +48,7 @@ Examples:
 				return
 			}
 
-			err := ValidateQuery(queryString)
+			err := ValidateQueryFunc(queryString)
 			if err != nil {
 				log.Error("Invalid query", "error", err)
 				return

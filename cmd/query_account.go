@@ -144,6 +144,9 @@ func ExtractAndModifyQuery(inputQuery string) (*QueryOptions, error) {
 	return &queryOptions, nil
 }
 
+// ValidateQueryFunc is a function variable that can be replaced for testing.
+var ValidateQueryFunc = ValidateQuery
+
 func ValidateQuery(query string) error {
 	if query == "" {
 		return errors.New("query cannot be empty")
