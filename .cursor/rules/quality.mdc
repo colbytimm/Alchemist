@@ -1,6 +1,6 @@
 ---
 description: quality‑gate: code must pass make build/test/fmt/lint before completion
-globs:
+globs: 
 alwaysApply: true
 ---
 
@@ -11,4 +11,4 @@ alwaysApply: true
 3. `make fmt`   - cleans whitespace and adds new lines to the end of files
 4. `make lint`  — executes `ggo run github.com/golangci/golangci-lint/cmd/golangci-lint@latest run ./...`.
 
-> A feature is **done** only when all three targets succeed with zero warnings and errors.
+> A feature is **done** only when all four targets succeed with zero warnings and errors. **You have to run the quality gate**
