@@ -15,8 +15,9 @@ test:
 	@echo "Running tests..."
 	@go test -v ./...
 
-coverage-html: coverage
+coverage-html:
 	@echo "Generating coverage HTML report..."
+	@go test -coverprofile=coverage.out ./... -coverpkg=./...
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 

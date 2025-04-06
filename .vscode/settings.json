@@ -10,6 +10,8 @@
         "colbytimm",
         "colls",
         "Colour",
+        "coverpkg",
+        "coverprofile",
         "documentdb",
         "enablecrosspartition",
         "errcheck",
