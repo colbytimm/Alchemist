@@ -17,9 +17,13 @@ test:
 
 coverage-html:
 	@echo "Generating coverage HTML report..."
-	@go test -coverprofile=coverage.out ./... -coverpkg=./...
+	@go test -coverprofile=coverage.out.tmp ./... -coverpkg=github.com/colbytimm/alchemist/cmd,github.com/colbytimm/alchemist/data,github.com/colbytimm/alchemist/cosmos,github.com/colbytimm/alchemist/services,github.com/colbytimm/alchemist/util
+	@# Filter out mock and interface files from coverage report
+	@cat coverage.out.tmp | grep -v "mock" | grep -v "_mock.go" | grep -v "mocks.go" | grep -v "_interface.go" | grep -v "interface_" > coverage.out
+	@rm coverage.out.tmp
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
+	@echo "Total coverage: $$(go tool cover -func=coverage.out | grep total: | awk '{print $$3}')"
 
 lint:
 	@echo "Running linters..."

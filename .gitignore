@@ -23,4 +23,4 @@ go.work
 alchemist-database.db
 **/.DS_Store
 alchemist
-coverage.html
+coverage*
