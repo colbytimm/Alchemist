@@ -1,4 +1,4 @@
-.PHONY: all build test lint fmt clean help coverage coverage-html
+.PHONY: all build test lint fmt clean help coverage-html
 
 BINARY_NAME=alchemist
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -54,7 +54,6 @@ help:
 	@echo "Available commands:"
 	@echo "  make build        - Build the binary"
 	@echo "  make test         - Run tests"
-	@echo "  make coverage     - Generate coverage profile and show function coverage"
 	@echo "  make coverage-html - Generate coverage HTML report"
 	@echo "  make lint         - Run linters"
 	@echo "  make fmt          - Format code"
