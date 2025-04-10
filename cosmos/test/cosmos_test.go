@@ -14,8 +14,8 @@ type mockCosmosClient struct{}
 
 var (
 	originalConnectImpl                = cosmos.ConnectImpl
-	originalGetDatabaseIdsImpl         = cosmos.GetDatabaseIdsImpl
-	originalGetContainerIdsImpl        = cosmos.GetContainerIdsImpl
+	originalGetDatabaseIDsImpl         = cosmos.GetDatabaseIDsImpl
+	originalGetContainerIDsImpl        = cosmos.GetContainerIDsImpl
 	originalGetDatabasePropertiesImpl  = cosmos.GetDatabasePropertiesImpl
 	originalGetContainerPropertiesImpl = cosmos.GetContainerPropertiesImpl
 )
@@ -28,27 +28,27 @@ func TestMain(m *testing.M) {
 }
 
 func setupSafeImplementations() {
-	cosmos.GetDatabaseIdsImpl = func() []string {
+	cosmos.GetDatabaseIDsImpl = func() []string {
 		return []string{}
 	}
 
-	cosmos.GetContainerIdsImpl = func(dbId string) []string {
+	cosmos.GetContainerIDsImpl = func(dbID string) []string {
 		return []string{}
 	}
 
-	cosmos.GetDatabasePropertiesImpl = func(dbId string) *azcosmos.DatabaseProperties {
+	cosmos.GetDatabasePropertiesImpl = func(dbID string) *azcosmos.DatabaseProperties {
 		return nil
 	}
 
-	cosmos.GetContainerPropertiesImpl = func(dbId, containerId string) *azcosmos.ContainerProperties {
+	cosmos.GetContainerPropertiesImpl = func(dbID, containerID string) *azcosmos.ContainerProperties {
 		return nil
 	}
 }
 
 func restoreImplementations() {
 	cosmos.ConnectImpl = originalConnectImpl
-	cosmos.GetDatabaseIdsImpl = originalGetDatabaseIdsImpl
-	cosmos.GetContainerIdsImpl = originalGetContainerIdsImpl
+	cosmos.GetDatabaseIDsImpl = originalGetDatabaseIDsImpl
+	cosmos.GetContainerIDsImpl = originalGetContainerIDsImpl
 	cosmos.GetDatabasePropertiesImpl = originalGetDatabasePropertiesImpl
 	cosmos.GetContainerPropertiesImpl = originalGetContainerPropertiesImpl
 }
@@ -145,14 +145,14 @@ func TestConnectWithMock(t *testing.T) {
 	})
 }
 
-func MockGetDatabaseIdsImpl(mockFn func() []string, testFn func()) {
-	original := cosmos.GetDatabaseIdsImpl
-	cosmos.GetDatabaseIdsImpl = mockFn
+func MockGetDatabaseIDsImpl(mockFn func() []string, testFn func()) {
+	original := cosmos.GetDatabaseIDsImpl
+	cosmos.GetDatabaseIDsImpl = mockFn
 	testFn()
-	cosmos.GetDatabaseIdsImpl = original
+	cosmos.GetDatabaseIDsImpl = original
 }
 
-func TestGetDatabaseIds(t *testing.T) {
+func TestGetDatabaseIDs(t *testing.T) {
 	tests := []struct {
 		name         string
 		mockResponse []string
@@ -169,11 +169,11 @@ func TestGetDatabaseIds(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cosmos.GetDatabaseIdsImpl = func() []string {
+			cosmos.GetDatabaseIDsImpl = func() []string {
 				return tt.mockResponse
 			}
 
-			result := cosmos.GetDatabaseIdsImpl()
+			result := cosmos.GetDatabaseIDsImpl()
 			assert.Equal(t, tt.mockResponse, result)
 		})
 	}
@@ -187,7 +187,7 @@ func TestCreateDatabase(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		databaseId    string
+		databaseID    string
 		expectError   bool
 		errorContains string
 		mockResponse  *azcosmos.DatabaseProperties
@@ -195,7 +195,7 @@ func TestCreateDatabase(t *testing.T) {
 	}{
 		{
 			name:          "Database Creation Error",
-			databaseId:    "test-db",
+			databaseID:    "test-db",
 			expectError:   true,
 			errorContains: "creation failed",
 			mockResponse:  nil,
@@ -203,7 +203,7 @@ func TestCreateDatabase(t *testing.T) {
 		},
 		{
 			name:         "Successful Database Creation",
-			databaseId:   "test-db",
+			databaseID:   "test-db",
 			expectError:  false,
 			mockResponse: &azcosmos.DatabaseProperties{ID: "test-db"},
 			mockError:    nil,
@@ -212,12 +212,12 @@ func TestCreateDatabase(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cosmos.CreateDatabaseImpl = func(dbId string) (*azcosmos.DatabaseProperties, error) {
-				assert.Equal(t, tt.databaseId, dbId)
+			cosmos.CreateDatabaseImpl = func(dbID string) (*azcosmos.DatabaseProperties, error) {
+				assert.Equal(t, tt.databaseID, dbID)
 				return tt.mockResponse, tt.mockError
 			}
 
-			result, err := cosmos.CreateDatabase(tt.databaseId)
+			result, err := cosmos.CreateDatabase(tt.databaseID)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -241,8 +241,8 @@ func TestCreateContainer(t *testing.T) {
 
 	tests := []struct {
 		name             string
-		databaseId       string
-		containerId      string
+		databaseID       string
+		containerID      string
 		partitionKeyPath string
 		expectError      bool
 		errorContains    string
@@ -251,8 +251,8 @@ func TestCreateContainer(t *testing.T) {
 	}{
 		{
 			name:             "Container Creation Error",
-			databaseId:       "test-db",
-			containerId:      "test-container",
+			databaseID:       "test-db",
+			containerID:      "test-container",
 			partitionKeyPath: "/id",
 			expectError:      true,
 			errorContains:    "creation failed",
@@ -261,8 +261,8 @@ func TestCreateContainer(t *testing.T) {
 		},
 		{
 			name:             "Successful Container Creation",
-			databaseId:       "test-db",
-			containerId:      "test-container",
+			databaseID:       "test-db",
+			containerID:      "test-container",
 			partitionKeyPath: "/id",
 			expectError:      false,
 			mockResponse:     &azcosmos.ContainerProperties{ID: "test-container"},
@@ -272,14 +272,14 @@ func TestCreateContainer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cosmos.CreateContainerImpl = func(dbId, cId, pkPath string) (*azcosmos.ContainerProperties, error) {
-				assert.Equal(t, tt.databaseId, dbId)
-				assert.Equal(t, tt.containerId, cId)
+			cosmos.CreateContainerImpl = func(dbID, cId, pkPath string) (*azcosmos.ContainerProperties, error) {
+				assert.Equal(t, tt.databaseID, dbID)
+				assert.Equal(t, tt.containerID, cId)
 				assert.Equal(t, tt.partitionKeyPath, pkPath)
 				return tt.mockResponse, tt.mockError
 			}
 
-			result, err := cosmos.CreateContainer(tt.databaseId, tt.containerId, tt.partitionKeyPath)
+			result, err := cosmos.CreateContainer(tt.databaseID, tt.containerID, tt.partitionKeyPath)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -295,32 +295,32 @@ func TestCreateContainer(t *testing.T) {
 	}
 }
 
-func TestGetContainerIds(t *testing.T) {
+func TestGetContainerIDs(t *testing.T) {
 	tests := []struct {
 		name         string
-		databaseId   string
+		databaseID   string
 		mockResponse []string
 	}{
 		{
 			name:         "No Containers",
-			databaseId:   "test-db",
+			databaseID:   "test-db",
 			mockResponse: []string{},
 		},
 		{
 			name:         "Multiple Containers",
-			databaseId:   "test-db",
+			databaseID:   "test-db",
 			mockResponse: []string{"container1", "container2", "container3"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cosmos.GetContainerIdsImpl = func(dbId string) []string {
-				assert.Equal(t, tt.databaseId, dbId)
+			cosmos.GetContainerIDsImpl = func(dbID string) []string {
+				assert.Equal(t, tt.databaseID, dbID)
 				return tt.mockResponse
 			}
 
-			result := cosmos.GetContainerIdsImpl(tt.databaseId)
+			result := cosmos.GetContainerIDsImpl(tt.databaseID)
 			assert.Equal(t, tt.mockResponse, result)
 		})
 	}
@@ -329,17 +329,17 @@ func TestGetContainerIds(t *testing.T) {
 func TestGetDatabaseProperties(t *testing.T) {
 	tests := []struct {
 		name         string
-		databaseId   string
+		databaseID   string
 		mockResponse *azcosmos.DatabaseProperties
 	}{
 		{
 			name:         "No Properties",
-			databaseId:   "test-db",
+			databaseID:   "test-db",
 			mockResponse: nil,
 		},
 		{
 			name:       "Valid Database Properties",
-			databaseId: "test-db",
+			databaseID: "test-db",
 			mockResponse: &azcosmos.DatabaseProperties{
 				ID: "test-db",
 			},
@@ -348,12 +348,12 @@ func TestGetDatabaseProperties(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cosmos.GetDatabasePropertiesImpl = func(dbId string) *azcosmos.DatabaseProperties {
-				assert.Equal(t, tt.databaseId, dbId)
+			cosmos.GetDatabasePropertiesImpl = func(dbID string) *azcosmos.DatabaseProperties {
+				assert.Equal(t, tt.databaseID, dbID)
 				return tt.mockResponse
 			}
 
-			result := cosmos.GetDatabasePropertiesImpl(tt.databaseId)
+			result := cosmos.GetDatabasePropertiesImpl(tt.databaseID)
 			assert.Equal(t, tt.mockResponse, result)
 		})
 	}
@@ -362,20 +362,20 @@ func TestGetDatabaseProperties(t *testing.T) {
 func TestGetContainerProperties(t *testing.T) {
 	tests := []struct {
 		name         string
-		databaseId   string
-		containerId  string
+		databaseID   string
+		containerID  string
 		mockResponse *azcosmos.ContainerProperties
 	}{
 		{
 			name:         "No Properties",
-			databaseId:   "test-db",
-			containerId:  "test-container",
+			databaseID:   "test-db",
+			containerID:  "test-container",
 			mockResponse: nil,
 		},
 		{
 			name:        "Valid Container Properties",
-			databaseId:  "test-db",
-			containerId: "test-container",
+			databaseID:  "test-db",
+			containerID: "test-container",
 			mockResponse: &azcosmos.ContainerProperties{
 				ID: "test-container",
 			},
@@ -384,13 +384,13 @@ func TestGetContainerProperties(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cosmos.GetContainerPropertiesImpl = func(dbId, cId string) *azcosmos.ContainerProperties {
-				assert.Equal(t, tt.databaseId, dbId)
-				assert.Equal(t, tt.containerId, cId)
+			cosmos.GetContainerPropertiesImpl = func(dbID, cId string) *azcosmos.ContainerProperties {
+				assert.Equal(t, tt.databaseID, dbID)
+				assert.Equal(t, tt.containerID, cId)
 				return tt.mockResponse
 			}
 
-			result := cosmos.GetContainerPropertiesImpl(tt.databaseId, tt.containerId)
+			result := cosmos.GetContainerPropertiesImpl(tt.databaseID, tt.containerID)
 			assert.Equal(t, tt.mockResponse, result)
 		})
 	}

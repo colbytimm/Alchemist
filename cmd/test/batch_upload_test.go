@@ -11,12 +11,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var mockBatchUpload func(databaseId, containerId, connectionString string, documents []map[string]interface{}, options *cosmos.BatchUploadOptions) (*cosmos.BatchUploadResult, error)
+var mockBatchUpload func(databaseID, containerID, connectionString string, documents []map[string]interface{}, options *cosmos.BatchUploadOptions) (*cosmos.BatchUploadResult, error)
 
 func setupBatchTest() {
 	// Setup cosmos mock
 	mockCosmos := cosmos.NewMockCosmosManager()
-	mockCosmos.BatchUploadMock = func(databaseId, containerId, connectionString string, documents []map[string]interface{}, options *cosmos.BatchUploadOptions) (*cosmos.BatchUploadResult, error) {
+	mockCosmos.BatchUploadMock = func(databaseID, containerID, connectionString string, documents []map[string]interface{}, options *cosmos.BatchUploadOptions) (*cosmos.BatchUploadResult, error) {
 		return &cosmos.BatchUploadResult{
 			Successful: len(documents),
 			Failed:     0,
@@ -224,7 +224,7 @@ func TestBatchUpload_Success(t *testing.T) {
 	}
 
 	mockCosmos := cosmos.NewMockCosmosManager()
-	mockCosmos.BatchUploadMock = func(databaseId, containerId, connectionString string, documents []map[string]interface{}, options *cosmos.BatchUploadOptions) (*cosmos.BatchUploadResult, error) {
+	mockCosmos.BatchUploadMock = func(databaseID, containerID, connectionString string, documents []map[string]interface{}, options *cosmos.BatchUploadOptions) (*cosmos.BatchUploadResult, error) {
 		return &cosmos.BatchUploadResult{
 			Successful: len(documents),
 			Failed:     0,

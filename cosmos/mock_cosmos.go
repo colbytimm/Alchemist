@@ -8,13 +8,13 @@ import (
 type MockCosmosManager struct {
 	ConnectMock                func(connectionString string) error
 	CrossPartitionQueryMock    func(databaseID, containerID, connectionString, query string, verbose bool) (string, error)
-	GetDatabaseIdsMock         func() []string
-	GetContainerIdsMock        func(databaseID string) []string
+	GetDatabaseIDsMock         func() []string
+	GetContainerIDsMock        func(databaseID string) []string
 	GetDatabasePropertiesMock  func(databaseID string) *azcosmos.DatabaseProperties
 	GetContainerPropertiesMock func(databaseID, containerID string) *azcosmos.ContainerProperties
-	CreateDatabaseMock         func(databaseId string) (*azcosmos.DatabaseProperties, error)
-	CreateContainerMock        func(databaseId, containerId, partitionKeyPath string) (*azcosmos.ContainerProperties, error)
-	BatchUploadMock            func(databaseId, containerId, connectionString string, documents []map[string]interface{}, options *BatchUploadOptions) (*BatchUploadResult, error)
+	CreateDatabaseMock         func(databaseID string) (*azcosmos.DatabaseProperties, error)
+	CreateContainerMock        func(databaseID, containerID, partitionKeyPath string) (*azcosmos.ContainerProperties, error)
+	BatchUploadMock            func(databaseID, containerID, connectionString string, documents []map[string]interface{}, options *BatchUploadOptions) (*BatchUploadResult, error)
 }
 
 // NewMockCosmosManager creates a new MockCosmosManager with default mock implementations.
@@ -26,10 +26,10 @@ func NewMockCosmosManager() *MockCosmosManager {
 		CrossPartitionQueryMock: func(databaseID, containerID, connectionString, query string, verbose bool) (string, error) {
 			return "[]", nil
 		},
-		GetDatabaseIdsMock: func() []string {
+		GetDatabaseIDsMock: func() []string {
 			return []string{"test-db"}
 		},
-		GetContainerIdsMock: func(databaseID string) []string {
+		GetContainerIDsMock: func(databaseID string) []string {
 			return []string{"test-container"}
 		},
 		GetDatabasePropertiesMock: func(databaseID string) *azcosmos.DatabaseProperties {
@@ -38,13 +38,13 @@ func NewMockCosmosManager() *MockCosmosManager {
 		GetContainerPropertiesMock: func(databaseID, containerID string) *azcosmos.ContainerProperties {
 			return &azcosmos.ContainerProperties{ID: containerID}
 		},
-		CreateDatabaseMock: func(databaseId string) (*azcosmos.DatabaseProperties, error) {
-			return &azcosmos.DatabaseProperties{ID: databaseId}, nil
+		CreateDatabaseMock: func(databaseID string) (*azcosmos.DatabaseProperties, error) {
+			return &azcosmos.DatabaseProperties{ID: databaseID}, nil
 		},
-		CreateContainerMock: func(databaseId, containerId, partitionKeyPath string) (*azcosmos.ContainerProperties, error) {
-			return &azcosmos.ContainerProperties{ID: containerId}, nil
+		CreateContainerMock: func(databaseID, containerID, partitionKeyPath string) (*azcosmos.ContainerProperties, error) {
+			return &azcosmos.ContainerProperties{ID: containerID}, nil
 		},
-		BatchUploadMock: func(databaseId, containerId, connectionString string, documents []map[string]interface{}, options *BatchUploadOptions) (*BatchUploadResult, error) {
+		BatchUploadMock: func(databaseID, containerID, connectionString string, documents []map[string]interface{}, options *BatchUploadOptions) (*BatchUploadResult, error) {
 			return &BatchUploadResult{
 				Successful: len(documents),
 				Failed:     0,
@@ -68,16 +68,16 @@ func (m *MockCosmosManager) CrossPartitionQuery(databaseID, containerID, connect
 	return "[]", nil
 }
 
-func (m *MockCosmosManager) GetDatabaseIds() []string {
-	if m.GetDatabaseIdsMock != nil {
-		return m.GetDatabaseIdsMock()
+func (m *MockCosmosManager) GetDatabaseIDs() []string {
+	if m.GetDatabaseIDsMock != nil {
+		return m.GetDatabaseIDsMock()
 	}
 	return []string{}
 }
 
-func (m *MockCosmosManager) GetContainerIds(databaseID string) []string {
-	if m.GetContainerIdsMock != nil {
-		return m.GetContainerIdsMock(databaseID)
+func (m *MockCosmosManager) GetContainerIDs(databaseID string) []string {
+	if m.GetContainerIDsMock != nil {
+		return m.GetContainerIDsMock(databaseID)
 	}
 	return []string{}
 }
@@ -96,23 +96,23 @@ func (m *MockCosmosManager) GetContainerProperties(databaseID, containerID strin
 	return nil
 }
 
-func (m *MockCosmosManager) CreateDatabase(databaseId string) (*azcosmos.DatabaseProperties, error) {
+func (m *MockCosmosManager) CreateDatabase(databaseID string) (*azcosmos.DatabaseProperties, error) {
 	if m.CreateDatabaseMock != nil {
-		return m.CreateDatabaseMock(databaseId)
+		return m.CreateDatabaseMock(databaseID)
 	}
-	return &azcosmos.DatabaseProperties{ID: databaseId}, nil
+	return &azcosmos.DatabaseProperties{ID: databaseID}, nil
 }
 
-func (m *MockCosmosManager) CreateContainer(databaseId, containerId, partitionKeyPath string) (*azcosmos.ContainerProperties, error) {
+func (m *MockCosmosManager) CreateContainer(databaseID, containerID, partitionKeyPath string) (*azcosmos.ContainerProperties, error) {
 	if m.CreateContainerMock != nil {
-		return m.CreateContainerMock(databaseId, containerId, partitionKeyPath)
+		return m.CreateContainerMock(databaseID, containerID, partitionKeyPath)
 	}
-	return &azcosmos.ContainerProperties{ID: containerId}, nil
+	return &azcosmos.ContainerProperties{ID: containerID}, nil
 }
 
-func (m *MockCosmosManager) BatchUpload(databaseId, containerId, connectionString string, documents []map[string]interface{}, options *BatchUploadOptions) (*BatchUploadResult, error) {
+func (m *MockCosmosManager) BatchUpload(databaseID, containerID, connectionString string, documents []map[string]interface{}, options *BatchUploadOptions) (*BatchUploadResult, error) {
 	if m.BatchUploadMock != nil {
-		return m.BatchUploadMock(databaseId, containerId, connectionString, documents, options)
+		return m.BatchUploadMock(databaseID, containerID, connectionString, documents, options)
 	}
 	return &BatchUploadResult{
 		Successful: len(documents),

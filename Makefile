@@ -1,4 +1,4 @@
-.PHONY: all build test lint fmt clean help coverage-html
+.PHONY: all build test lint fmt clean help coverage-html security security-deps gosec govulncheck gitleaks lint-security all-security
 
 BINARY_NAME=alchemist
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -41,12 +41,51 @@ vet:
 	@echo "Running go vet..."
 	@go vet ./...
 
+# Install security dependencies
+security-deps:
+	@echo "Installing security tools..."
+	@go install github.com/securego/gosec/v2/cmd/gosec@latest
+	@go install golang.org/x/vuln/cmd/govulncheck@latest
+	@go install github.com/zricethezav/gitleaks/v8@latest
+
+# Run gosec security scanner
+gosec:
+	@echo "Running gosec..."
+	@go run github.com/securego/gosec/v2/cmd/gosec@latest -no-fail -fmt=text -out=gosec-results.txt ./...
+	@echo "gosec results saved to gosec-results.txt"
+
+# Check for vulnerabilities in dependencies
+govulncheck:
+	@echo "Running govulncheck..."
+	@go run golang.org/x/vuln/cmd/govulncheck@latest ./... || true
+	@echo "govulncheck results noted. See output above for details."
+
+# Check for leaked secrets
+gitleaks:
+	@echo "Running gitleaks..."
+	@go run github.com/zricethezav/gitleaks/v8@latest detect --report-path=gitleaks-report.json || true
+	@echo "gitleaks results saved to gitleaks-report.json"
+
+# Run security linters as part of golangci-lint
+lint-security:
+	@echo "Running security linters with golangci-lint..."
+	@go run github.com/golangci/golangci-lint/cmd/golangci-lint@latest run --timeout=5m -c .golangci-security.yml ./...
+
+# Run all security checks
+security: gosec govulncheck gitleaks lint-security
+	@echo "All security checks completed"
+
+# Complete quality gate including security
+all-security: build test fmt lint security
+	@echo "All quality checks and security scans completed"
+
 clean:
 	@echo "Cleaning up..."
 	@rm -f ${BINARY_NAME}
+	@rm -f gosec-results.txt gitleaks-report.json coverage.out coverage.html
 	@go clean
 
-install-tools:
+install-tools: security-deps
 	@echo "Installing development tools..."
 	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	@go install golang.org/x/tools/cmd/goimports@latest
@@ -66,4 +105,11 @@ help:
 	@echo "  make clean        - Clean up build artifacts"
 	@echo "  make install-tools - Install development tools"
 	@echo "  make all          - Run lint, test, and build"
+	@echo "  make security     - Run all security checks"
+	@echo "  make security-deps - Install security tools"
+	@echo "  make gosec        - Run gosec security scanner"
+	@echo "  make govulncheck  - Check dependencies for vulnerabilities"
+	@echo "  make gitleaks     - Check for leaked secrets"
+	@echo "  make lint-security - Run security-focused linters"
+	@echo "  make all-security - Run all quality and security checks"
 	@echo "  make help         - Show this help message"

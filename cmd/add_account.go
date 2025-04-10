@@ -56,6 +56,7 @@ func AddAccountCmd(sp *services.ServiceProvider) *cobra.Command {
 			}
 		},
 	}
+
 	addAccountCmd.Flags().StringVarP(&options.Name, "name", "n", "", "Account name")
 	if err := addAccountCmd.MarkFlagRequired("name"); err != nil {
 		log.Fatal("Failed to mark 'name' flag as required", "error", err)

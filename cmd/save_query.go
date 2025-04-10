@@ -77,8 +77,8 @@ Examples:
 			savedQueryOptions := &data.SavedQueryOptions{
 				Name:        queryName,
 				QueryString: queryString,
-				DatabaseId:  queryOptions.DatabaseId,
-				ContainerId: queryOptions.ContainerId,
+				DatabaseID:  queryOptions.DatabaseID,
+				ContainerID: queryOptions.ContainerID,
 				AccountName: accountName,
 				Description: description,
 			}
@@ -90,8 +90,8 @@ Examples:
 			}
 
 			log.Info("Query saved successfully", "name", savedQuery.Name)
-			log.Info("Database", "id", savedQuery.DatabaseId)
-			log.Info("Container", "id", savedQuery.ContainerId)
+			log.Info("Database", "id", savedQuery.DatabaseID)
+			log.Info("Container", "id", savedQuery.ContainerID)
 			if accountName != "" {
 				log.Info("Account", "name", savedQuery.AccountName)
 			}

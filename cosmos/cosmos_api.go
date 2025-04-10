@@ -35,7 +35,7 @@ func ExtractCosmosCredentials(connectionString string) (accountEndpoint, account
 	return accountEndpoint, accountKey, nil
 }
 
-func CrossPartitionQuery(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error) {
+func CrossPartitionQuery(databaseID, containerID, connectionString, customQuery string, verbose bool) (string, error) {
 	accountEndpoint, accountKey, err := ExtractCosmosCredentials(connectionString)
 	if err != nil {
 		return "", err
@@ -47,11 +47,11 @@ func CrossPartitionQuery(databaseId, containerId, connectionString, customQuery 
 	}
 	databaseAccount := strings.Split(parsedURL.Host, ".")[0]
 
-	documentsUrl := fmt.Sprintf("https://%s.documents.azure.com/dbs/%s/colls/%s/docs",
-		databaseAccount, url.PathEscape(databaseId), url.PathEscape(containerId))
+	documentsURL := fmt.Sprintf("https://%s.documents.azure.com/dbs/%s/colls/%s/docs",
+		databaseAccount, url.PathEscape(databaseID), url.PathEscape(containerID))
 
 	if verbose {
-		log.Debug("Documents URL", "url", documentsUrl)
+		log.Debug("Documents URL", "url", documentsURL)
 	}
 
 	var req *http.Request
@@ -73,7 +73,7 @@ func CrossPartitionQuery(databaseId, containerId, connectionString, customQuery 
 			return "", fmt.Errorf("failed to marshal request body: %w", err)
 		}
 
-		req, err = http.NewRequestWithContext(context.Background(), verb, documentsUrl, bytes.NewBuffer(requestBodyJSON))
+		req, err = http.NewRequestWithContext(context.Background(), verb, documentsURL, bytes.NewBuffer(requestBodyJSON))
 		if err != nil {
 			return "", fmt.Errorf("failed to create HTTP request: %w", err)
 		}
@@ -82,7 +82,7 @@ func CrossPartitionQuery(databaseId, containerId, connectionString, customQuery 
 		req.Header.Set("x-ms-documentdb-isquery", "true")
 	} else {
 		verb = "GET"
-		req, err = http.NewRequestWithContext(context.Background(), verb, documentsUrl, http.NoBody)
+		req, err = http.NewRequestWithContext(context.Background(), verb, documentsURL, http.NoBody)
 		if err != nil {
 			return "", fmt.Errorf("failed to create HTTP request: %w", err)
 		}
@@ -97,7 +97,7 @@ func CrossPartitionQuery(databaseId, containerId, connectionString, customQuery 
 	// TODO: Add a setting to control this
 	req.Header.Set("x-ms-max-item-count", "100")
 
-	resourceLink := fmt.Sprintf("dbs/%s/colls/%s", databaseId, containerId)
+	resourceLink := fmt.Sprintf("dbs/%s/colls/%s", databaseID, containerID)
 	token := generateAuthorizationToken(verb, resourceType, resourceLink, currentTime, accountKey)
 	req.Header.Set("Authorization", token)
 
@@ -198,10 +198,10 @@ func defaultBatchUploadOptions() BatchUploadOptions {
 // BatchUpload uploads multiple documents to a Cosmos DB container in batches.
 // Documents should be a slice of maps where each map contains the document properties.
 // Each document must have a unique "id" field, and should have the partition key field.
-func BatchUpload(databaseId, containerId, connectionString string, documents []map[string]interface{}, options *BatchUploadOptions) (*BatchUploadResult, error) {
+func BatchUpload(databaseID, containerID, connectionString string, documents []map[string]interface{}, options *BatchUploadOptions) (*BatchUploadResult, error) {
 	opts := getUploadOptions(options)
 
-	documentsUrl, accountKey, err := prepareDocumentsUrl(connectionString, databaseId, containerId)
+	documentsURL, accountKey, err := prepareDocumentsURL(connectionString, databaseID, containerID)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func BatchUpload(databaseId, containerId, connectionString string, documents []m
 		Errors:          []string{},
 	}
 
-	processDocumentsInBatches(documents, opts, documentsUrl, accountKey, result)
+	processDocumentsInBatches(documents, opts, documentsURL, accountKey, result)
 
 	return result, nil
 }
@@ -237,7 +237,7 @@ func getUploadOptions(options *BatchUploadOptions) *BatchUploadOptions {
 	return &opts
 }
 
-func prepareDocumentsUrl(connectionString, databaseId, containerId string) (documentsUrl, accountKey string, err error) {
+func prepareDocumentsURL(connectionString, databaseID, containerID string) (documentsURL, accountKey string, err error) {
 	var accountEndpoint string
 	accountEndpoint, accountKey, err = ExtractCosmosCredentials(connectionString)
 	if err != nil {
@@ -251,13 +251,13 @@ func prepareDocumentsUrl(connectionString, databaseId, containerId string) (docu
 	}
 	databaseAccount := strings.Split(parsedURL.Host, ".")[0]
 
-	documentsUrl = fmt.Sprintf("https://%s.documents.azure.com/dbs/%s/colls/%s/docs",
-		databaseAccount, url.PathEscape(databaseId), url.PathEscape(containerId))
+	documentsURL = fmt.Sprintf("https://%s.documents.azure.com/dbs/%s/colls/%s/docs",
+		databaseAccount, url.PathEscape(databaseID), url.PathEscape(containerID))
 
-	return documentsUrl, accountKey, nil
+	return documentsURL, accountKey, nil
 }
 
-func processDocumentsInBatches(documents []map[string]interface{}, opts *BatchUploadOptions, documentsUrl, accountKey string, result *BatchUploadResult) {
+func processDocumentsInBatches(documents []map[string]interface{}, opts *BatchUploadOptions, documentsURL, accountKey string, result *BatchUploadResult) {
 	// Process in batches
 	totalBatches := (len(documents) + opts.BatchSize - 1) / opts.BatchSize
 	for batchNum := 0; batchNum < totalBatches; batchNum++ {
@@ -273,7 +273,7 @@ func processDocumentsInBatches(documents []map[string]interface{}, opts *BatchUp
 			log.Info("Processing batch", "batch", batchNum+1, "of", totalBatches, "documents", len(batchDocuments))
 		}
 
-		processDocumentBatch(batchDocuments, opts, documentsUrl, accountKey, result)
+		processDocumentBatch(batchDocuments, opts, documentsURL, accountKey, result)
 
 		// Pause between batches to avoid rate limiting
 		if batchNum < totalBatches-1 && opts.BatchPauseMs > 0 {
@@ -282,7 +282,7 @@ func processDocumentsInBatches(documents []map[string]interface{}, opts *BatchUp
 	}
 }
 
-func processDocumentBatch(documents []map[string]interface{}, opts *BatchUploadOptions, documentsUrl, accountKey string, result *BatchUploadResult) {
+func processDocumentBatch(documents []map[string]interface{}, opts *BatchUploadOptions, documentsURL, accountKey string, result *BatchUploadResult) {
 	for _, doc := range documents {
 		if !isValidDocument(doc, result) {
 			continue
@@ -294,7 +294,7 @@ func processDocumentBatch(documents []map[string]interface{}, opts *BatchUploadO
 			continue
 		}
 
-		uploadWithRetries(doc, docBytes, opts, documentsUrl, accountKey, result)
+		uploadWithRetries(doc, docBytes, opts, documentsURL, accountKey, result)
 	}
 }
 
@@ -312,7 +312,7 @@ func handleFailedDocument(doc map[string]interface{}, errorMsg string, result *B
 	result.Errors = append(result.Errors, errorMsg)
 }
 
-func uploadWithRetries(doc map[string]interface{}, docBytes []byte, opts *BatchUploadOptions, documentsUrl, accountKey string, result *BatchUploadResult) {
+func uploadWithRetries(doc map[string]interface{}, docBytes []byte, opts *BatchUploadOptions, documentsURL, accountKey string, result *BatchUploadResult) {
 	success := false
 	var lastError error
 
@@ -321,7 +321,7 @@ func uploadWithRetries(doc map[string]interface{}, docBytes []byte, opts *BatchU
 			log.Info("Retrying document upload", "id", doc["id"], "retry", retryCount)
 		}
 
-		uploaded, rus, err := uploadSingleDocument(documentsUrl, docBytes, accountKey, opts.Verbose)
+		uploaded, rus, err := uploadSingleDocument(documentsURL, docBytes, accountKey, opts.Verbose)
 		result.TotalRUs += rus
 
 		if err == nil && uploaded {
@@ -345,8 +345,8 @@ func uploadWithRetries(doc map[string]interface{}, docBytes []byte, opts *BatchU
 	}
 }
 
-func uploadSingleDocument(documentsUrl string, docBytes []byte, accountKey string, verbose bool) (success bool, requestCharge float64, err error) {
-	req, err := http.NewRequestWithContext(context.Background(), "POST", documentsUrl, bytes.NewBuffer(docBytes))
+func uploadSingleDocument(documentsURL string, docBytes []byte, accountKey string, verbose bool) (success bool, requestCharge float64, err error) {
+	req, err := http.NewRequestWithContext(context.Background(), "POST", documentsURL, bytes.NewBuffer(docBytes))
 	if err != nil {
 		return false, 0, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -358,26 +358,26 @@ func uploadSingleDocument(documentsUrl string, docBytes []byte, accountKey strin
 	req.Header.Set("x-ms-version", "2018-12-31")
 
 	// Extract database and collection IDs from URL
-	urlParts := strings.Split(documentsUrl, "/")
+	urlParts := strings.Split(documentsURL, "/")
 	if len(urlParts) < 6 {
 		return false, 0, fmt.Errorf("invalid documents URL format")
 	}
 
-	databaseId := ""
-	containerId := ""
+	databaseID := ""
+	containerID := ""
 	for i, part := range urlParts {
 		if part == "dbs" && i+1 < len(urlParts) {
-			databaseId = urlParts[i+1]
+			databaseID = urlParts[i+1]
 		} else if part == "colls" && i+1 < len(urlParts) {
-			containerId = urlParts[i+1]
+			containerID = urlParts[i+1]
 		}
 	}
 
-	if databaseId == "" || containerId == "" {
+	if databaseID == "" || containerID == "" {
 		return false, 0, fmt.Errorf("failed to extract database or container ID from URL")
 	}
 
-	resourceLink := fmt.Sprintf("dbs/%s/colls/%s", databaseId, containerId)
+	resourceLink := fmt.Sprintf("dbs/%s/colls/%s", databaseID, containerID)
 	token := generateAuthorizationToken("post", "docs", resourceLink, currentTime, accountKey)
 	req.Header.Set("Authorization", token)
 
@@ -390,7 +390,10 @@ func uploadSingleDocument(documentsUrl string, docBytes []byte, accountKey strin
 
 	requestCharge = 0.0
 	if chargeStr := resp.Header.Get("x-ms-request-charge"); chargeStr != "" {
-		fmt.Sscanf(chargeStr, "%f", &requestCharge)
+		if _, err := fmt.Sscanf(chargeStr, "%f", &requestCharge); err != nil {
+			log.Printf("Failed to parse request charge: %v", err)
+			// Use default value of 0.0 which is already set
+		}
 	}
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {

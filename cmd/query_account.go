@@ -20,7 +20,7 @@ import (
 // CrossPartitionQueryImpl is used for dependency injection.
 var CrossPartitionQueryImpl = cosmos.CrossPartitionQuery
 
-func QueryAccountInternal(accountName, query string, listAll bool, databaseId, containerId string, dbManager data.DatabaseManager, cosmosManager cosmos.CosmosManager) (string, error) {
+func QueryAccountInternal(accountName, query string, listAll bool, databaseID, containerID string, dbManager data.DatabaseManager, cosmosManager cosmos.CosmosManager) (string, error) {
 	err := dbManager.OpenDatabase()
 	if err != nil {
 		return "", fmt.Errorf("could not open database: %w", err)
@@ -69,33 +69,33 @@ func QueryAccountInternal(accountName, query string, listAll bool, databaseId, c
 	}
 
 	if listAll {
-		if databaseId == "" || containerId == "" {
+		if databaseID == "" || containerID == "" {
 			return "", errors.New("missing parameters. Database ID and Container ID are required")
 		}
 
-		return cosmosManager.CrossPartitionQuery(databaseId, containerId, account.ConnectionString, "", false)
-	} else {
-		if query == "" {
-			return "", errors.New("missing query. Use --query parameter to specify a query")
-		}
-
-		queryOptions, err := ExtractAndModifyQuery(query)
-		if err != nil {
-			return "", fmt.Errorf("invalid query: %w", err)
-		}
-
-		return cosmosManager.CrossPartitionQuery(queryOptions.DatabaseId, queryOptions.ContainerId, account.ConnectionString, queryOptions.Query, false)
+		return cosmosManager.CrossPartitionQuery(databaseID, containerID, account.ConnectionString, "", false)
 	}
+
+	if query == "" {
+		return "", errors.New("missing query. Use --query parameter to specify a query")
+	}
+
+	queryOptions, err := ExtractAndModifyQuery(query)
+	if err != nil {
+		return "", fmt.Errorf("invalid query: %w", err)
+	}
+
+	return cosmosManager.CrossPartitionQuery(queryOptions.DatabaseID, queryOptions.ContainerID, account.ConnectionString, queryOptions.Query, false)
 }
 
 type DatabaseOptions struct {
-	DatabaseId   string
-	ContainerIds []string
+	DatabaseID   string
+	ContainerIDs []string
 }
 
 type QueryOptions struct {
-	DatabaseId  string
-	ContainerId string
+	DatabaseID  string
+	ContainerID string
 	Query       string
 }
 
@@ -126,8 +126,8 @@ func ExtractAndModifyQuery(inputQuery string) (*QueryOptions, error) {
 	}
 
 	selectPart := matches[1]
-	queryOptions.DatabaseId = matches[2]
-	queryOptions.ContainerId = matches[3]
+	queryOptions.DatabaseID = matches[2]
+	queryOptions.ContainerID = matches[3]
 	modifiedQuerySuffix := matches[4]
 
 	// TODO: Might throw an error if selectPart is empty
@@ -189,8 +189,8 @@ func QueryAccountCmd(sp *services.ServiceProvider) *cobra.Command {
 		query          string
 		accountName    string
 		listAll        bool
-		databaseId     string
-		containerId    string
+		databaseID     string
+		containerID    string
 		outputFile     string
 		saveQuery      bool
 		savedQueryName string
@@ -229,8 +229,8 @@ Examples:
 				savedQueryOptions := &data.SavedQueryOptions{
 					Name:        savedQueryName,
 					QueryString: query,
-					DatabaseId:  databaseId,
-					ContainerId: containerId,
+					DatabaseID:  databaseID,
+					ContainerID: containerID,
 					AccountName: accountName,
 					Description: "Saved from command line",
 				}
@@ -244,7 +244,7 @@ Examples:
 				return
 			}
 
-			result, err := QueryAccountInternal(accountName, query, listAll, databaseId, containerId, sp.DatabaseManager, sp.CosmosManager)
+			result, err := QueryAccountInternal(accountName, query, listAll, databaseID, containerID, sp.DatabaseManager, sp.CosmosManager)
 			if err != nil {
 				log.Error(err.Error())
 				return
@@ -266,8 +266,8 @@ Examples:
 	queryAccountCmd.Flags().StringVarP(&query, "query", "q", "", "Query to execute")
 	queryAccountCmd.Flags().StringVarP(&accountName, "account", "a", "", "Account name to use")
 	queryAccountCmd.Flags().BoolVarP(&listAll, "list-all", "l", false, "List all documents in container")
-	queryAccountCmd.Flags().StringVarP(&databaseId, "database", "d", "", "Database ID")
-	queryAccountCmd.Flags().StringVarP(&containerId, "container", "c", "", "Container ID")
+	queryAccountCmd.Flags().StringVarP(&databaseID, "database", "d", "", "Database ID")
+	queryAccountCmd.Flags().StringVarP(&containerID, "container", "c", "", "Container ID")
 	queryAccountCmd.Flags().StringVarP(&outputFile, "output", "o", "", "Output file path")
 	queryAccountCmd.Flags().BoolVarP(&saveQuery, "save", "s", false, "Save query for future use")
 	queryAccountCmd.Flags().StringVarP(&savedQueryName, "name", "n", "", "Name for saved query")

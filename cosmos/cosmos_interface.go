@@ -13,13 +13,13 @@ import (
 type CosmosManager interface {
 	Connect(connectionString string) error
 	CrossPartitionQuery(databaseID, containerID, connectionString, query string, verbose bool) (string, error)
-	GetDatabaseIds() []string
-	GetContainerIds(databaseID string) []string
+	GetDatabaseIDs() []string
+	GetContainerIDs(databaseID string) []string
 	GetDatabaseProperties(databaseID string) *azcosmos.DatabaseProperties
 	GetContainerProperties(databaseID, containerID string) *azcosmos.ContainerProperties
-	CreateDatabase(databaseId string) (*azcosmos.DatabaseProperties, error)
-	CreateContainer(databaseId, containerId, partitionKeyPath string) (*azcosmos.ContainerProperties, error)
-	BatchUpload(databaseId, containerId, connectionString string, documents []map[string]interface{}, options *BatchUploadOptions) (*BatchUploadResult, error)
+	CreateDatabase(databaseID string) (*azcosmos.DatabaseProperties, error)
+	CreateContainer(databaseID, containerID, partitionKeyPath string) (*azcosmos.ContainerProperties, error)
+	BatchUpload(databaseID, containerID, connectionString string, documents []map[string]interface{}, options *BatchUploadOptions) (*BatchUploadResult, error)
 }
 
 // DefaultCosmosManager is the default implementation of CosmosManager.
@@ -46,13 +46,13 @@ func (cm *DefaultCosmosManager) CrossPartitionQuery(databaseID, containerID, con
 	return CrossPartitionQuery(databaseID, containerID, connectionString, query, verbose)
 }
 
-func (cm *DefaultCosmosManager) GetDatabaseIds() []string {
+func (cm *DefaultCosmosManager) GetDatabaseIDs() []string {
 	if cm.client == nil {
 		return []string{}
 	}
 
 	queryPager := cm.client.NewQueryDatabasesPager("select * from dbs d", nil)
-	var databaseIds []string
+	var databaseIDs []string
 	ctx := context.Background()
 	for queryPager.More() {
 		queryResponse, err := queryPager.NextPage(ctx)
@@ -60,14 +60,14 @@ func (cm *DefaultCosmosManager) GetDatabaseIds() []string {
 			return []string{}
 		}
 		for i := range queryResponse.Databases {
-			databaseIds = append(databaseIds, queryResponse.Databases[i].ID)
+			databaseIDs = append(databaseIDs, queryResponse.Databases[i].ID)
 		}
 	}
-	return databaseIds
+	return databaseIDs
 }
 
-func (cm *DefaultCosmosManager) GetContainerIds(databaseID string) []string {
-	return GetContainerIds(databaseID)
+func (cm *DefaultCosmosManager) GetContainerIDs(databaseID string) []string {
+	return GetContainerIDs(databaseID)
 }
 
 func (cm *DefaultCosmosManager) GetDatabaseProperties(databaseID string) *azcosmos.DatabaseProperties {
@@ -78,37 +78,37 @@ func (cm *DefaultCosmosManager) GetContainerProperties(databaseID, containerID s
 	return GetContainerProperties(databaseID, containerID)
 }
 
-func (cm *DefaultCosmosManager) CreateDatabase(databaseId string) (*azcosmos.DatabaseProperties, error) {
+func (cm *DefaultCosmosManager) CreateDatabase(databaseID string) (*azcosmos.DatabaseProperties, error) {
 	if cm.client == nil {
 		return nil, errors.New("cosmos client is nil")
 	}
 
 	ctx := context.Background()
 	databaseResp, err := cm.client.CreateDatabase(ctx, azcosmos.DatabaseProperties{
-		ID: databaseId,
+		ID: databaseID,
 	}, nil)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
-	log.Info("Database created successfully", "id", databaseId)
+	log.Info("Database created successfully", "id", databaseID)
 	return databaseResp.DatabaseProperties, nil
 }
 
-func (cm *DefaultCosmosManager) CreateContainer(databaseId, containerId, partitionKeyPath string) (*azcosmos.ContainerProperties, error) {
+func (cm *DefaultCosmosManager) CreateContainer(databaseID, containerID, partitionKeyPath string) (*azcosmos.ContainerProperties, error) {
 	if cm.client == nil {
 		return nil, errors.New("cosmos client is nil")
 	}
 
-	databaseClient, err := cm.client.NewDatabase(databaseId)
+	databaseClient, err := cm.client.NewDatabase(databaseID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database client: %w", err)
 	}
 
 	ctx := context.Background()
 	containerProperties := azcosmos.ContainerProperties{
-		ID: containerId,
+		ID: containerID,
 		PartitionKeyDefinition: azcosmos.PartitionKeyDefinition{
 			Paths: []string{partitionKeyPath},
 		},
@@ -128,10 +128,10 @@ func (cm *DefaultCosmosManager) CreateContainer(databaseId, containerId, partiti
 		return nil, fmt.Errorf("failed to create container: %w", err)
 	}
 
-	log.Info("Container created successfully", "databaseId", databaseId, "containerId", containerId)
+	log.Info("Container created successfully", "databaseID", databaseID, "containerID", containerID)
 	return containerResp.ContainerProperties, nil
 }
 
-func (cm *DefaultCosmosManager) BatchUpload(databaseId, containerId, connectionString string, documents []map[string]interface{}, options *BatchUploadOptions) (*BatchUploadResult, error) {
-	return BatchUpload(databaseId, containerId, connectionString, documents, options)
+func (cm *DefaultCosmosManager) BatchUpload(databaseID, containerID, connectionString string, documents []map[string]interface{}, options *BatchUploadOptions) (*BatchUploadResult, error) {
+	return BatchUpload(databaseID, containerID, connectionString, documents, options)
 }

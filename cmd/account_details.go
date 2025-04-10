@@ -116,8 +116,8 @@ type CreateContainerMsg struct {
 	Err       error
 }
 
-func getContainerCount(databaseId string) int {
-	containers := cosmos.GetContainerIds(databaseId)
+func getContainerCount(databaseID string) int {
+	containers := cosmos.GetContainerIDs(databaseID)
 	return len(containers)
 }
 
@@ -136,11 +136,11 @@ func loadDatabases(account data.AccountOptions) tea.Cmd {
 			}
 		}
 
-		databases = cosmos.GetDatabaseIds()
+		databases = cosmos.GetDatabaseIDs()
 
-		for _, dbId := range databases {
-			props := cosmos.GetDatabaseProperties(dbId)
-			containerCount := getContainerCount(dbId)
+		for _, dbID := range databases {
+			props := cosmos.GetDatabaseProperties(dbID)
+			containerCount := getContainerCount(dbID)
 
 			var etagStr string
 			if props.ETag != nil {
@@ -148,7 +148,7 @@ func loadDatabases(account data.AccountOptions) tea.Cmd {
 			}
 
 			dbInfo := &cosmos.DatabaseInfo{
-				ID:             dbId,
+				ID:             dbID,
 				ResourceID:     props.ResourceID,
 				SelfLink:       props.SelfLink,
 				ETag:           etagStr,
@@ -167,14 +167,14 @@ func loadDatabases(account data.AccountOptions) tea.Cmd {
 	}
 }
 
-func loadContainers(databaseId string) tea.Cmd {
+func loadContainers(databaseID string) tea.Cmd {
 	return func() tea.Msg {
 		var containers []*ContainerInfo
 
-		containerIds := cosmos.GetContainerIds(databaseId)
+		containerIDs := cosmos.GetContainerIDs(databaseID)
 
-		for _, containerId := range containerIds {
-			props := cosmos.GetContainerProperties(databaseId, containerId)
+		for _, containerID := range containerIDs {
+			props := cosmos.GetContainerProperties(databaseID, containerID)
 
 			partitionKey := "None"
 			if len(props.PartitionKeyDefinition.Paths) > 0 {
@@ -187,7 +187,7 @@ func loadContainers(databaseId string) tea.Cmd {
 			}
 
 			container := &ContainerInfo{
-				ID:           containerId,
+				ID:           containerID,
 				PartitionKey: partitionKey,
 				IndexingMode: indexingMode,
 			}
@@ -201,12 +201,12 @@ func loadContainers(databaseId string) tea.Cmd {
 	}
 }
 
-func createDatabase(databaseId string) tea.Cmd {
+func createDatabase(databaseID string) tea.Cmd {
 	return func() tea.Msg {
 		var database *cosmos.DatabaseInfo
 		var err error
 
-		props, err := cosmos.CreateDatabase(databaseId)
+		props, err := cosmos.CreateDatabase(databaseID)
 		if err != nil {
 			return CreateDatabaseMsg{
 				Database: nil,
@@ -234,23 +234,23 @@ func createDatabase(databaseId string) tea.Cmd {
 	}
 }
 
-func createContainer(databaseId, containerId, partitionKeyPath string) tea.Cmd {
+func createContainer(databaseID, containerID, partitionKeyPath string) tea.Cmd {
 	return func() tea.Msg {
-		if databaseId == "" {
+		if databaseID == "" {
 			return CreateContainerMsg{
 				Container: nil,
 				Err:       fmt.Errorf("database ID cannot be empty"),
 			}
 		}
 
-		if containerId == "" {
+		if containerID == "" {
 			return CreateContainerMsg{
 				Container: nil,
 				Err:       fmt.Errorf("container ID cannot be empty"),
 			}
 		}
 
-		containerProps, err := cosmos.CreateContainer(databaseId, containerId, partitionKeyPath)
+		containerProps, err := cosmos.CreateContainer(databaseID, containerID, partitionKeyPath)
 		if err != nil {
 			return CreateContainerMsg{
 				Container: nil,
@@ -453,26 +453,26 @@ func (m *DatabaseModel) HandleContainerConfigEnter() (tea.Model, tea.Cmd) {
 
 		m.DatabaseCreateError = ""
 		return m, createDatabase(m.NewDatabaseID)
-	} else {
-		if m.SelectedDatabase == "" {
-			m.ContainerCreateError = "No database selected"
-			return m, nil
-		}
-
-		if !m.ValidateContainerInputs(&m.ContainerCreateError) {
-			return m, nil
-		}
-
-		m.ContainerCreateError = ""
-		containerID := m.ContainerIDInputs[0].Value()
-		partitionKey := m.PartitionKeyInputs[0].Value()
-
-		if !strings.HasPrefix(partitionKey, "/") {
-			partitionKey = "/" + partitionKey
-		}
-
-		return m, createContainer(m.SelectedDatabase, containerID, partitionKey)
 	}
+
+	if m.SelectedDatabase == "" {
+		m.ContainerCreateError = "No database selected"
+		return m, nil
+	}
+
+	if !m.ValidateContainerInputs(&m.ContainerCreateError) {
+		return m, nil
+	}
+
+	m.ContainerCreateError = ""
+	containerID := m.ContainerIDInputs[0].Value()
+	partitionKey := m.PartitionKeyInputs[0].Value()
+
+	if !strings.HasPrefix(partitionKey, "/") {
+		partitionKey = "/" + partitionKey
+	}
+
+	return m, createContainer(m.SelectedDatabase, containerID, partitionKey)
 }
 
 func (m *DatabaseModel) ValidateContainerInputs(errorMsg *string) bool {

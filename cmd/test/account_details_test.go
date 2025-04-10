@@ -19,9 +19,9 @@ import (
 // Store original implementations to restore after tests.
 var (
 	cosmosConnectImpl                = cosmos.ConnectImpl
-	cosmosGetDatabaseIdsImpl         = cosmos.GetDatabaseIdsImpl
+	cosmosGetDatabaseIDsImpl         = cosmos.GetDatabaseIDsImpl
 	cosmosGetDatabasePropertiesImpl  = cosmos.GetDatabasePropertiesImpl
-	cosmosGetContainerIdsImpl        = cosmos.GetContainerIdsImpl
+	cosmosGetContainerIDsImpl        = cosmos.GetContainerIDsImpl
 	cosmosGetContainerPropertiesImpl = cosmos.GetContainerPropertiesImpl
 	cosmosCreateDatabaseImpl         = cosmos.CreateDatabaseImpl
 	cosmosCreateContainerImpl        = cosmos.CreateContainerImpl
@@ -35,27 +35,27 @@ func setupTest() {
 		return nil
 	}
 
-	cosmos.GetDatabaseIdsImpl = func() []string {
+	cosmos.GetDatabaseIDsImpl = func() []string {
 		return []string{"db1", "db2"}
 	}
 
-	cosmos.GetDatabasePropertiesImpl = func(dbId string) *azcosmos.DatabaseProperties {
-		etag := azcore.ETag("etag-" + dbId)
+	cosmos.GetDatabasePropertiesImpl = func(dbID string) *azcosmos.DatabaseProperties {
+		etag := azcore.ETag("etag-" + dbID)
 		return &azcosmos.DatabaseProperties{
-			ID:         dbId,
-			ResourceID: "rid-" + dbId,
-			SelfLink:   "self-" + dbId,
+			ID:         dbID,
+			ResourceID: "rid-" + dbID,
+			SelfLink:   "self-" + dbID,
 			ETag:       &etag,
 		}
 	}
 
-	cosmos.GetContainerIdsImpl = func(dbId string) []string {
+	cosmos.GetContainerIDsImpl = func(dbID string) []string {
 		return []string{"container1", "container2", "newcontainer"}
 	}
 
-	cosmos.GetContainerPropertiesImpl = func(dbId, containerId string) *azcosmos.ContainerProperties {
+	cosmos.GetContainerPropertiesImpl = func(dbID, containerID string) *azcosmos.ContainerProperties {
 		return &azcosmos.ContainerProperties{
-			ID: containerId,
+			ID: containerID,
 			PartitionKeyDefinition: azcosmos.PartitionKeyDefinition{
 				Paths: []string{"/id"},
 			},
@@ -65,19 +65,19 @@ func setupTest() {
 		}
 	}
 
-	cosmos.CreateDatabaseImpl = func(databaseId string) (*azcosmos.DatabaseProperties, error) {
-		etag := azcore.ETag("etag-" + databaseId)
+	cosmos.CreateDatabaseImpl = func(databaseID string) (*azcosmos.DatabaseProperties, error) {
+		etag := azcore.ETag("etag-" + databaseID)
 		return &azcosmos.DatabaseProperties{
-			ID:         databaseId,
-			ResourceID: "rid-" + databaseId,
-			SelfLink:   "self-" + databaseId,
+			ID:         databaseID,
+			ResourceID: "rid-" + databaseID,
+			SelfLink:   "self-" + databaseID,
 			ETag:       &etag,
 		}, nil
 	}
 
-	cosmos.CreateContainerImpl = func(databaseId, containerId, partitionKeyPath string) (*azcosmos.ContainerProperties, error) {
+	cosmos.CreateContainerImpl = func(databaseID, containerID, partitionKeyPath string) (*azcosmos.ContainerProperties, error) {
 		return &azcosmos.ContainerProperties{
-			ID: containerId,
+			ID: containerID,
 			PartitionKeyDefinition: azcosmos.PartitionKeyDefinition{
 				Paths: []string{partitionKeyPath},
 			},
@@ -90,9 +90,9 @@ func setupTest() {
 
 func teardownTest() {
 	cosmos.ConnectImpl = cosmosConnectImpl
-	cosmos.GetDatabaseIdsImpl = cosmosGetDatabaseIdsImpl
+	cosmos.GetDatabaseIDsImpl = cosmosGetDatabaseIDsImpl
 	cosmos.GetDatabasePropertiesImpl = cosmosGetDatabasePropertiesImpl
-	cosmos.GetContainerIdsImpl = cosmosGetContainerIdsImpl
+	cosmos.GetContainerIDsImpl = cosmosGetContainerIDsImpl
 	cosmos.GetContainerPropertiesImpl = cosmosGetContainerPropertiesImpl
 	cosmos.CreateDatabaseImpl = cosmosCreateDatabaseImpl
 	cosmos.CreateContainerImpl = cosmosCreateContainerImpl

@@ -24,3 +24,5 @@ alchemist-database.db
 **/.DS_Store
 alchemist
 coverage*
+gitleaks-report.json
+gosec-results.txt

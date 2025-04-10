@@ -106,8 +106,8 @@ func TestListQueriesInternal_WithQueries(t *testing.T) {
 			Id:           1,
 			Name:         "test-query-1",
 			QueryString:  "SELECT * FROM test-db.test-container as c WHERE c.id = '123'",
-			DatabaseId:   "test-db",
-			ContainerId:  "test-container",
+			DatabaseID:   "test-db",
+			ContainerID:  "test-container",
 			AccountName:  "test-account",
 			Description:  "Test query 1",
 			DateCreated:  "2023-01-01",
@@ -117,8 +117,8 @@ func TestListQueriesInternal_WithQueries(t *testing.T) {
 			Id:           2,
 			Name:         "test-query-2",
 			QueryString:  "SELECT * FROM test-db.test-container as c",
-			DatabaseId:   "test-db",
-			ContainerId:  "test-container",
+			DatabaseID:   "test-db",
+			ContainerID:  "test-container",
 			AccountName:  "",
 			Description:  "",
 			DateCreated:  "2023-01-02",
@@ -139,8 +139,8 @@ func TestListQueriesInternal_WithQueries(t *testing.T) {
 	assert.Equal(t, 2, len(queries))
 	assert.Equal(t, "test-query-1", queries[0].Name)
 	assert.Equal(t, "test-query-2", queries[1].Name)
-	assert.Equal(t, "test-db", queries[0].DatabaseId)
-	assert.Equal(t, "test-container", queries[0].ContainerId)
+	assert.Equal(t, "test-db", queries[0].DatabaseID)
+	assert.Equal(t, "test-container", queries[0].ContainerID)
 }
 
 func TestListQueryCmd_Success(t *testing.T) {
@@ -156,8 +156,8 @@ func TestListQueryCmd_Success(t *testing.T) {
 			Id:           1,
 			Name:         "test-query",
 			QueryString:  "SELECT * FROM test-db.test-container as c",
-			DatabaseId:   "test-db",
-			ContainerId:  "test-container",
+			DatabaseID:   "test-db",
+			ContainerID:  "test-container",
 			AccountName:  "test-account",
 			Description:  "Test query",
 			DateCreated:  "2023-01-01",

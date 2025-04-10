@@ -4,7 +4,6 @@ globs:
 alwaysApply: true
 ---
 
-
 # General requirements
 - **ALWAYS** log this before doing anything else: "All rules are being enforced!".
 - If I type "validate rules" you will output all rule files that are being used.

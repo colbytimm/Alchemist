@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/charmbracelet/log"
 	"github.com/colbytimm/alchemist/cosmos"
@@ -14,13 +15,50 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// secureReadFile safely reads a file with validation checks.
+func secureReadFile(filePath string) ([]byte, error) {
+	// Clean and normalize the path
+	cleanPath := filepath.Clean(filePath)
+
+	// Get absolute path
+	absPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return nil, fmt.Errorf("error getting absolute path: %w", err)
+	}
+
+	// Check file info
+	fileInfo, err := os.Stat(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("error accessing file: %w", err)
+	}
+
+	// Ensure it's a regular file
+	if !fileInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("not a regular file: %s", absPath)
+	}
+
+	// Check file size
+	if fileInfo.Size() > 100*1024*1024 { // 100MB limit
+		return nil, fmt.Errorf("file too large: %d bytes", fileInfo.Size())
+	}
+
+	// Read file content
+	// #nosec G304 - Path is cleaned, validated for existence, type, and size above
+	fileData, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading file: %w", err)
+	}
+
+	return fileData, nil
+}
+
 func BatchUploadInternal(
-	accountName, databaseId, containerId, inputFile string,
+	accountName, databaseID, containerID, inputFile string,
 	batchSize int, retry bool, maxRetries int, verbose bool, batchPauseMs int,
 	dbManager data.DatabaseManager,
 	cosmosManager cosmos.CosmosManager,
 ) (*cosmos.BatchUploadResult, error) {
-	if databaseId == "" || containerId == "" || inputFile == "" {
+	if databaseID == "" || containerID == "" || inputFile == "" {
 		return nil, errors.New("database ID, container ID, and input file are required")
 	}
 
@@ -66,8 +104,8 @@ func BatchUploadInternal(
 		}
 	}
 
-	// Read input file
-	fileData, err := os.ReadFile(inputFile)
+	// Read input file using secure function
+	fileData, err := secureReadFile(inputFile)
 	if err != nil {
 		return nil, fmt.Errorf("error reading input file: %w", err)
 	}
@@ -88,8 +126,8 @@ func BatchUploadInternal(
 	}
 
 	result, err := cosmosManager.BatchUpload(
-		databaseId,
-		containerId,
+		databaseID,
+		containerID,
 		account.ConnectionString,
 		documents,
 		options,
@@ -104,8 +142,8 @@ func BatchUploadInternal(
 func BatchUploadCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
 		accountName  string
-		databaseId   string
-		containerId  string
+		databaseID   string
+		containerID  string
 		inputFile    string
 		batchSize    int
 		retry        bool
@@ -124,8 +162,8 @@ func BatchUploadCmd(sp *services.ServiceProvider) *cobra.Command {
 
 			result, err := BatchUploadInternal(
 				accountName,
-				databaseId,
-				containerId,
+				databaseID,
+				containerID,
 				inputFile,
 				batchSize,
 				retry,
@@ -157,11 +195,11 @@ func BatchUploadCmd(sp *services.ServiceProvider) *cobra.Command {
 	}
 
 	batchUploadCmd.Flags().StringVarP(&accountName, "account", "a", "", "Account name to use (default if not specified)")
-	batchUploadCmd.Flags().StringVarP(&databaseId, "database", "d", "", "Database ID")
+	batchUploadCmd.Flags().StringVarP(&databaseID, "database", "d", "", "Database ID")
 	if err := batchUploadCmd.MarkFlagRequired("database"); err != nil {
 		log.Fatal("Failed to mark 'database' flag as required", "error", err)
 	}
-	batchUploadCmd.Flags().StringVarP(&containerId, "container", "c", "", "Container ID")
+	batchUploadCmd.Flags().StringVarP(&containerID, "container", "c", "", "Container ID")
 	if err := batchUploadCmd.MarkFlagRequired("container"); err != nil {
 		log.Fatal("Failed to mark 'container' flag as required", "error", err)
 	}

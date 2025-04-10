@@ -314,8 +314,8 @@ type SavedQueryOptions struct {
 	Id           int
 	Name         string
 	QueryString  string
-	DatabaseId   string
-	ContainerId  string
+	DatabaseID   string
+	ContainerID  string
 	AccountName  string
 	Description  string
 	DateCreated  string
@@ -396,8 +396,8 @@ func (m *SQLiteManager) SaveQuery(options *SavedQueryOptions) (SavedQueryOptions
 
 		_, err = statement.Exec(
 			options.QueryString,
-			options.DatabaseId,
-			options.ContainerId,
+			options.DatabaseID,
+			options.ContainerID,
 			options.AccountName,
 			options.Description,
 			options.Name,
@@ -426,8 +426,8 @@ func (m *SQLiteManager) SaveQuery(options *SavedQueryOptions) (SavedQueryOptions
 		_, err = statement.Exec(
 			options.Name,
 			options.QueryString,
-			options.DatabaseId,
-			options.ContainerId,
+			options.DatabaseID,
+			options.ContainerID,
 			options.AccountName,
 			options.Description,
 		)
@@ -460,8 +460,8 @@ func (m *SQLiteManager) GetSavedQueryByName(name string) (SavedQueryOptions, err
 		&savedQuery.Id,
 		&savedQuery.Name,
 		&savedQuery.QueryString,
-		&savedQuery.DatabaseId,
-		&savedQuery.ContainerId,
+		&savedQuery.DatabaseID,
+		&savedQuery.ContainerID,
 		&savedQuery.AccountName,
 		&savedQuery.Description,
 		&savedQuery.DateCreated,
@@ -498,8 +498,8 @@ func (m *SQLiteManager) GetSavedQueries() ([]SavedQueryOptions, error) {
 			&savedQuery.Id,
 			&savedQuery.Name,
 			&savedQuery.QueryString,
-			&savedQuery.DatabaseId,
-			&savedQuery.ContainerId,
+			&savedQuery.DatabaseID,
+			&savedQuery.ContainerID,
 			&savedQuery.AccountName,
 			&savedQuery.Description,
 			&savedQuery.DateCreated,

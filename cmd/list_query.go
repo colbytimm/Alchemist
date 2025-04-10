@@ -65,15 +65,17 @@ Examples:
 
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 					savedQueries[i].Name,
-					savedQueries[i].DatabaseId,
-					savedQueries[i].ContainerId,
+					savedQueries[i].DatabaseID,
+					savedQueries[i].ContainerID,
 					accountName,
 					description,
 					savedQueries[i].DateCreated,
 					savedQueries[i].DateModified,
 				)
 			}
-			w.Flush()
+			if err := w.Flush(); err != nil {
+				log.Printf("Failed to flush tabwriter: %v", err)
+			}
 		},
 	}
 

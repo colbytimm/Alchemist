@@ -17,7 +17,7 @@ func TestRoot(t *testing.T) {
 
 	// Assert that the root command is properly configured
 	assert.Equal(t, "alchemist", rootCmd.Use)
-	assert.Contains(t, rootCmd.Long, "is a command line tool for querying Cosmos DB in your terminal")
+	assert.Contains(t, rootCmd.Long, "A command line tool for querying Cosmos DB in your terminal")
 	assert.True(t, rootCmd.CompletionOptions.DisableDefaultCmd)
 
 	// Check that all expected subcommands are present

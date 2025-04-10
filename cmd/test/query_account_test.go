@@ -14,30 +14,30 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var mockCrossPartitionQuery func(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error)
+var mockCrossPartitionQuery func(databaseID, containerID, connectionString, customQuery string, verbose bool) (string, error)
 
 var originalCrossPartitionQuery = cmd.CrossPartitionQueryImpl
 
 type mockCosmosManager struct {
-	CrossPartitionQueryMock func(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error)
+	CrossPartitionQueryMock func(databaseID, containerID, connectionString, customQuery string, verbose bool) (string, error)
 }
 
 func (m *mockCosmosManager) Connect(connectionString string) error {
 	return nil
 }
 
-func (m *mockCosmosManager) CrossPartitionQuery(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error) {
+func (m *mockCosmosManager) CrossPartitionQuery(databaseID, containerID, connectionString, customQuery string, verbose bool) (string, error) {
 	if m.CrossPartitionQueryMock != nil {
-		return m.CrossPartitionQueryMock(databaseId, containerId, connectionString, customQuery, verbose)
+		return m.CrossPartitionQueryMock(databaseID, containerID, connectionString, customQuery, verbose)
 	}
 	return "", errors.New("not implemented")
 }
 
-func (m *mockCosmosManager) GetDatabaseIds() []string {
+func (m *mockCosmosManager) GetDatabaseIDs() []string {
 	return []string{}
 }
 
-func (m *mockCosmosManager) GetContainerIds(databaseID string) []string {
+func (m *mockCosmosManager) GetContainerIDs(databaseID string) []string {
 	return []string{}
 }
 
@@ -49,31 +49,31 @@ func (m *mockCosmosManager) GetContainerProperties(databaseID, containerID strin
 	return nil
 }
 
-func (m *mockCosmosManager) CreateDatabase(databaseId string) (*azcosmos.DatabaseProperties, error) {
+func (m *mockCosmosManager) CreateDatabase(databaseID string) (*azcosmos.DatabaseProperties, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockCosmosManager) CreateContainer(databaseId, containerId, partitionKeyPath string) (*azcosmos.ContainerProperties, error) {
+func (m *mockCosmosManager) CreateContainer(databaseID, containerID, partitionKeyPath string) (*azcosmos.ContainerProperties, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockCosmosManager) BatchUpload(databaseId, containerId, connectionString string, documents []map[string]interface{}, options *cosmos.BatchUploadOptions) (*cosmos.BatchUploadResult, error) {
+func (m *mockCosmosManager) BatchUpload(databaseID, containerID, connectionString string, documents []map[string]interface{}, options *cosmos.BatchUploadOptions) (*cosmos.BatchUploadResult, error) {
 	return nil, errors.New("not implemented")
 }
 
 var mockCosmos = &mockCosmosManager{}
 
 func setupCosmosTest() {
-	mockCrossPartitionQuery = func(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error) {
+	mockCrossPartitionQuery = func(databaseID, containerID, connectionString, customQuery string, verbose bool) (string, error) {
 		return "", errors.New("unimplemented mock")
 	}
 
-	cmd.CrossPartitionQueryImpl = func(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error) {
-		return mockCrossPartitionQuery(databaseId, containerId, connectionString, customQuery, verbose)
+	cmd.CrossPartitionQueryImpl = func(databaseID, containerID, connectionString, customQuery string, verbose bool) (string, error) {
+		return mockCrossPartitionQuery(databaseID, containerID, connectionString, customQuery, verbose)
 	}
 
-	mockCosmos.CrossPartitionQueryMock = func(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error) {
-		return mockCrossPartitionQuery(databaseId, containerId, connectionString, customQuery, verbose)
+	mockCosmos.CrossPartitionQueryMock = func(databaseID, containerID, connectionString, customQuery string, verbose bool) (string, error) {
+		return mockCrossPartitionQuery(databaseID, containerID, connectionString, customQuery, verbose)
 	}
 }
 
@@ -343,7 +343,7 @@ func TestQueryAccount_InvalidQuery(t *testing.T) {
 	}
 
 	// Mock the query execution with an error
-	mockCrossPartitionQuery = func(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error) {
+	mockCrossPartitionQuery = func(databaseID, containerID, connectionString, customQuery string, verbose bool) (string, error) {
 		return "", errors.New("invalid query")
 	}
 
@@ -388,7 +388,7 @@ func TestQueryAccount_Success(t *testing.T) {
 	}
 
 	// Mock the query execution with a success
-	mockCrossPartitionQuery = func(databaseId, containerId, connectionString, customQuery string, verbose bool) (string, error) {
+	mockCrossPartitionQuery = func(databaseID, containerID, connectionString, customQuery string, verbose bool) (string, error) {
 		// Return sample JSON result
 		return `[{"id": "doc1", "value": 42}]`, nil
 	}
