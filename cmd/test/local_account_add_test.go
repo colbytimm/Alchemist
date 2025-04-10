@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestAddAccount_Success(t *testing.T) {
+func TestLocalAccountAdd_Success(t *testing.T) {
 	// Configure the mock manager
 	mockManager.OpenDatabaseMock = func() error {
 		return nil
@@ -48,7 +48,7 @@ func TestAddAccount_Success(t *testing.T) {
 	assert.Equal(t, true, result.IsDefault)
 }
 
-func TestAddAccount_DatabaseError(t *testing.T) {
+func TestLocalAccountAdd_DatabaseError(t *testing.T) {
 	// Configure the mock manager
 	mockManager.OpenDatabaseMock = func() error {
 		return errors.New("database error")
@@ -70,7 +70,7 @@ func TestAddAccount_DatabaseError(t *testing.T) {
 	assert.Contains(t, err.Error(), "database error")
 }
 
-func TestAddAccount_TableError(t *testing.T) {
+func TestLocalAccountAdd_TableError(t *testing.T) {
 	// Configure the mock manager
 	mockManager.OpenDatabaseMock = func() error {
 		return nil
@@ -96,7 +96,7 @@ func TestAddAccount_TableError(t *testing.T) {
 	assert.Contains(t, err.Error(), "table error")
 }
 
-func TestAddAccount_InsertError(t *testing.T) {
+func TestLocalAccountAdd_InsertError(t *testing.T) {
 	// Configure the mock manager
 	mockManager.OpenDatabaseMock = func() error {
 		return nil

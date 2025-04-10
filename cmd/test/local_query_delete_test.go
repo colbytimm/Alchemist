@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestDeleteQueryCmd_DatabaseError(t *testing.T) {
+func TestLocalAccountDelete_DatabaseError(t *testing.T) {
 	// Save the original mock functions to restore after test
 	originalOpenDatabase := mockManager.OpenDatabaseMock
 	defer func() {
@@ -39,7 +39,7 @@ func TestDeleteQueryCmd_DatabaseError(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestDeleteQueryCmd_EnsureTableError(t *testing.T) {
+func TestLocalAccountDelete_EnsureTableError(t *testing.T) {
 	// Save the original mock functions to restore after test
 	originalEnsureTable := mockManager.EnsureSavedQueryTableExistsMock
 	defer func() {
@@ -67,7 +67,7 @@ func TestDeleteQueryCmd_EnsureTableError(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestDeleteQueryCmd_QueryNotFound(t *testing.T) {
+func TestLocalAccountDelete_QueryNotFound(t *testing.T) {
 	// Save the original mock functions to restore after test
 	originalGetQueryByName := mockManager.GetSavedQueryByNameMock
 	defer func() {
@@ -95,7 +95,7 @@ func TestDeleteQueryCmd_QueryNotFound(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestDeleteQueryCmd_DeleteError(t *testing.T) {
+func TestLocalAccountDelete_DeleteError(t *testing.T) {
 	// Save the original mock functions to restore after test
 	originalGetQueryByName := mockManager.GetSavedQueryByNameMock
 	originalDeleteByName := mockManager.DeleteSavedQueryByNameMock
@@ -131,7 +131,7 @@ func TestDeleteQueryCmd_DeleteError(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestDeleteQueryCmd_Success(t *testing.T) {
+func TestLocalAccountDelete_Success(t *testing.T) {
 	// Save the original mock functions to restore after test
 	originalGetQueryByName := mockManager.GetSavedQueryByNameMock
 	originalDeleteByName := mockManager.DeleteSavedQueryByNameMock
@@ -167,7 +167,7 @@ func TestDeleteQueryCmd_Success(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestDeleteQueryCmd_MissingName(t *testing.T) {
+func TestLocalAccountDelete_MissingName(t *testing.T) {
 	// Create service provider with mocked database manager
 	sp := &services.ServiceProvider{
 		DatabaseManager: mockManager,

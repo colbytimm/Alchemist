@@ -41,7 +41,7 @@ func createTempJSONFile(t *testing.T, content string) string {
 	return tempFile.Name()
 }
 
-func TestBatchUpload_MissingParams(t *testing.T) {
+func TestCosmosDataUpload_MissingParams(t *testing.T) {
 	setupBatchTest()
 
 	mockCosmos := cosmos.NewMockCosmosManager()
@@ -98,7 +98,7 @@ func TestBatchUpload_MissingParams(t *testing.T) {
 	assert.Contains(t, err.Error(), "database ID, container ID, and input file are required")
 }
 
-func TestBatchUpload_DatabaseError(t *testing.T) {
+func TestCosmosDataUpload_DatabaseError(t *testing.T) {
 	setupBatchTest()
 
 	fileName := createTempJSONFile(t, `[{"id": "doc1", "value": "test"}]`)
@@ -127,7 +127,7 @@ func TestBatchUpload_DatabaseError(t *testing.T) {
 	assert.Contains(t, err.Error(), "database error")
 }
 
-func TestBatchUpload_NoAccounts(t *testing.T) {
+func TestCosmosDataUpload_NoAccounts(t *testing.T) {
 	setupBatchTest()
 
 	fileName := createTempJSONFile(t, `[{"id": "doc1", "value": "test"}]`)
@@ -160,7 +160,7 @@ func TestBatchUpload_NoAccounts(t *testing.T) {
 	assert.Contains(t, err.Error(), "no accounts found")
 }
 
-func TestBatchUpload_InvalidJSON(t *testing.T) {
+func TestCosmosDataUpload_InvalidJSON(t *testing.T) {
 	setupBatchTest()
 
 	fileName := createTempJSONFile(t, `[{"id": "doc1", "value": "test"`)
@@ -201,7 +201,7 @@ func TestBatchUpload_InvalidJSON(t *testing.T) {
 	assert.Contains(t, err.Error(), "error parsing JSON")
 }
 
-func TestBatchUpload_Success(t *testing.T) {
+func TestCosmosDataUpload_Success(t *testing.T) {
 	setupBatchTest()
 
 	fileName := createTempJSONFile(t, `[{"id": "doc1", "value": "test"}]`)
