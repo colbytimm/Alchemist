@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func SaveQueryCmd(sp *services.ServiceProvider) *cobra.Command {
+func LocalQuerySaveCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
 		queryName   string
 		queryString string
@@ -16,14 +16,14 @@ func SaveQueryCmd(sp *services.ServiceProvider) *cobra.Command {
 		verbose     bool
 	)
 
-	saveQueryCmd := &cobra.Command{
-		Use:   "save-query",
+	cmd := &cobra.Command{
+		Use:   "query save",
 		Short: "Save a query for later use",
 		Long: `Save a SQL query with a name for later use.
 
 Examples:
-  alchemist save-query --name "my-query" --query "SELECT * FROM database.container as c WHERE c.id = '123'"
-  alchemist save-query --name "my-query" --query "SELECT * FROM database.container as c" --account "dev-account"`,
+  alchemist local query save --name "my-query" --query "SELECT * FROM database.container as c WHERE c.id = '123'"
+  alchemist local query save --name "my-query" --query "SELECT * FROM database.container as c" --account "dev-account"`,
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -101,14 +101,14 @@ Examples:
 		},
 	}
 
-	saveQueryCmd.Flags().StringVarP(&queryName, "name", "n", "", "Name for the saved query")
-	saveQueryCmd.Flags().StringVarP(&queryString, "query", "q", "", "The query to save")
-	saveQueryCmd.Flags().StringVarP(&accountName, "account", "a", "", "Account to use for this query")
-	saveQueryCmd.Flags().StringVarP(&description, "description", "d", "", "Description for the query")
-	saveQueryCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show verbose output")
+	cmd.Flags().StringVarP(&queryName, "name", "n", "", "Name for the saved query")
+	cmd.Flags().StringVarP(&queryString, "query", "q", "", "The query to save")
+	cmd.Flags().StringVarP(&accountName, "account", "a", "", "Account to use for this query")
+	cmd.Flags().StringVarP(&description, "description", "d", "", "Description for the query")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show verbose output")
 
-	_ = saveQueryCmd.MarkFlagRequired("name")
-	_ = saveQueryCmd.MarkFlagRequired("query")
+	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("query")
 
-	return saveQueryCmd
+	return cmd
 }

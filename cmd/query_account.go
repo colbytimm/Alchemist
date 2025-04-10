@@ -184,7 +184,7 @@ func FormatOutput(jsonData string, format OutputFormat) (string, error) {
 	}
 }
 
-func QueryAccountCmd(sp *services.ServiceProvider) *cobra.Command {
+func CosmosDataQueryCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
 		query          string
 		accountName    string
@@ -198,14 +198,14 @@ func QueryAccountCmd(sp *services.ServiceProvider) *cobra.Command {
 	)
 
 	queryAccountCmd := &cobra.Command{
-		Use:   "query-account",
+		Use:   "data query",
 		Short: "Query your Cosmos DB account",
 		Long: `Execute queries or list all documents in a Cosmos DB container.
 
 Examples:
-  alchemist query-account --query "SELECT * FROM database.container as c WHERE c.id = '123'"
-  alchemist query-account --list-all --database mydb --container mycoll
-  alchemist query-account --saved-query "my-query"`,
+  alchemist cosmos data query --query "SELECT * FROM database.container as c WHERE c.id = '123'"
+  alchemist cosmos data query --list-all --database mydb --container mycoll
+  alchemist cosmos data query --saved-query "my-query"`,
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {

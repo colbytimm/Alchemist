@@ -98,7 +98,7 @@ func teardownTest() {
 	cosmos.CreateContainerImpl = cosmosCreateContainerImpl
 }
 
-func TestGetAccountDetails_DatabaseError(t *testing.T) {
+func TestCosmosAccountManage_DatabaseError(t *testing.T) {
 	mockManager.OpenDatabaseMock = func() error {
 		return errors.New("database error")
 	}
@@ -109,7 +109,7 @@ func TestGetAccountDetails_DatabaseError(t *testing.T) {
 	assert.Contains(t, err.Error(), "database error")
 }
 
-func TestGetAccountDetails_NoAccounts(t *testing.T) {
+func TestCosmosAccountManage_NoAccounts(t *testing.T) {
 	mockManager.OpenDatabaseMock = func() error {
 		return nil
 	}
@@ -124,7 +124,7 @@ func TestGetAccountDetails_NoAccounts(t *testing.T) {
 	assert.Contains(t, err.Error(), "no accounts found")
 }
 
-func TestGetAccountDetails_DefaultAccount(t *testing.T) {
+func TestCosmosAccountManage_DefaultAccount(t *testing.T) {
 	mockManager.OpenDatabaseMock = func() error {
 		return nil
 	}
@@ -157,7 +157,7 @@ func TestGetAccountDetails_DefaultAccount(t *testing.T) {
 	assert.Equal(t, true, account.IsDefault)
 }
 
-func TestGetAccountDetails_SpecificAccount(t *testing.T) {
+func TestCosmosAccountManage_SpecificAccount(t *testing.T) {
 	mockManager.OpenDatabaseMock = func() error {
 		return nil
 	}
@@ -182,7 +182,7 @@ func TestGetAccountDetails_SpecificAccount(t *testing.T) {
 	assert.Equal(t, "specific-connection-string", account.ConnectionString)
 }
 
-func TestGetAccountDetails_AccountNotFound(t *testing.T) {
+func TestCosmosAccountManage_AccountNotFound(t *testing.T) {
 	mockManager.OpenDatabaseMock = func() error {
 		return nil
 	}

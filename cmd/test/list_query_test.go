@@ -176,7 +176,7 @@ func TestListQueryCmd_Success(t *testing.T) {
 	}
 
 	// Create the command
-	cmd := cmd.ListQueryCmd(sp)
+	cmd := cmd.LocalQueryListCmd(sp)
 
 	// Execute the command
 	err := cmd.Execute()
@@ -203,7 +203,7 @@ func TestListQueryCmd_NoQueriesFound(t *testing.T) {
 	}
 
 	// Create the command
-	cmd := cmd.ListQueryCmd(sp)
+	cmd := cmd.LocalQueryListCmd(sp)
 
 	// Execute the command
 	err := cmd.Execute()
@@ -230,7 +230,7 @@ func TestListQueryCmd_Error(t *testing.T) {
 	}
 
 	// Create the command
-	cmd := cmd.ListQueryCmd(sp)
+	cmd := cmd.LocalQueryListCmd(sp)
 
 	// Execute the command
 	err := cmd.Execute()

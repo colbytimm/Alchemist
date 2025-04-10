@@ -893,15 +893,15 @@ func createContainerTable(containers []*ContainerInfo) table.Model {
 	return *s
 }
 
-func AccountDetailsCmd(sp *services.ServiceProvider) *cobra.Command {
+func CosmosAccountManageCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
 		accountName string
 		verbose     bool
 	)
 
-	accountDetailsCmd := &cobra.Command{
-		Use:                   "account-details",
-		Short:                 "View and manage Cosmos DB account details",
+	cmd := &cobra.Command{
+		Use:                   "account manage",
+		Short:                 "View and manage Cosmos DB accounts",
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -917,10 +917,10 @@ func AccountDetailsCmd(sp *services.ServiceProvider) *cobra.Command {
 		},
 	}
 
-	accountDetailsCmd.Flags().StringVarP(&accountName, "name", "n", "", "Account name to use (uses default if not specified)")
-	accountDetailsCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for debug logging")
+	cmd.Flags().StringVarP(&accountName, "name", "n", "", "Account name to use (uses default if not specified)")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for debug logging")
 
-	return accountDetailsCmd
+	return cmd
 }
 
 func runAccountDetailsUI(account data.AccountOptions) {

@@ -17,14 +17,14 @@ func TestSaveQueryCmd_MissingRequiredFlags(t *testing.T) {
 	}
 
 	// Test with missing name flag
-	cmdInstance := cmd.SaveQueryCmd(sp)
+	cmdInstance := cmd.LocalQuerySaveCmd(sp)
 	cmdInstance.SetArgs([]string{"--query", "SELECT * FROM db.container as c"})
 	err := cmdInstance.Execute()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "required flag(s) \"name\" not set")
 
 	// Test with missing query flag
-	cmdInstance = cmd.SaveQueryCmd(sp)
+	cmdInstance = cmd.LocalQuerySaveCmd(sp)
 	cmdInstance.SetArgs([]string{"--name", "test-query"})
 	err = cmdInstance.Execute()
 	assert.Error(t, err)
@@ -49,7 +49,7 @@ func TestSaveQueryCmd_InvalidQuery(t *testing.T) {
 	}
 
 	// Create the command
-	cmdInstance := cmd.SaveQueryCmd(sp)
+	cmdInstance := cmd.LocalQuerySaveCmd(sp)
 
 	// Execute the command with valid name but invalid query
 	cmdInstance.SetArgs([]string{"--name", "test-query", "--query", "INVALID QUERY"})
@@ -77,7 +77,7 @@ func TestSaveQueryCmd_DatabaseError(t *testing.T) {
 	}
 
 	// Create the command
-	cmdInstance := cmd.SaveQueryCmd(sp)
+	cmdInstance := cmd.LocalQuerySaveCmd(sp)
 
 	// Execute the command with valid name and query
 	cmdInstance.SetArgs([]string{"--name", "test-query", "--query", "SELECT * FROM test-db.test-container as c"})
@@ -105,7 +105,7 @@ func TestSaveQueryCmd_TableError(t *testing.T) {
 	}
 
 	// Create the command
-	cmdInstance := cmd.SaveQueryCmd(sp)
+	cmdInstance := cmd.LocalQuerySaveCmd(sp)
 
 	// Execute the command
 	cmdInstance.SetArgs([]string{"--name", "test-query", "--query", "SELECT * FROM test-db.test-container as c"})
@@ -133,7 +133,7 @@ func TestSaveQueryCmd_SaveError(t *testing.T) {
 	}
 
 	// Create the command
-	cmdInstance := cmd.SaveQueryCmd(sp)
+	cmdInstance := cmd.LocalQuerySaveCmd(sp)
 
 	// Execute the command
 	cmdInstance.SetArgs([]string{"--name", "test-query", "--query", "SELECT * FROM test-db.test-container as c"})
@@ -182,7 +182,7 @@ func TestSaveQueryCmd_Success(t *testing.T) {
 	}
 
 	// Create the command
-	cmdInstance := cmd.SaveQueryCmd(sp)
+	cmdInstance := cmd.LocalQuerySaveCmd(sp)
 
 	// Execute the command with all possible flags
 	cmdInstance.SetArgs([]string{
@@ -237,7 +237,7 @@ func TestSaveQueryCmd_SuccessWithoutOptionalFlags(t *testing.T) {
 	}
 
 	// Create the command
-	cmdInstance := cmd.SaveQueryCmd(sp)
+	cmdInstance := cmd.LocalQuerySaveCmd(sp)
 
 	// Execute the command with only required flags
 	cmdInstance.SetArgs([]string{

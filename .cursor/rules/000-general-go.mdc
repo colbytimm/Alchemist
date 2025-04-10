@@ -9,7 +9,7 @@ alwaysApply: true
 - If I type "validate rules" you will output all rule files that are being used.
 - Follow the user's requirements carefully & to the letter.
 - First think step-by-step - describe your plan for the feature in pseudocode, written out in great detail.
-- Confirm the plan, then write code!
+- Then ask the user "Confirm the plan?" and if they say yes, then write code!
 - Write correct, up-to-date, bug-free, fully functional, secure, and efficient Go code for CLIs.
 - Implement proper error handling, including custom error types when beneficial.
 - Follow CLI design principles and best practices.

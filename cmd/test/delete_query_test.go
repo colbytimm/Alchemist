@@ -29,7 +29,7 @@ func TestDeleteQueryCmd_DatabaseError(t *testing.T) {
 	}
 
 	// Create the command
-	cmd := cmd.DeleteQueryCmd(sp)
+	cmd := cmd.LocalQueryDeleteCmd(sp)
 
 	// Execute the command - need to pass the required flag
 	cmd.SetArgs([]string{"--name", "test-query"})
@@ -57,7 +57,7 @@ func TestDeleteQueryCmd_EnsureTableError(t *testing.T) {
 	}
 
 	// Create the command
-	cmd := cmd.DeleteQueryCmd(sp)
+	cmd := cmd.LocalQueryDeleteCmd(sp)
 
 	// Execute the command - need to pass the required flag
 	cmd.SetArgs([]string{"--name", "test-query"})
@@ -85,7 +85,7 @@ func TestDeleteQueryCmd_QueryNotFound(t *testing.T) {
 	}
 
 	// Create the command
-	cmd := cmd.DeleteQueryCmd(sp)
+	cmd := cmd.LocalQueryDeleteCmd(sp)
 
 	// Execute the command - need to pass the required flag
 	cmd.SetArgs([]string{"--name", "non-existent-query"})
@@ -121,7 +121,7 @@ func TestDeleteQueryCmd_DeleteError(t *testing.T) {
 	}
 
 	// Create the command
-	cmd := cmd.DeleteQueryCmd(sp)
+	cmd := cmd.LocalQueryDeleteCmd(sp)
 
 	// Execute the command - need to pass the required flag
 	cmd.SetArgs([]string{"--name", "test-query"})
@@ -157,7 +157,7 @@ func TestDeleteQueryCmd_Success(t *testing.T) {
 	}
 
 	// Create the command
-	cmd := cmd.DeleteQueryCmd(sp)
+	cmd := cmd.LocalQueryDeleteCmd(sp)
 
 	// Execute the command - need to pass the required flag
 	cmd.SetArgs([]string{"--name", "test-query"})
@@ -174,7 +174,7 @@ func TestDeleteQueryCmd_MissingName(t *testing.T) {
 	}
 
 	// Create the command
-	cmd := cmd.DeleteQueryCmd(sp)
+	cmd := cmd.LocalQueryDeleteCmd(sp)
 
 	// Save the original Run function to avoid actual execution
 	originalRun := cmd.Run

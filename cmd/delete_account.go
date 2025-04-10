@@ -27,15 +27,15 @@ func DeleteAccountInternal(accountName string, dbManager data.DatabaseManager, v
 	return nil
 }
 
-func DeleteAccountCmd(sp *services.ServiceProvider) *cobra.Command {
+func LocalAccountDeleteCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
 		accountName string
 		verbose     bool
 	)
 
-	deleteAccountCmd := &cobra.Command{
-		Use:                   "delete-account",
-		Short:                 "Delete a Cosmos DB account",
+	cmd := &cobra.Command{
+		Use:                   "account delete",
+		Short:                 "Delete a Cosmos DB account from local storage",
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -58,11 +58,11 @@ func DeleteAccountCmd(sp *services.ServiceProvider) *cobra.Command {
 		},
 	}
 
-	deleteAccountCmd.Flags().StringVarP(&accountName, "name", "n", "", "Account name")
-	if err := deleteAccountCmd.MarkFlagRequired("name"); err != nil {
+	cmd.Flags().StringVarP(&accountName, "name", "n", "", "Account name")
+	if err := cmd.MarkFlagRequired("name"); err != nil {
 		log.Fatal("Failed to mark 'name' flag as required", "error", err)
 	}
-	deleteAccountCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for debug logging")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for debug logging")
 
-	return deleteAccountCmd
+	return cmd
 }

@@ -7,19 +7,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func DeleteQueryCmd(sp *services.ServiceProvider) *cobra.Command {
+func LocalQueryDeleteCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
 		queryName string
 		verbose   bool
 	)
 
-	deleteQueryCmd := &cobra.Command{
-		Use:   "delete-query",
-		Short: "Delete a saved query",
+	cmd := &cobra.Command{
+		Use:   "query delete",
+		Short: "Delete a saved query from local storage",
 		Long: `Delete a saved query by name.
 
 Examples:
-  alchemist delete-query --name "my-query"`,
+  alchemist local query delete --name "my-query"`,
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -62,10 +62,10 @@ Examples:
 		},
 	}
 
-	deleteQueryCmd.Flags().StringVarP(&queryName, "name", "n", "", "Name of the query to delete")
-	deleteQueryCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show verbose output")
+	cmd.Flags().StringVarP(&queryName, "name", "n", "", "Name of the query to delete")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show verbose output")
 
-	_ = deleteQueryCmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("name")
 
-	return deleteQueryCmd
+	return cmd
 }

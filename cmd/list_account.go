@@ -194,12 +194,12 @@ func isDefaultCheckmark(value bool) string {
 	return ""
 }
 
-func ListAccountCmd(sp *services.ServiceProvider) *cobra.Command {
+func LocalAccountListCmd(sp *services.ServiceProvider) *cobra.Command {
 	var verbose bool
 
-	listAccountCmd := &cobra.Command{
-		Use:                   "list-accounts",
-		Short:                 "List and manage Cosmos DB accounts",
+	cmd := &cobra.Command{
+		Use:                   "account list",
+		Short:                 "List and manage Cosmos DB accounts from local storage",
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -208,14 +208,14 @@ func ListAccountCmd(sp *services.ServiceProvider) *cobra.Command {
 			err := sp.DatabaseManager.OpenDatabase()
 			if err != nil {
 				log.Error("Could not open database", "error", err)
-				log.Info("Hint: Make sure you've added at least one account using 'alchemist add-account'")
+				log.Info("Hint: Make sure you've added at least one account using 'alchemist local account add'")
 				return
 			}
 
 			err = sp.DatabaseManager.EnsureAccountTableExists()
 			if err != nil {
 				log.Error("Could not ensure account table exists", "error", err)
-				log.Info("Hint: Make sure you've added at least one account using 'alchemist add-account'")
+				log.Info("Hint: Make sure you've added at least one account using 'alchemist local account add'")
 				return
 			}
 
@@ -226,7 +226,7 @@ func ListAccountCmd(sp *services.ServiceProvider) *cobra.Command {
 			}
 
 			if len(accounts) == 0 {
-				log.Info("No accounts found. Add an account using 'alchemist add-account'")
+				log.Info("No accounts found. Add an account using 'alchemist local account add'")
 				return
 			}
 
@@ -244,9 +244,9 @@ func ListAccountCmd(sp *services.ServiceProvider) *cobra.Command {
 		},
 	}
 
-	listAccountCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for debug logging")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for debug logging")
 
-	return listAccountCmd
+	return cmd
 }
 
 func createAccountTable(accounts []data.AccountOptions) table.Model {

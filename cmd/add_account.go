@@ -29,15 +29,15 @@ func AddAccountInternal(options *data.AccountOptions, dbManager data.DatabaseMan
 	return account, nil
 }
 
-func AddAccountCmd(sp *services.ServiceProvider) *cobra.Command {
+func LocalAccountAddCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
 		options data.AccountOptions
 		verbose bool
 	)
 
-	addAccountCmd := &cobra.Command{
-		Use:                   "add-account",
-		Short:                 "Add Cosmos DB account",
+	cmd := &cobra.Command{
+		Use:                   "account add",
+		Short:                 "Add a Cosmos DB account to local storage",
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -57,19 +57,19 @@ func AddAccountCmd(sp *services.ServiceProvider) *cobra.Command {
 		},
 	}
 
-	addAccountCmd.Flags().StringVarP(&options.Name, "name", "n", "", "Account name")
-	if err := addAccountCmd.MarkFlagRequired("name"); err != nil {
+	cmd.Flags().StringVarP(&options.Name, "name", "n", "", "Account name")
+	if err := cmd.MarkFlagRequired("name"); err != nil {
 		log.Fatal("Failed to mark 'name' flag as required", "error", err)
 	}
-	addAccountCmd.Flags().StringVarP(&options.ConnectionString, "connection", "c", "", "Account connection string")
-	if err := addAccountCmd.MarkFlagRequired("connection"); err != nil {
+	cmd.Flags().StringVarP(&options.ConnectionString, "connection", "c", "", "Account connection string")
+	if err := cmd.MarkFlagRequired("connection"); err != nil {
 		log.Fatal("Failed to mark 'connection' flag as required", "error", err)
 	}
-	addAccountCmd.Flags().StringVarP(&options.Tag, "tag", "t", "", "Account tag (e.g. dev, QA, etc.)")
-	if err := addAccountCmd.MarkFlagRequired("tag"); err != nil {
+	cmd.Flags().StringVarP(&options.Tag, "tag", "t", "", "Account tag (e.g. dev, QA, etc.)")
+	if err := cmd.MarkFlagRequired("tag"); err != nil {
 		log.Fatal("Failed to mark 'tag' flag as required", "error", err)
 	}
-	addAccountCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for debug logging")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for debug logging")
 
-	return addAccountCmd
+	return cmd
 }

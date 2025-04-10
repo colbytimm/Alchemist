@@ -440,7 +440,7 @@ func TestQueryAccountCmd(t *testing.T) {
 	// Test with query flag
 	t.Run("with query flag", func(t *testing.T) {
 		// Create a new command for this test
-		queryCmd := cmd.QueryAccountCmd(sp)
+		queryCmd := cmd.CosmosDataQueryCmd(sp)
 
 		// Redirect standard output to capture the query results
 		oldStdout := os.Stdout
@@ -471,7 +471,7 @@ func TestQueryAccountCmd(t *testing.T) {
 	// Test with list-all flag
 	t.Run("with list-all flag", func(t *testing.T) {
 		// Create a new command for this test
-		queryCmd := cmd.QueryAccountCmd(sp)
+		queryCmd := cmd.CosmosDataQueryCmd(sp)
 
 		// Redirect standard output to capture the query results
 		oldStdout := os.Stdout

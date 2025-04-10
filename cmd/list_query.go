@@ -11,18 +11,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func ListQueryCmd(sp *services.ServiceProvider) *cobra.Command {
+func LocalQueryListCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
 		verbose bool
 	)
 
-	listQueryCmd := &cobra.Command{
-		Use:   "list-query",
-		Short: "List all saved queries",
+	cmd := &cobra.Command{
+		Use:   "query list",
+		Short: "List all saved queries from local storage",
 		Long: `List all saved queries.
 
 Examples:
-  alchemist list-query`,
+  alchemist local query list`,
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -79,9 +79,9 @@ Examples:
 		},
 	}
 
-	listQueryCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show verbose output")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show verbose output")
 
-	return listQueryCmd
+	return cmd
 }
 
 func ListQueriesInternal(dbManager data.DatabaseManager) ([]data.SavedQueryOptions, error) {

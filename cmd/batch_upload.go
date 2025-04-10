@@ -139,7 +139,7 @@ func BatchUploadInternal(
 	return result, nil
 }
 
-func BatchUploadCmd(sp *services.ServiceProvider) *cobra.Command {
+func CosmosDataUploadCmd(sp *services.ServiceProvider) *cobra.Command {
 	var (
 		accountName  string
 		databaseID   string
@@ -152,9 +152,10 @@ func BatchUploadCmd(sp *services.ServiceProvider) *cobra.Command {
 		batchPauseMs int
 	)
 
-	batchUploadCmd := &cobra.Command{
-		Use:                   "batch-upload",
-		Short:                 "Upload multiple documents to Cosmos DB container",
+	cmd := &cobra.Command{
+		Use:                   "data upload",
+		Short:                 "Upload documents to a Cosmos DB container",
+		Long:                  "Upload documents to a Cosmos DB container from a JSON file",
 		Args:                  cobra.ExactArgs(0),
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -194,24 +195,24 @@ func BatchUploadCmd(sp *services.ServiceProvider) *cobra.Command {
 		},
 	}
 
-	batchUploadCmd.Flags().StringVarP(&accountName, "account", "a", "", "Account name to use (default if not specified)")
-	batchUploadCmd.Flags().StringVarP(&databaseID, "database", "d", "", "Database ID")
-	if err := batchUploadCmd.MarkFlagRequired("database"); err != nil {
+	cmd.Flags().StringVarP(&accountName, "account", "a", "", "Account name to use (default if not specified)")
+	cmd.Flags().StringVarP(&databaseID, "database", "d", "", "Database ID")
+	if err := cmd.MarkFlagRequired("database"); err != nil {
 		log.Fatal("Failed to mark 'database' flag as required", "error", err)
 	}
-	batchUploadCmd.Flags().StringVarP(&containerID, "container", "c", "", "Container ID")
-	if err := batchUploadCmd.MarkFlagRequired("container"); err != nil {
+	cmd.Flags().StringVarP(&containerID, "container", "c", "", "Container ID")
+	if err := cmd.MarkFlagRequired("container"); err != nil {
 		log.Fatal("Failed to mark 'container' flag as required", "error", err)
 	}
-	batchUploadCmd.Flags().StringVarP(&inputFile, "input", "i", "", "Input JSON file containing documents")
-	if err := batchUploadCmd.MarkFlagRequired("input"); err != nil {
+	cmd.Flags().StringVarP(&inputFile, "input", "i", "", "Input JSON file containing documents")
+	if err := cmd.MarkFlagRequired("input"); err != nil {
 		log.Fatal("Failed to mark 'input' flag as required", "error", err)
 	}
-	batchUploadCmd.Flags().IntVar(&batchSize, "batch-size", 100, "Number of documents per batch")
-	batchUploadCmd.Flags().BoolVar(&retry, "retry", true, "Retry failed documents")
-	batchUploadCmd.Flags().IntVar(&maxRetries, "max-retries", 3, "Maximum number of retries")
-	batchUploadCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for debug logging")
-	batchUploadCmd.Flags().IntVar(&batchPauseMs, "batch-pause", 100, "Pause between batches in milliseconds")
+	cmd.Flags().IntVar(&batchSize, "batch-size", 100, "Number of documents per batch")
+	cmd.Flags().BoolVar(&retry, "retry", true, "Retry failed documents")
+	cmd.Flags().IntVar(&maxRetries, "max-retries", 3, "Maximum number of retries")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for debug logging")
+	cmd.Flags().IntVar(&batchPauseMs, "batch-pause", 100, "Pause between batches in milliseconds")
 
-	return batchUploadCmd
+	return cmd
 }

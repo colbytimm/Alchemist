@@ -24,15 +24,33 @@ func Root(sp *services.ServiceProvider) *cobra.Command {
 
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
-	rootCmd.AddCommand(AddAccountCmd(sp))
-	rootCmd.AddCommand(DeleteAccountCmd(sp))
-	rootCmd.AddCommand(ListAccountCmd(sp))
-	rootCmd.AddCommand(QueryAccountCmd(sp))
-	rootCmd.AddCommand(AccountDetailsCmd(sp))
-	rootCmd.AddCommand(BatchUploadCmd(sp))
-	rootCmd.AddCommand(SaveQueryCmd(sp))
-	rootCmd.AddCommand(ListQueryCmd(sp))
-	rootCmd.AddCommand(DeleteQueryCmd(sp))
+	// Local storage management commands
+	localCmd := &cobra.Command{
+		Use:   "local",
+		Short: "Manage local storage for accounts and queries",
+		Long:  "Commands for managing local storage of Cosmos DB accounts and saved queries",
+	}
+
+	localCmd.AddCommand(LocalAccountAddCmd(sp))
+	localCmd.AddCommand(LocalAccountDeleteCmd(sp))
+	localCmd.AddCommand(LocalAccountListCmd(sp))
+	localCmd.AddCommand(LocalQuerySaveCmd(sp))
+	localCmd.AddCommand(LocalQueryListCmd(sp))
+	localCmd.AddCommand(LocalQueryDeleteCmd(sp))
+
+	// Cosmos DB operations commands
+	cosmosCmd := &cobra.Command{
+		Use:   "cosmos",
+		Short: "Interact with Cosmos DB",
+		Long:  "Commands for interacting directly with Cosmos DB resources and data",
+	}
+
+	cosmosCmd.AddCommand(CosmosAccountManageCmd(sp))
+	cosmosCmd.AddCommand(CosmosDataQueryCmd(sp))
+	cosmosCmd.AddCommand(CosmosDataUploadCmd(sp))
+
+	rootCmd.AddCommand(localCmd)
+	rootCmd.AddCommand(cosmosCmd)
 
 	return rootCmd
 }
