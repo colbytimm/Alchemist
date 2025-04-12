@@ -21,17 +21,25 @@ jobs:
         go-version: '1.22'
         cache: true
 
-    # - name: 📦 Install dependencies and tools
-    #   run: |
-    #     go mod download
-    #     make install-tools
-    #     make security-deps
+    - name: 💾 Cache tools
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/go/bin
+          ~/.cache/golangci-lint
+          ~/.cache/go-build
+        key: ${{ runner.os }}-tools-${{ hashFiles('**/go.sum') }}-${{ hashFiles('Makefile') }}
+        restore-keys: |
+          ${{ runner.os }}-tools-
 
-    - name: 🔍 Debug workspace
+    - name: 📦 Install tools
       run: |
-        pwd
-        ls -la
-        cat Makefile | grep quality-gate
+        go mod download
+        go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+        go install golang.org/x/tools/cmd/goimports@latest
+        go install github.com/securego/gosec/v2/cmd/gosec@latest
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        go install github.com/zricethezav/gitleaks/v8@latest
 
     - name: 🧪 Run Quality Gate
       run: make quality-gate

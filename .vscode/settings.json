@@ -30,6 +30,7 @@
         "gosec",
         "gosimple",
         "govet",
+        "govulncheck",
         "honnef",
         "ineffassign",
         "isquery",
@@ -48,6 +49,7 @@
         "pgup",
         "secondaccount",
         "secondquery",
+        "securego",
         "Sscanf",
         "staticcheck",
         "stretchr",
@@ -61,7 +63,8 @@
         "unparam",
         "updatedaccount",
         "updatedcontainer",
-        "updateddb"
+        "updateddb",
+        "zricethezav"
     ],
     "go.useLanguageServer": true,
     "go.lintTool": "golangci-lint",

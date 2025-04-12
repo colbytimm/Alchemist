@@ -55,7 +55,7 @@ gosec:
 	@echo "gosec results saved to gosec-results.txt"
 
 # Check for vulnerabilities in dependencies
-govulncheck:
+vuln-check:
 	@echo "Running govulncheck..."
 	@go run golang.org/x/vuln/cmd/govulncheck@latest ./... || true
 	@echo "govulncheck results noted. See output above for details."
@@ -72,11 +72,11 @@ lint-security:
 	@go run github.com/golangci/golangci-lint/cmd/golangci-lint@latest run --timeout=5m -c .golangci-security.yml ./...
 
 # Run all security checks
-security: gosec govulncheck gitleaks lint-security
+security: gosec vuln-check gitleaks lint-security
 	@echo "All security checks completed"
 
 # Complete quality gate including security
-all-security: build test fmt lint security
+quality-gate: build test fmt lint security
 	@echo "All quality checks and security scans completed"
 
 clean:
