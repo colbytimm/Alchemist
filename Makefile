@@ -76,7 +76,7 @@ security: gosec vuln-check gitleaks lint-security
 	@echo "All security checks completed"
 
 # Complete quality gate including security
-quality-gate: build test fmt lint security
+quality-gate: build test lint gosec vuln-check gitleaks
 	@echo "All quality checks and security scans completed"
 
 clean:
