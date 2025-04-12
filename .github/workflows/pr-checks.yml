@@ -44,3 +44,20 @@ jobs:
 
     - name: 🧪 Run Quality Gate
       run: make quality-gate
+
+    - name: 📊 Generate Coverage Report
+      run: make coverage-html
+
+    - name: 📋 Add Coverage Report to Job Summary
+      run: |
+        echo "## 📊 Test Coverage Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        go tool cover -func=coverage.out >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "<details><summary>📈 Detailed Coverage Report</summary>" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        cat coverage.html >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "</details>" >> $GITHUB_STEP_SUMMARY
