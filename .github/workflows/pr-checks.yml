@@ -27,5 +27,11 @@ jobs:
     #     make install-tools
     #     make security-deps
 
+    - name: 🔍 Debug workspace
+      run: |
+        pwd
+        ls -la
+        cat Makefile | grep quality-gate
+
     - name: 🧪 Run Quality Gate
       run: make quality-gate
