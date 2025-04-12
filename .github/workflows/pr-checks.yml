@@ -22,20 +22,21 @@ jobs:
         cache: true
 
     - name: 💾 Cache tools
+      id: cache-tools
       uses: actions/cache@v4
       with:
         path: |
-          ~/go/bin
-          ~/.cache/golangci-lint
-          ~/.cache/go-build
-        key: ${{ runner.os }}-tools-${{ hashFiles('**/go.sum') }}-${{ hashFiles('Makefile') }}
+          ~/go/bin/
+          ~/.cache/golangci-lint/
+          ~/.cache/go-build/
+        key: ${{ runner.os }}-tools-${{ hashFiles('go.mod', 'go.sum', 'Makefile') }}
         restore-keys: |
           ${{ runner.os }}-tools-
 
     - name: 📦 Install tools
+      if: steps.cache-tools.outputs.cache-hit != 'true'
       run: |
-        go mod download
-        go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+        go install github.com/golangci-lint/golangci-lint/cmd/golangci-lint@latest
         go install golang.org/x/tools/cmd/goimports@latest
         go install github.com/securego/gosec/v2/cmd/gosec@latest
         go install golang.org/x/vuln/cmd/govulncheck@latest
