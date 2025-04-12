@@ -13,7 +13,7 @@ build:
 
 test:
 	@echo "Running tests..."
-	@go test -v ./...
+	@go test -v ./... -coverprofile=coverage.out
 
 coverage-html:
 	@echo "Generating coverage HTML report..."
