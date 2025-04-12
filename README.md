@@ -239,4 +239,4 @@ This project uses GitHub Actions for CI/CD. The workflow is defined in `.github/
 
 ## License
 
-[License information]
+[License information](./LICENSE)
