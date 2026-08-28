@@ -1,8 +1,0 @@
----
-description: project overview
-alwaysApply: true
----
-
-# Overview
-- The purpose of this CLI application is to provide users the ability to interact with their Azure Cosmos DB account
-- Always use the latest stable version of Go (1.22 or newer)
