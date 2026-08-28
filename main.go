@@ -1,17 +1,16 @@
+// Command alchemist is a terminal IDE for Azure Cosmos DB.
 package main
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/colbytimm/alchemist/cmd"
-	"github.com/colbytimm/alchemist/services"
 )
 
 func main() {
-	// Initialize service provider with dependencies
-	sp := services.NewServiceProvider()
-
-	// Create and execute root command
-	rootCmd := cmd.Root(sp)
-	if err := rootCmd.Execute(); err != nil {
-		panic(err)
+	if err := cmd.NewRootCmd().Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "alchemist:", err)
+		os.Exit(1)
 	}
 }

@@ -1,105 +1,62 @@
-run:
-  timeout: 5m
-  modules-download-mode: readonly
-  allow-parallel-runners: true
+version: "2"
 
 linters:
-  disable:
-    - noctx
+  default: none
   enable:
-    # Default linters
+    - bodyclose
+    - depguard
     - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - typecheck
-    - unused
-
-    # Additional linters for code quality
-    - misspell
-    - gofmt
-    - goimports
-    - revive
     - errname
     - errorlint
-    - bodyclose
-    - gosec
-
-    # More sophisticated linters
+    - gocognit
     - gocritic
-    - whitespace
+    - godot
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - nilnil
+    - revive
+    - staticcheck
     - unconvert
     - unparam
-    - godot
-    - gocognit
-    - nilnil
-
-linters-settings:
-  errorlint:
-    errorf: true
-    asserts: true
-    comparison: true
-  gofmt:
-    simplify: true
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
-  misspell:
-    locale: US
-  revive:
+    - unused
+    - whitespace
+  settings:
+    depguard:
+      rules:
+        tui-adapter-isolation:
+          files:
+            - "**/internal/tui/**"
+          deny:
+            - pkg: github.com/colbytimm/alchemist/internal/adapter/cosmos
+              desc: internal/tui must depend only on the adapter interfaces; concrete adapters are wired in cmd/
+    gocognit:
+      min-complexity: 30
+    revive:
+      rules:
+        - name: var-naming
+          disabled: true
+        - name: unused-parameter
+          disabled: true
+  exclusions:
     rules:
-      - name: var-naming
-        disabled: true
-      - name: exported
-        disabled: true
-      - name: unused-parameter
-        disabled: true
-      - name: blank-imports
-        disabled: true
-      - name: var-declaration
-        disabled: true
-      - name: indent-error-flow
-        disabled: true
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          - unparam
+    generated: lax
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/colbytimm/alchemist
 
 issues:
-  exclude-rules:
-    # Exclude some linters from running on tests files.
-    - path: _test\.go
-      linters:
-        - gosec
-        - errcheck
-        - govet
-        - revive
-        - unused
-    - path: cmd/
-      linters:
-        - errcheck
-      text: "Error return value of `.*MarkFlagRequired` is not checked"
-    - path: cosmos/
-      linters:
-        - errcheck
-      text: "Error return value of `fmt.Sscanf` is not checked"
-    - path: cmd/
-      linters:
-        - gosec
-      text: "G306: Expect WriteFile permissions to be 0600 or less"
-
-  # Maximum issues count per one linter. Set to 0 to disable.
   max-issues-per-linter: 0
-  # Maximum count of issues with the same text. Set to 0 to disable.
   max-same-issues: 0
-
-# Output configuration options
-output:
-  # colored-line-number|line-number|json|tab|checkstyle|code-climate
-  formats:
-    - format: colored-line-number
-  # print lines of code with issue
-  print-issued-lines: true
-  # print linter name in the end of issue text
-  print-linter-name: true
