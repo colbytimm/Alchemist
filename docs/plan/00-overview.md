@@ -155,15 +155,15 @@ Query capability split, explicitly:
 
 ## Definition of done (applies to every iteration)
 
-- [ ] `make all` (fmt-check, lint, test, build) passes with zero warnings.
-- [ ] New exported identifiers have single-sentence doc comments ending in a period (`godot`).
-- [ ] Unit tests live in a `test/` subfolder of the package under test, using
+- [x] `make all` (fmt-check, lint, test, build) passes with zero warnings.
+- [x] New exported identifiers have single-sentence doc comments ending in a period (`godot`).
+- [x] Unit tests live in a `test/` subfolder of the package under test, using
       `testify` `require`/`assert`; external dependencies are mocked behind the
       adapter interfaces — TUI tests never touch the network.
-- [ ] Integration tests (where applicable) are behind `//go:build integration` and run
+- [x] Integration tests (where applicable) are behind `//go:build integration` and run
       against the Cosmos DB emulator via `make test-integration`.
-- [ ] The manual verification checklist in the iteration document has been walked through.
-- [ ] No secrets in code, config, or fixtures (the emulator's well-known key is the only
+- [x] The manual verification checklist in the iteration document has been walked through.
+- [x] No secrets in code, config, or fixtures (the emulator's well-known key is the only
       exception and is annotated as such for gitleaks).
 
 ## Testing strategy
