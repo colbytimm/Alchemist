@@ -68,7 +68,7 @@ TUI tests, and the query-scope parser that lets users write
   | `SELECT VALUE c.id FROM mydb.orders c` | `[mydb orders]` | `... FROM c` |
 
 **Manual checklist:**
-- [ ] None — this iteration is fully covered by unit tests (`make test`).
+- [x] None — this iteration is fully covered by unit tests (`make test`).
 
 ## Acceptance criteria
 
