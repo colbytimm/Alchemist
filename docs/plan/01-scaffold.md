@@ -58,9 +58,9 @@ Every later iteration builds on this quality gate.
 - Root model: `q` and `ctrl+c` produce `tea.Quit`; `View()` contains the logo.
 
 **Manual checklist:**
-- [ ] `make all` passes clean.
-- [ ] `./bin/alchemist` shows the gold logo in a full-screen shell; `q` exits, terminal restored.
-- [ ] `./bin/alchemist --version` prints name, version, build date.
+- [x] `make all` passes clean.
+- [x] `./bin/alchemist` shows the gold logo in a full-screen shell; `q` exits, terminal restored.
+- [x] `./bin/alchemist --version` prints name, version, build date.
 
 ## Acceptance criteria
 
