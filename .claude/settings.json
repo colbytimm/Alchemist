@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -Rs '{suppressOutput:true,hookSpecificOutput:{hookEventName:\"SessionStart\",additionalContext:.}}' \"${CLAUDE_PROJECT_DIR:-.}/.claude/CLEAN_CODE.md\" 2>/dev/null || true",
+            "statusMessage": "Loading Clean Code rules",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
