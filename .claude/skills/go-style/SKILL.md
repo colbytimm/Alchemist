@@ -47,7 +47,8 @@ table points at.
 - Pass values, not pointers, unless the callee must mutate or the value is genuinely large.
 
 **Comments**
-- Every exported identifier has a doc comment starting with its name and ending with a period.
+- Write a comment only when a competent reader could not get it from the code. Fix the name or split the function first — that is usually the real fix. No narration, no restating the signature, no `// Foo implements Bar.`
+- A doc comment that survives is one terse line, starting with the identifier's name and ending with a period. Exported identifiers are not automatically entitled to one.
 - Every package has exactly one package comment, adjacent to the `package` clause, starting `Package foo ...`. `godot` is on.
 
 ## Load a reference before you write

@@ -19,8 +19,8 @@ type catalog struct {
 }
 
 // Root lists the account's databases.
-func (t *catalog) Root(ctx context.Context) ([]adapter.Node, error) {
-	pager := t.client.NewQueryDatabasesPager("select * from dbs d", nil)
+func (cat *catalog) Root(ctx context.Context) ([]adapter.Node, error) {
+	pager := cat.client.NewQueryDatabasesPager("select * from dbs d", nil)
 	var nodes []adapter.Node
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
@@ -29,7 +29,7 @@ func (t *catalog) Root(ctx context.Context) ([]adapter.Node, error) {
 		}
 		for _, db := range page.Databases {
 			nodes = append(nodes, adapter.Node{
-				Kind:        "database",
+				Kind:        adapter.NodeDatabase,
 				Name:        db.ID,
 				Path:        []string{db.ID},
 				HasChildren: true,
@@ -41,15 +41,15 @@ func (t *catalog) Root(ctx context.Context) ([]adapter.Node, error) {
 
 // Children expands a database into its containers, and a container into its
 // metadata leaves. Field nodes have no children.
-func (t *catalog) Children(ctx context.Context, n adapter.Node) ([]adapter.Node, error) {
+func (cat *catalog) Children(ctx context.Context, n adapter.Node) ([]adapter.Node, error) {
 	switch n.Kind {
-	case "database":
-		return t.containers(ctx, n)
-	case "container":
+	case adapter.NodeDatabase:
+		return cat.containers(ctx, n)
+	case adapter.NodeContainer:
 		return []adapter.Node{{
-			Kind: "field",
-			Name: "partitionKey " + n.Meta["partitionKey"],
-			Path: append(append([]string{}, n.Path...), "partitionKey"),
+			Kind: adapter.NodeField,
+			Name: adapter.MetaPartitionKey + " " + n.Meta[adapter.MetaPartitionKey],
+			Path: append(append([]string{}, n.Path...), adapter.MetaPartitionKey),
 		}}, nil
 	default:
 		return nil, nil
@@ -57,8 +57,8 @@ func (t *catalog) Children(ctx context.Context, n adapter.Node) ([]adapter.Node,
 }
 
 // containers lists one database's containers with partition key metadata.
-func (t *catalog) containers(ctx context.Context, n adapter.Node) ([]adapter.Node, error) {
-	db, err := t.client.NewDatabase(n.Name)
+func (cat *catalog) containers(ctx context.Context, n adapter.Node) ([]adapter.Node, error) {
+	db, err := cat.client.NewDatabase(n.Name)
 	if err != nil {
 		return nil, fmt.Errorf("cosmos: open database %q: %w", n.Name, err)
 	}
@@ -71,10 +71,10 @@ func (t *catalog) containers(ctx context.Context, n adapter.Node) ([]adapter.Nod
 		}
 		for _, props := range page.Containers {
 			nodes = append(nodes, adapter.Node{
-				Kind:        "container",
+				Kind:        adapter.NodeContainer,
 				Name:        props.ID,
 				Path:        []string{n.Name, props.ID},
-				Meta:        map[string]string{"partitionKey": strings.Join(props.PartitionKeyDefinition.Paths, ",")},
+				Meta:        map[string]string{adapter.MetaPartitionKey: strings.Join(props.PartitionKeyDefinition.Paths, ",")},
 				HasChildren: true,
 			})
 		}

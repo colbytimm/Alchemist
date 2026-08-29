@@ -10,7 +10,6 @@ import (
 	"github.com/colbytimm/alchemist/internal/adapter"
 )
 
-// fakeAdapter is a minimal Adapter implementation for registry tests.
 type fakeAdapter struct{ name string }
 
 func (f fakeAdapter) Name() string { return f.name }
@@ -19,10 +18,21 @@ func (f fakeAdapter) Connect(context.Context, map[string]string) (adapter.Connec
 	return nil, errors.New("fake: not implemented")
 }
 
+func fakeFactory(name string) adapter.Factory {
+	return func() adapter.Adapter { return fakeAdapter{name: name} }
+}
+
+// seedRegistry registers name as setup. The registry is package-global, so
+// under -count>1 the entry is already there.
+func seedRegistry(t *testing.T, name string) {
+	t.Helper()
+	if err := adapter.Register(name, fakeFactory(name)); err != nil {
+		require.ErrorIs(t, err, adapter.ErrDuplicateName)
+	}
+}
+
 func TestRegisterAndGet(t *testing.T) {
-	require.NoError(t, adapter.Register("test-fake", func() adapter.Adapter {
-		return fakeAdapter{name: "test-fake"}
-	}))
+	seedRegistry(t, "test-fake")
 
 	factory, err := adapter.Get("test-fake")
 	require.NoError(t, err)
@@ -31,16 +41,12 @@ func TestRegisterAndGet(t *testing.T) {
 
 func TestGetUnknown(t *testing.T) {
 	_, err := adapter.Get("no-such-adapter")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unknown adapter")
+	require.ErrorIs(t, err, adapter.ErrUnknownAdapter)
 }
 
 func TestRegisterDuplicateRejected(t *testing.T) {
-	factory := func() adapter.Adapter { return fakeAdapter{name: "test-dup"} }
-	require.NoError(t, adapter.Register("test-dup", factory))
-	err := adapter.Register("test-dup", factory)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "already registered")
+	seedRegistry(t, "test-dup")
+	require.ErrorIs(t, adapter.Register("test-dup", fakeFactory("test-dup")), adapter.ErrDuplicateName)
 }
 
 func TestRegisterInvalidArgs(t *testing.T) {

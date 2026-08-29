@@ -4,7 +4,6 @@ package cmd
 
 import (
 	"fmt"
-	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -12,22 +11,21 @@ import (
 	"github.com/colbytimm/alchemist/app"
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/adapter/cosmos"
+	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui"
 )
 
-var registerOnce sync.Once
-
-// registerAdapters wires the concrete adapters into the registry exactly
-// once; the guard keeps repeated NewRootCmd calls (tests) idempotent.
-func registerAdapters() {
-	registerOnce.Do(func() {
-		_ = adapter.Register(cosmos.Name, func() adapter.Adapter { return cosmos.Adapter{} })
-	})
+// RegisterAdapters wires the concrete adapters into the registry. Calling it
+// twice is a wiring bug and returns adapter.ErrDuplicateName.
+func RegisterAdapters() error {
+	if err := adapter.Register(cosmos.Name, func() adapter.Adapter { return cosmos.Adapter{} }); err != nil {
+		return fmt.Errorf("cmd: register adapters: %w", err)
+	}
+	return nil
 }
 
 // NewRootCmd builds the root command for the alchemist binary.
 func NewRootCmd() *cobra.Command {
-	registerAdapters()
 	cmd := &cobra.Command{
 		Use:           "alchemist",
 		Short:         "A terminal IDE for Azure Cosmos DB",
@@ -37,7 +35,7 @@ func NewRootCmd() *cobra.Command {
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			p := tea.NewProgram(
-				tui.New(),
+				tui.New(theme.Icons()),
 				tea.WithAltScreen(),
 				tea.WithInput(cmd.InOrStdin()),
 				tea.WithOutput(cmd.OutOrStdout()),

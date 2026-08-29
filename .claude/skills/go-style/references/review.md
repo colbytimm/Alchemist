@@ -38,7 +38,9 @@ Changes to exported signatures are the expensive kind of mistake.
 - Initialisms uniform (`ID`, `URL`, `RU`) — the linter does *not* check this here.
 - No stutter, no `Get` prefix, no `util`/`helpers` package.
 - Receivers one or two letters, consistent per type.
-- Every exported symbol has a doc comment starting with its name, ending with a period.
+- Comments earn their place. Flag narration, restated signatures, and `// Foo
+  implements Bar.` — a missing doc comment is not a finding.
+- Any doc comment that survives starts with its name and ends with a period.
 - Package comment present and adjacent to the `package` clause.
 - Error strings lowercase, unpunctuated, prefixed `package: operation:`, no "failed to".
 

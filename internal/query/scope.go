@@ -25,17 +25,11 @@ type Result struct {
 // Queries without such a source are returned unchanged. It never panics on
 // arbitrary input.
 func ParseScope(text string) (Result, error) {
-	toks := lex(text)
-	var sources []source
-	aliases := map[string]bool{}
-	for i := 0; i < len(toks); i++ {
-		if toks[i].kind == tokIdent && toks[i].upper == "FROM" {
-			i = parseFromClause(toks, i+1, &sources, aliases) - 1
-		}
-	}
+	p := parser{toks: lex(text), aliases: map[string]bool{}}
+	p.run()
 	var cands []source
-	for _, s := range sources {
-		if len(s.path) == 2 && !aliases[s.path[0].text] {
+	for _, s := range p.sources {
+		if len(s.path) == 2 && !p.aliases[s.path[0].text] {
 			cands = append(cands, s)
 		}
 	}
@@ -157,80 +151,100 @@ func isIdentPart(c byte) bool {
 	return isIdentStart(c) || (c >= '0' && c <= '9')
 }
 
-// parseFromClause consumes the source list after a FROM keyword — sources
-// separated by commas, plus JOIN clauses — and returns the index of the
-// first token past the clause.
-func parseFromClause(toks []token, i int, sources *[]source, aliases map[string]bool) int {
+// parser walks a lexed query for FROM-clause sources. Every parse method takes
+// the index to read from and returns the index just past what it consumed.
+type parser struct {
+	toks    []token
+	sources []source
+	aliases map[string]bool
+}
+
+func (p *parser) run() {
+	for i := 0; i < len(p.toks); {
+		if p.isKeyword(i, "FROM") {
+			i = p.parseFromClause(i + 1)
+			continue
+		}
+		i++
+	}
+}
+
+func (p *parser) parseFromClause(i int) int {
 	for {
-		src, j, ok := parseSource(toks, i, aliases)
+		src, j, ok := p.parseSource(i)
 		if !ok {
 			return j
 		}
+		p.record(src)
 		i = j
-		*sources = append(*sources, src)
-		if src.alias != "" {
-			aliases[src.alias] = true
+		for p.isKeyword(i, "JOIN") {
+			i = p.parseJoinClause(i + 1)
 		}
-		for {
-			if i < len(toks) && toks[i].kind == tokComma {
-				i++
-				break // next comma-separated source
-			}
-			if i < len(toks) && toks[i].kind == tokIdent && toks[i].upper == "JOIN" {
-				i = parseJoin(toks, i+1, sources, aliases)
-				continue // a further JOIN or comma may follow
-			}
+		if !p.isComma(i) {
 			return i
 		}
+		i++
 	}
 }
 
-// parseJoin consumes one JOIN clause. The `JOIN alias IN collection` form
-// registers the alias and skips the collection path; a bare `JOIN path`
-// records the path as a source so cross-container references are detected.
-func parseJoin(toks []token, i int, sources *[]source, aliases map[string]bool) int {
-	src, j, ok := parseSource(toks, i, aliases)
+// parseJoinClause binds the alias of `JOIN alias IN collection` and skips its
+// path; a bare `JOIN path` is recorded as a source so cross-container
+// references are detected.
+func (p *parser) parseJoinClause(i int) int {
+	src, j, ok := p.parseSource(i)
 	if !ok {
 		return j
 	}
-	if j < len(toks) && toks[j].kind == tokIdent && toks[j].upper == "IN" {
-		if len(src.path) == 1 && src.alias == "" {
-			aliases[src.path[0].text] = true
-		}
-		if _, j2, ok2 := parseSource(toks, j+1, aliases); ok2 {
-			return j2
-		}
-		return j + 1
+	if !p.isKeyword(j, "IN") {
+		p.record(src)
+		return j
 	}
-	*sources = append(*sources, src)
-	if src.alias != "" {
-		aliases[src.alias] = true
+	if len(src.path) == 1 && src.alias == "" {
+		p.aliases[src.path[0].text] = true
 	}
-	return j
+	if _, k, ok := p.parseSource(j + 1); ok {
+		return k
+	}
+	return j + 1
 }
 
 // parseSource consumes one dotted path plus an optional `AS alias` or bare
-// alias, returning ok=false when no source starts at i.
-func parseSource(toks []token, i int, _ map[string]bool) (source, int, bool) {
-	if i >= len(toks) || toks[i].kind != tokIdent || keywords[toks[i].upper] {
+// alias.
+func (p *parser) parseSource(i int) (source, int, bool) {
+	if i >= len(p.toks) || p.toks[i].kind != tokIdent || keywords[p.toks[i].upper] {
 		return source{}, i, false
 	}
-	src := source{path: []token{toks[i]}, start: toks[i].start, end: toks[i].end}
+	src := source{path: []token{p.toks[i]}, start: p.toks[i].start, end: p.toks[i].end}
 	i++
-	for i+1 < len(toks) && toks[i].kind == tokDot && toks[i+1].kind == tokIdent {
-		src.path = append(src.path, toks[i+1])
-		src.end = toks[i+1].end
+	for i+1 < len(p.toks) && p.toks[i].kind == tokDot && p.toks[i+1].kind == tokIdent {
+		src.path = append(src.path, p.toks[i+1])
+		src.end = p.toks[i+1].end
 		i += 2
 	}
 	switch {
-	case i+1 < len(toks) && toks[i].kind == tokIdent && toks[i].upper == "AS" && toks[i+1].kind == tokIdent:
-		src.alias = toks[i+1].text
-		src.end = toks[i+1].end
+	case i+1 < len(p.toks) && p.isKeyword(i, "AS") && p.toks[i+1].kind == tokIdent:
+		src.alias = p.toks[i+1].text
+		src.end = p.toks[i+1].end
 		i += 2
-	case i < len(toks) && toks[i].kind == tokIdent && !keywords[toks[i].upper]:
-		src.alias = toks[i].text
-		src.end = toks[i].end
+	case i < len(p.toks) && p.toks[i].kind == tokIdent && !keywords[p.toks[i].upper]:
+		src.alias = p.toks[i].text
+		src.end = p.toks[i].end
 		i++
 	}
 	return src, i, true
+}
+
+func (p *parser) record(src source) {
+	p.sources = append(p.sources, src)
+	if src.alias != "" {
+		p.aliases[src.alias] = true
+	}
+}
+
+func (p *parser) isKeyword(i int, kw string) bool {
+	return i < len(p.toks) && p.toks[i].kind == tokIdent && p.toks[i].upper == kw
+}
+
+func (p *parser) isComma(i int) bool {
+	return i < len(p.toks) && p.toks[i].kind == tokComma
 }

@@ -44,12 +44,24 @@ type Catalog interface {
 	Children(ctx context.Context, n Node) ([]Node, error)
 }
 
+type NodeKind string
+
+// The node kinds a catalog can serve.
+const (
+	NodeDatabase  NodeKind = "database"
+	NodeContainer NodeKind = "container"
+	NodeField     NodeKind = "field"
+)
+
+// MetaPartitionKey is the Node.Meta key holding a partition key path, e.g. "/pk".
+const MetaPartitionKey = "partitionKey"
+
 // Node is one entry in the catalog tree.
 type Node struct {
-	Kind        string // "database" | "container" | "field"
+	Kind        NodeKind
 	Name        string
 	Path        []string
-	Meta        map[string]string // e.g. "partitionKey": "/pk"
+	Meta        map[string]string
 	HasChildren bool
 }
 
@@ -71,10 +83,8 @@ type Page struct {
 	Stats   Stats
 }
 
-// Stats describes the cost and shape of one fetched page.
 type Stats struct {
 	RequestCharge float64 // RU; 0 where the backend has no such concept
 	Elapsed       time.Duration
 	RowCount      int
-	More          bool
 }

@@ -9,8 +9,15 @@ import (
 )
 
 func main() {
-	if err := cmd.NewRootCmd().Execute(); err != nil {
+	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "alchemist:", err)
 		os.Exit(1)
 	}
+}
+
+func run() error {
+	if err := cmd.RegisterAdapters(); err != nil {
+		return err
+	}
+	return cmd.NewRootCmd().Execute()
 }

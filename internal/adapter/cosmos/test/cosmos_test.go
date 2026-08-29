@@ -19,21 +19,21 @@ func TestParseSettingsValidation(t *testing.T) {
 	cases := []struct {
 		name    string
 		raw     map[string]string
-		wantErr string
+		wantErr error
 	}{
-		{name: "empty", raw: map[string]string{}, wantErr: "connection_string, or endpoint and key"},
-		{name: "endpoint only", raw: map[string]string{"endpoint": "https://x"}, wantErr: "connection_string, or endpoint and key"},
-		{name: "key only", raw: map[string]string{"key": "k"}, wantErr: "connection_string, or endpoint and key"},
-		{name: "bad page_size", raw: map[string]string{"connection_string": "cs", "page_size": "abc"}, wantErr: "page_size"},
-		{name: "zero page_size", raw: map[string]string{"connection_string": "cs", "page_size": "0"}, wantErr: "page_size"},
+		{name: "empty", raw: map[string]string{}, wantErr: cosmos.ErrMissingCredentials},
+		{name: "endpoint only", raw: map[string]string{"endpoint": "https://x"}, wantErr: cosmos.ErrMissingCredentials},
+		{name: "key only", raw: map[string]string{"key": "k"}, wantErr: cosmos.ErrMissingCredentials},
+		{name: "bad page_size", raw: map[string]string{"connection_string": "cs", "page_size": "abc"}, wantErr: cosmos.ErrInvalidPageSize},
+		{name: "zero page_size", raw: map[string]string{"connection_string": "cs", "page_size": "0"}, wantErr: cosmos.ErrInvalidPageSize},
 		{name: "endpoint and key", raw: map[string]string{"endpoint": "https://x", "key": "k"}},
 		{name: "connection string", raw: map[string]string{"connection_string": "cs"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s, err := cosmos.ParseSettings(tc.raw)
-			if tc.wantErr != "" {
-				require.ErrorContains(t, err, tc.wantErr)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
 				return
 			}
 			require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestConnectAndQueryOffline(t *testing.T) {
 	require.NotNil(t, conn.Catalog())
 
 	_, err = conn.Query(context.Background(), adapter.Query{Text: "SELECT * FROM c", Scope: []string{"only-db"}})
-	require.ErrorContains(t, err, "scope")
+	require.ErrorIs(t, err, cosmos.ErrInvalidScope)
 
 	cursor, err := conn.Query(context.Background(), adapter.Query{Text: "SELECT * FROM c", Scope: []string{"db", "items"}})
 	require.NoError(t, err)
@@ -106,35 +106,39 @@ func TestPageBuilderColumnUnionLocking(t *testing.T) {
 
 func TestPageBuilderRejectsMalformedItems(t *testing.T) {
 	_, err := cosmos.NewPageBuilder().Build([][]byte{[]byte(`[1,2]`)})
-	require.ErrorContains(t, err, "not a JSON object")
+	require.ErrorIs(t, err, cosmos.ErrNotObject)
 	_, err = cosmos.NewPageBuilder().Build([][]byte{[]byte(`{"id":`)})
 	require.Error(t, err)
 }
 
 func TestPinnedKey(t *testing.T) {
 	cases := []struct {
-		name   string
-		text   string
-		pkPath string
-		want   string
+		name    string
+		text    string
+		pkPath  string
+		want    string
+		wantPin bool
 	}{
-		{name: "double quoted", text: `SELECT * FROM c WHERE c.pk = "x"`, pkPath: "/pk", want: "x"},
-		{name: "single quoted", text: `SELECT * FROM c WHERE c.pk = 'y'`, pkPath: "/pk", want: "y"},
-		{name: "conjunction ok", text: `SELECT * FROM c WHERE c.pk = "x" AND c.n > 3`, pkPath: "/pk", want: "x"},
-		{name: "no where", text: `SELECT c.pk = "x" FROM c`, pkPath: "/pk", want: ""},
-		{name: "or disables", text: `SELECT * FROM c WHERE c.pk = "x" OR c.n > 3`, pkPath: "/pk", want: ""},
-		{name: "not disables", text: `SELECT * FROM c WHERE NOT c.pk = "x"`, pkPath: "/pk", want: ""},
-		{name: "two pins disable", text: `SELECT * FROM c WHERE c.pk = "x" AND c.pk = "y"`, pkPath: "/pk", want: ""},
-		{name: "other field", text: `SELECT * FROM c WHERE c.name = "x"`, pkPath: "/pk", want: ""},
-		{name: "field is prefix", text: `SELECT * FROM c WHERE c.pkx = "x"`, pkPath: "/pk", want: ""},
-		{name: "case sensitive field", text: `SELECT * FROM c WHERE c.PK = "x"`, pkPath: "/pk", want: ""},
-		{name: "gte not equality", text: `SELECT * FROM c WHERE c.pk >= "x"`, pkPath: "/pk", want: ""},
-		{name: "nested pk path", text: `SELECT * FROM c WHERE c.pk = "x"`, pkPath: "/a/b", want: ""},
-		{name: "empty pk path", text: `SELECT * FROM c WHERE c.pk = "x"`, pkPath: "", want: ""},
+		{name: "double quoted", text: `SELECT * FROM c WHERE c.pk = "x"`, pkPath: "/pk", want: "x", wantPin: true},
+		{name: "single quoted", text: `SELECT * FROM c WHERE c.pk = 'y'`, pkPath: "/pk", want: "y", wantPin: true},
+		{name: "conjunction ok", text: `SELECT * FROM c WHERE c.pk = "x" AND c.n > 3`, pkPath: "/pk", want: "x", wantPin: true},
+		{name: "empty literal is a pin", text: `SELECT * FROM c WHERE c.pk = ""`, pkPath: "/pk", want: "", wantPin: true},
+		{name: "no where", text: `SELECT c.pk = "x" FROM c`, pkPath: "/pk"},
+		{name: "or disables", text: `SELECT * FROM c WHERE c.pk = "x" OR c.n > 3`, pkPath: "/pk"},
+		{name: "not disables", text: `SELECT * FROM c WHERE NOT c.pk = "x"`, pkPath: "/pk"},
+		{name: "two pins disable", text: `SELECT * FROM c WHERE c.pk = "x" AND c.pk = "y"`, pkPath: "/pk"},
+		{name: "other field", text: `SELECT * FROM c WHERE c.name = "x"`, pkPath: "/pk"},
+		{name: "field is prefix", text: `SELECT * FROM c WHERE c.pkx = "x"`, pkPath: "/pk"},
+		{name: "case sensitive field", text: `SELECT * FROM c WHERE c.PK = "x"`, pkPath: "/pk"},
+		{name: "gte not equality", text: `SELECT * FROM c WHERE c.pk >= "x"`, pkPath: "/pk"},
+		{name: "nested pk path", text: `SELECT * FROM c WHERE c.pk = "x"`, pkPath: "/a/b"},
+		{name: "empty pk path", text: `SELECT * FROM c WHERE c.pk = "x"`, pkPath: ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, cosmos.PinnedKey(tc.text, tc.pkPath))
+			pin, ok := cosmos.PinnedKey(tc.text, tc.pkPath)
+			assert.Equal(t, tc.wantPin, ok)
+			assert.Equal(t, tc.want, pin)
 		})
 	}
 }

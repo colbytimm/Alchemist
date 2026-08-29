@@ -1,30 +1,44 @@
 # Doc comments and commenting
 
-## What the linter catches
+## The bar
 
-`godot` fails any comment that does not end in a period — that one is mechanical.
-Doc-comment *presence* is not reliably enforced by this repo's `revive` settings, so
-treat "every exported symbol is documented" as your responsibility, not CI's.
+**If a competent reader could get it from the code, do not write it.** This repo
+prefers no comment to a comment that restates the signature. When one feels
+necessary, fix the name or split the function first — that is almost always the real
+fix.
+
+Nothing in `.golangci.yml` requires a doc comment, on exported identifiers or
+anything else. `revive`'s `exported` rule is off. Do not add one to satisfy a rule
+that is not there.
+
+Write a comment only for something the code cannot carry:
+
+- a protocol, vendor, or platform quirk
+- why an error is deliberately ignored, or a safety deliberately overridden
+- a non-obvious constraint a future edit would otherwise break
+- what an exported identifier is *for*, when its name and signature genuinely do not
+  say — one line, in godoc
+
+Delete on sight: narration, step-by-step retelling, `// Foo implements Bar.`,
+`// Name returns the name.`, rationale for an obvious choice. Removing such a comment
+is always in scope, in any file you touch.
 
 ## Doc comment form
 
-Start with the name being documented, be a complete sentence, end with a period.
+When you do write one: start with the name being documented, be a complete sentence,
+end with a period, and keep it to one line unless a second genuinely earns its place.
 
 ```go
-// Register makes an adapter factory available under name. It returns an
-// error if the name is empty, the factory is nil, or the name is taken.
-func Register(name string, factory func() Adapter) error {
+// Register makes an adapter factory available under name.
+func Register(name string, factory Factory) error {
 ```
 
 ```go
 // bad
 // this function registers an adapter   <- lowercase, no name, no period
 // Registers an adapter.                <- does not start with the name
+// Register registers an adapter.       <- says nothing the signature does not
 ```
-
-Every exported identifier needs one: types, funcs, methods, vars, consts, struct
-fields worth explaining. Unexported symbols get a doc comment when the *why* is not
-obvious from the name; skip it when it is.
 
 ## Package comments
 

@@ -6,6 +6,7 @@ package mock
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -35,6 +36,13 @@ var (
 
 // rowsPerPage is the fixed number of rows in every canned result page.
 const rowsPerPage = 10
+
+// InjectedError is what an operation named by WithError returns.
+type InjectedError struct {
+	Op string
+}
+
+func (e *InjectedError) Error() string { return "mock: injected " + e.Op + " error" }
 
 // fixtureContainer is one container in the fixture catalog.
 type fixtureContainer struct {
@@ -116,7 +124,7 @@ func (a *Adapter) stall(ctx context.Context, op string) error {
 		}
 	}
 	if a.errOps[op] {
-		return fmt.Errorf("mock: injected %s error", op)
+		return &InjectedError{Op: op}
 	}
 	return nil
 }
@@ -149,14 +157,14 @@ type catalog struct {
 }
 
 // Root returns the fixture databases.
-func (t *catalog) Root(ctx context.Context) ([]adapter.Node, error) {
-	if err := t.a.stall(ctx, OpRoot); err != nil {
+func (cat *catalog) Root(ctx context.Context) ([]adapter.Node, error) {
+	if err := cat.a.stall(ctx, OpRoot); err != nil {
 		return nil, err
 	}
 	nodes := make([]adapter.Node, 0, len(fixture))
 	for _, db := range fixture {
 		nodes = append(nodes, adapter.Node{
-			Kind:        "database",
+			Kind:        adapter.NodeDatabase,
 			Name:        db.name,
 			Path:        []string{db.name},
 			HasChildren: true,
@@ -167,18 +175,18 @@ func (t *catalog) Root(ctx context.Context) ([]adapter.Node, error) {
 
 // Children expands a database into containers, and a container into its
 // metadata leaves. Field nodes have no children.
-func (t *catalog) Children(ctx context.Context, n adapter.Node) ([]adapter.Node, error) {
-	if err := t.a.stall(ctx, OpChildren); err != nil {
+func (cat *catalog) Children(ctx context.Context, n adapter.Node) ([]adapter.Node, error) {
+	if err := cat.a.stall(ctx, OpChildren); err != nil {
 		return nil, err
 	}
 	switch n.Kind {
-	case "database":
-		return t.containers(n)
-	case "container":
+	case adapter.NodeDatabase:
+		return cat.containers(n)
+	case adapter.NodeContainer:
 		return []adapter.Node{{
-			Kind: "field",
-			Name: "partitionKey " + n.Meta["partitionKey"],
-			Path: append(append([]string{}, n.Path...), "partitionKey"),
+			Kind: adapter.NodeField,
+			Name: adapter.MetaPartitionKey + " " + n.Meta[adapter.MetaPartitionKey],
+			Path: append(append([]string{}, n.Path...), adapter.MetaPartitionKey),
 		}}, nil
 	default:
 		return nil, nil
@@ -186,7 +194,7 @@ func (t *catalog) Children(ctx context.Context, n adapter.Node) ([]adapter.Node,
 }
 
 // containers lists the fixture containers of one database node.
-func (t *catalog) containers(n adapter.Node) ([]adapter.Node, error) {
+func (cat *catalog) containers(n adapter.Node) ([]adapter.Node, error) {
 	for _, db := range fixture {
 		if db.name != n.Name {
 			continue
@@ -194,10 +202,10 @@ func (t *catalog) containers(n adapter.Node) ([]adapter.Node, error) {
 		nodes := make([]adapter.Node, 0, len(db.containers))
 		for _, c := range db.containers {
 			nodes = append(nodes, adapter.Node{
-				Kind:        "container",
+				Kind:        adapter.NodeContainer,
 				Name:        c.name,
 				Path:        []string{db.name, c.name},
-				Meta:        map[string]string{"partitionKey": c.partitionKey},
+				Meta:        map[string]string{adapter.MetaPartitionKey: c.partitionKey},
 				HasChildren: true,
 			})
 		}
@@ -220,7 +228,7 @@ func (c *cursor) NextPage(ctx context.Context) (adapter.Page, error) {
 		return adapter.Page{}, err
 	}
 	if c.remaining <= 0 {
-		return adapter.Page{}, fmt.Errorf("mock: no more pages")
+		return adapter.Page{}, errors.New("mock: no more pages")
 	}
 	c.page++
 	c.remaining--
@@ -230,7 +238,6 @@ func (c *cursor) NextPage(ctx context.Context) (adapter.Page, error) {
 			RequestCharge: 2.5,
 			Elapsed:       5 * time.Millisecond,
 			RowCount:      rowsPerPage,
-			More:          c.remaining > 0,
 		},
 	}
 	for i := 0; i < rowsPerPage; i++ {

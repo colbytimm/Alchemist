@@ -8,10 +8,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,8 +26,7 @@ import (
 	"github.com/colbytimm/alchemist/internal/adapter/cosmos"
 )
 
-// wellKnownKey is the Cosmos DB emulator's fixed, publicly documented
-// account key. It is not a secret.
+// The emulator's fixed, publicly documented account key. Not a secret.
 const wellKnownKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==" // #gitleaks:allow
 
 const (
@@ -46,8 +51,6 @@ func settings() map[string]string {
 	}
 }
 
-// seedClient builds a raw SDK client for fixture setup/teardown, with the
-// same emulator TLS exemption the adapter applies.
 func seedClient(t *testing.T) *azcosmos.Client {
 	t.Helper()
 	s, err := cosmos.ParseSettings(settings())
@@ -63,7 +66,11 @@ func seedClient(t *testing.T) *azcosmos.Client {
 	return client
 }
 
-// connectWithRetry waits for the emulator to accept requests.
+func waitForEmulator(t *testing.T) {
+	t.Helper()
+	require.NoError(t, connectWithRetry(t).Close())
+}
+
 func connectWithRetry(t *testing.T) adapter.Connection {
 	t.Helper()
 	conn, err := cosmos.Adapter{}.Connect(context.Background(), settings())
@@ -83,8 +90,7 @@ func connectWithRetry(t *testing.T) adapter.Connection {
 	}
 }
 
-// seedFixture creates the database and container and inserts seedCount
-// items spread across three partition key values.
+// seedFixture inserts seedCount items spread across three partition keys.
 func seedFixture(t *testing.T, client *azcosmos.Client) {
 	t.Helper()
 	ctx := context.Background()
@@ -112,7 +118,77 @@ func seedFixture(t *testing.T, client *azcosmos.Client) {
 	}
 }
 
-// drain runs q and returns every page plus the total row count.
+// itemsInPartition returns how many seeded items landed in partition "pk-<n>".
+func itemsInPartition(n int) int {
+	count := 0
+	for i := 0; i < seedCount; i++ {
+		if i%3 == n {
+			count++
+		}
+	}
+	return count
+}
+
+// freshFixture drops any fixture left by an earlier run and seeds a new one.
+func freshFixture(t *testing.T, client *azcosmos.Client) {
+	t.Helper()
+	db, err := client.NewDatabase(itDatabase)
+	require.NoError(t, err)
+	_, _ = db.Delete(context.Background(), nil) // clean slate from earlier runs
+	seedFixture(t, client)
+	t.Cleanup(func() { _, _ = db.Delete(context.Background(), nil) })
+}
+
+type recordedRequest struct {
+	method string
+	path   string
+	pk     string // partition key routing header; empty when the query fans out
+}
+
+func (r recordedRequest) isQuery() bool { return r.method == http.MethodPost }
+
+func (r recordedRequest) isMetadataRead() bool {
+	return r.method == http.MethodGet && strings.HasSuffix(r.path, "/colls/"+itContainer)
+}
+
+// connectThroughProxy records the adapter's traffic. A pinned and a fanned-out
+// query return identical rows, so the wire is the only place the pin is visible.
+func connectThroughProxy(t *testing.T) (adapter.Connection, func() []recordedRequest) {
+	t.Helper()
+	target, err := url.Parse(settings()["endpoint"])
+	require.NoError(t, err)
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // self-signed emulator cert only
+	}
+
+	var mu sync.Mutex
+	var seen []recordedRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, recordedRequest{
+			method: r.Method,
+			path:   r.URL.Path,
+			pk:     r.Header.Get("x-ms-documentdb-partitionkey"),
+		})
+		mu.Unlock()
+		proxy.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	raw := settings()
+	raw["endpoint"] = srv.URL
+	conn, err := cosmos.Adapter{}.Connect(context.Background(), raw)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	return conn, func() []recordedRequest {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]recordedRequest(nil), seen...)
+	}
+}
+
 func drain(t *testing.T, conn adapter.Connection, q adapter.Query) ([]adapter.Page, int) {
 	t.Helper()
 	cursor, err := conn.Query(context.Background(), q)
@@ -133,12 +209,7 @@ func TestIntegration(t *testing.T) {
 	conn := connectWithRetry(t)
 	defer conn.Close()
 
-	client := seedClient(t)
-	db, err := client.NewDatabase(itDatabase)
-	require.NoError(t, err)
-	_, _ = db.Delete(context.Background(), nil) // clean slate from earlier runs
-	seedFixture(t, client)
-	defer func() { _, _ = db.Delete(context.Background(), nil) }()
+	freshFixture(t, seedClient(t))
 
 	t.Run("ping", func(t *testing.T) {
 		require.NoError(t, conn.Ping(context.Background()))
@@ -160,7 +231,7 @@ func TestIntegration(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, containers, 1)
 		assert.Equal(t, itContainer, containers[0].Name)
-		assert.Equal(t, "/pk", containers[0].Meta["partitionKey"])
+		assert.Equal(t, "/pk", containers[0].Meta[adapter.MetaPartitionKey])
 	})
 
 	t.Run("cross-partition paging", func(t *testing.T) {
@@ -180,16 +251,10 @@ func TestIntegration(t *testing.T) {
 	})
 
 	t.Run("single-partition pin", func(t *testing.T) {
-		expected := 0
-		for i := 0; i < seedCount; i++ {
-			if i%3 == 1 {
-				expected++
-			}
-		}
 		_, total := drain(t, conn, adapter.Query{
 			Text: `SELECT * FROM c WHERE c.pk = "pk-1"`, Scope: []string{itDatabase, itContainer}, PageSize: 10,
 		})
-		assert.Equal(t, expected, total, "only the pinned partition's items")
+		assert.Equal(t, itemsInPartition(1), total, "only the pinned partition's items")
 	})
 
 	t.Run("bad sql returns service error", func(t *testing.T) {
@@ -199,6 +264,82 @@ func TestIntegration(t *testing.T) {
 		require.NoError(t, err)
 		_, err = cursor.NextPage(context.Background())
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "cosmos: query page:")
+		var respErr *azcore.ResponseError
+		require.ErrorAs(t, err, &respErr)
+		assert.Equal(t, http.StatusBadRequest, respErr.StatusCode)
 	})
+}
+
+// TestIntegrationPartitionRouting asserts on the routing header, which is the
+// only observable difference between a pinned and a fanned-out query.
+func TestIntegrationPartitionRouting(t *testing.T) {
+	waitForEmulator(t)
+	freshFixture(t, seedClient(t))
+	conn, requests := connectThroughProxy(t)
+
+	cases := []struct {
+		name     string
+		text     string
+		wantPK   string // empty means the query must fan out
+		wantRows int
+	}{
+		{
+			name:     "equality pins to one partition",
+			text:     `SELECT * FROM c WHERE c.pk = "pk-1"`,
+			wantPK:   `["pk-1"]`,
+			wantRows: itemsInPartition(1),
+		},
+		{
+			name:     "unfiltered query fans out",
+			text:     "SELECT * FROM c",
+			wantRows: seedCount,
+		},
+		{
+			name:     "disjunction refuses to pin",
+			text:     `SELECT * FROM c WHERE c.pk = "pk-1" OR c.n < 0`,
+			wantRows: itemsInPartition(1),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := len(requests())
+			_, total := drain(t, conn, adapter.Query{
+				Text: tc.text, Scope: []string{itDatabase, itContainer}, PageSize: 100,
+			})
+			assert.Equal(t, tc.wantRows, total)
+
+			var queries []recordedRequest
+			for _, r := range requests()[before:] {
+				if r.isQuery() {
+					queries = append(queries, r)
+				}
+			}
+			require.Len(t, queries, 1, "one query request")
+			assert.Equal(t, tc.wantPK, queries[0].pk)
+		})
+	}
+}
+
+// TestIntegrationCachesPartitionKeyPath asserts the partition key path is read
+// from the service once, however many pinnable queries run.
+func TestIntegrationCachesPartitionKeyPath(t *testing.T) {
+	waitForEmulator(t)
+	freshFixture(t, seedClient(t))
+	conn, requests := connectThroughProxy(t)
+
+	for _, pk := range []string{"pk-1", "pk-2"} {
+		drain(t, conn, adapter.Query{
+			Text:     `SELECT * FROM c WHERE c.pk = "` + pk + `"`,
+			Scope:    []string{itDatabase, itContainer},
+			PageSize: 100,
+		})
+	}
+
+	reads := 0
+	for _, r := range requests() {
+		if r.isMetadataRead() {
+			reads++
+		}
+	}
+	assert.Equal(t, 1, reads, "container metadata should be read once and cached")
 }

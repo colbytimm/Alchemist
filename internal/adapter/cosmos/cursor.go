@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -16,13 +17,14 @@ import (
 // Compile-time contract check.
 var _ adapter.Cursor = (*cursor)(nil)
 
+var ErrNotObject = errors.New("item is not a JSON object")
+
 // cursor streams query result pages from one item pager.
 type cursor struct {
 	pager   *runtime.Pager[azcosmos.QueryItemsResponse]
 	builder *PageBuilder
 }
 
-// newCursor wraps an item pager in the adapter cursor contract.
 func newCursor(pager *runtime.Pager[azcosmos.QueryItemsResponse]) *cursor {
 	return &cursor{pager: pager, builder: NewPageBuilder()}
 }
@@ -42,15 +44,12 @@ func (c *cursor) NextPage(ctx context.Context) (adapter.Page, error) {
 		RequestCharge: float64(resp.RequestCharge),
 		Elapsed:       time.Since(start),
 		RowCount:      len(page.Rows),
-		More:          c.pager.More(),
 	}
 	return page, nil
 }
 
-// HasMore reports whether another page is available.
 func (c *cursor) HasMore() bool { return c.pager.More() }
 
-// Close releases nothing; the pager holds no closable resources.
 func (c *cursor) Close() error { return nil }
 
 // PageBuilder shapes raw JSON items into table pages. Column order locks to
@@ -90,8 +89,6 @@ func (b *PageBuilder) Build(items [][]byte) (adapter.Page, error) {
 	return page, nil
 }
 
-// scanItem walks one JSON object in key order, registering unseen columns
-// and rendering each value as a cell.
 func (b *PageBuilder) scanItem(item []byte) (map[string]string, error) {
 	dec := json.NewDecoder(bytes.NewReader(item))
 	dec.UseNumber()
@@ -100,7 +97,7 @@ func (b *PageBuilder) scanItem(item []byte) (map[string]string, error) {
 		return nil, fmt.Errorf("decode: %w", err)
 	}
 	if tok != json.Delim('{') {
-		return nil, fmt.Errorf("not a JSON object")
+		return nil, ErrNotObject
 	}
 	cells := map[string]string{}
 	for dec.More() {

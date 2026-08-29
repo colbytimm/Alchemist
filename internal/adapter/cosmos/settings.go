@@ -1,12 +1,18 @@
 package cosmos
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 )
 
-// defaultPageSize is the page-size hint used when none is configured.
 const defaultPageSize = int32(100)
+
+// Settings errors, matchable with errors.Is.
+var (
+	ErrMissingCredentials = errors.New("settings require connection_string, or endpoint and key")
+	ErrInvalidPageSize    = errors.New("page_size must be a positive integer")
+)
 
 // Settings is the validated connection configuration for one Cosmos account.
 type Settings struct {
@@ -17,10 +23,6 @@ type Settings struct {
 	PageSize           int32
 }
 
-// ParseSettings validates the raw settings map. Either "connection_string"
-// or both "endpoint" and "key" must be present; "insecure_skip_verify" is
-// honored only when it is exactly "true" (emulator use only); "page_size"
-// must be a positive integer when set.
 func ParseSettings(raw map[string]string) (Settings, error) {
 	s := Settings{
 		Endpoint:         raw["endpoint"],
@@ -29,13 +31,13 @@ func ParseSettings(raw map[string]string) (Settings, error) {
 		PageSize:         defaultPageSize,
 	}
 	if s.ConnectionString == "" && (s.Endpoint == "" || s.Key == "") {
-		return Settings{}, fmt.Errorf("cosmos: settings require connection_string, or endpoint and key")
+		return Settings{}, fmt.Errorf("cosmos: parse settings: %w", ErrMissingCredentials)
 	}
 	s.InsecureSkipVerify = raw["insecure_skip_verify"] == "true"
 	if v, ok := raw["page_size"]; ok {
 		n, err := strconv.ParseInt(v, 10, 32)
 		if err != nil || n <= 0 {
-			return Settings{}, fmt.Errorf("cosmos: page_size %q must be a positive integer", v)
+			return Settings{}, fmt.Errorf("cosmos: parse settings: page_size %q: %w", v, ErrInvalidPageSize)
 		}
 		s.PageSize = int32(n)
 	}

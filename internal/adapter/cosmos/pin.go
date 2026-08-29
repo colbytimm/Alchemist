@@ -5,46 +5,63 @@ import (
 	"strings"
 )
 
-// doubtRe matches constructs under which pinning a partition key is unsafe
-// (disjunctions, negations, memberships, joins, ranges).
-var doubtRe = regexp.MustCompile(`(?i)\b(OR|NOT|IN|JOIN|BETWEEN|LIKE)\b`)
+var (
+	unpinnableRe = regexp.MustCompile(`(?i)\b(OR|NOT|IN|JOIN|BETWEEN|LIKE)\b`)
+	eqRe         = regexp.MustCompile(`[\w$]+\s*\.\s*([\w$]+)\s*=\s*(?:"([^"\\]*)"|'([^'\\]*)')`)
+)
 
-// hasPinCandidate cheaply reports whether text could possibly pin a
-// partition key: it needs a WHERE clause, an equality, and a string literal.
 func hasPinCandidate(text string) bool {
-	upper := strings.ToUpper(text)
-	return strings.Contains(upper, "WHERE") &&
-		strings.Contains(text, "=") &&
-		strings.ContainsAny(text, `'"`)
+	return whereClause(text) != "" &&
+		strings.ContainsAny(text, `'"`) &&
+		!unpinnableRe.MatchString(text)
 }
 
-// PinnedKey returns the partition key literal when the WHERE clause of text
-// pins the container's partition key path (e.g. "/pk") to exactly one
-// string literal via `alias.pk = "value"`. It returns "" on any doubt —
-// cross-partition execution is always correct, pinning is only an RU
-// optimization.
-func PinnedKey(text, pkPath string) string {
+// PinnedKey reports whether the WHERE clause of text pins pkPath to exactly one
+// string literal via `alias.pk = "value"`, and returns it. Cross-partition
+// execution is always correct, so anything ambiguous returns false.
+func PinnedKey(text, pkPath string) (string, bool) {
+	field, ok := partitionKeyField(pkPath)
+	if !ok || !hasPinCandidate(text) {
+		return "", false
+	}
+	return findSoleEquality(whereClause(text), field)
+}
+
+func whereClause(text string) string {
+	at := strings.Index(strings.ToUpper(text), "WHERE")
+	if at < 0 {
+		return ""
+	}
+	return text[at:]
+}
+
+func partitionKeyField(pkPath string) (string, bool) {
 	if !strings.HasPrefix(pkPath, "/") || strings.Count(pkPath, "/") != 1 {
-		return "" // nested or absent partition key path
+		return "", false
 	}
 	field := pkPath[1:]
-	if field == "" || doubtRe.MatchString(text) {
-		return ""
-	}
-	whereAt := strings.Index(strings.ToUpper(text), "WHERE")
-	if whereAt < 0 {
-		return ""
-	}
-	eqRe := regexp.MustCompile(`[\w$]+\s*\.\s*` + regexp.QuoteMeta(field) + `\b\s*=\s*(?:"([^"\\]*)"|'([^'\\]*)')`)
-	matches := eqRe.FindAllStringSubmatchIndex(text[whereAt:], -1)
-	if len(matches) != 1 {
-		return "" // zero or multiple pins: stay cross-partition
-	}
-	m := matches[0]
-	for _, group := range []int{2, 4} { // double- then single-quoted capture
-		if m[group] >= 0 {
-			return text[whereAt+m[group] : whereAt+m[group+1]]
+	return field, field != ""
+}
+
+func findSoleEquality(where, field string) (string, bool) {
+	var literal string
+	found := false
+	for _, match := range eqRe.FindAllStringSubmatch(where, -1) {
+		if match[1] != field {
+			continue
 		}
+		if found {
+			return "", false
+		}
+		literal, found = quotedLiteral(match), true
 	}
-	return ""
+	return literal, found
+}
+
+func quotedLiteral(match []string) string {
+	doubleQuoted, singleQuoted := match[2], match[3]
+	if doubleQuoted != "" {
+		return doubleQuoted
+	}
+	return singleQuoted
 }
