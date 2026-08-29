@@ -8,13 +8,17 @@ LDFLAGS := -ldflags "-X $(MODULE)/app.Version=$(VERSION) -X $(MODULE)/app.BuildD
 GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.4.0
 GOSEC := go run github.com/securego/gosec/v2/cmd/gosec@v2.22.8
 GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.1.4
+CSPELL := npx --yes cspell@10.1.1
+
+# --dot reaches .claude/ and .golangci.yml; --gitignore skips build artifacts.
+CSPELL_FLAGS := lint --no-progress --dot --gitignore "**"
 
 COVER_PKGS := ./app/...,./cmd/...,./internal/...
 
-.PHONY: all build test emulator-up emulator-down test-integration coverage-html fmt fmt-check vet lint security gosec govulncheck gitleaks clean help
+.PHONY: all build test emulator-up emulator-down test-integration coverage-html fmt fmt-check vet lint spell security gosec govulncheck gitleaks clean help
 
-## all: fmt-check, lint, test, build
-all: fmt-check lint test build
+## all: fmt-check, lint, spell, test, build
+all: fmt-check lint spell test build
 
 ## build: compile the binary into bin/ with version ldflags
 build:
@@ -58,6 +62,14 @@ vet:
 ## lint: run golangci-lint
 lint:
 	$(GOLANGCI_LINT) run ./...
+
+## spell: spell-check every file (skipped with a warning if npx is not installed)
+spell:
+	@if command -v npx >/dev/null 2>&1; then \
+		$(CSPELL) $(CSPELL_FLAGS); \
+	else \
+		echo "warning: npx not installed (brew install node); skipping"; \
+	fi
 
 ## security: run all security checks
 security: gosec govulncheck gitleaks
