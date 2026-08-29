@@ -2,6 +2,12 @@
 
 A terminal IDE for Azure Cosmos DB. Go 1.26.4, module `github.com/colbytimm/alchemist`.
 
+## Clean Code
+
+**Read `.claude/CLEAN_CODE.md` in full before any code, test, refactor, review, or
+documentation change.** Its rules are mandatory and override default behavior. Read
+the file itself — never a summary of it, and never the SessionStart hook's preview.
+
 ## Go work
 
 **Invoke the `go-style` skill before reading or writing any Go code** — every edit,
