@@ -11,7 +11,7 @@ GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.1.4
 
 COVER_PKGS := ./app/...,./cmd/...,./internal/...
 
-.PHONY: all build test coverage-html fmt fmt-check vet lint security gosec govulncheck gitleaks clean help
+.PHONY: all build test emulator-up emulator-down test-integration coverage-html fmt fmt-check vet lint security gosec govulncheck gitleaks clean help
 
 ## all: fmt-check, lint, test, build
 all: fmt-check lint test build
@@ -23,6 +23,18 @@ build:
 ## test: run unit tests
 test:
 	go test ./...
+
+## emulator-up: start the Cosmos DB emulator container
+emulator-up:
+	docker compose -f test/integration/docker-compose.yml up -d --wait
+
+## emulator-down: stop the Cosmos DB emulator container
+emulator-down:
+	docker compose -f test/integration/docker-compose.yml down -v
+
+## test-integration: run integration tests against the emulator
+test-integration:
+	go test -tags integration -count=1 -timeout 10m ./internal/adapter/cosmos/test/...
 
 ## coverage-html: generate an HTML coverage report
 coverage-html:

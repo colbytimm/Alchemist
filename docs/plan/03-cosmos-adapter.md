@@ -101,7 +101,7 @@ explicitly `true`.
 - Bad SQL returns an error (not a panic) with the service message preserved.
 
 **Manual checklist:**
-- [ ] `make emulator-up && make test-integration && make emulator-down` passes locally.
+- [x] `make emulator-up && make test-integration && make emulator-down` passes locally.
 
 ## Acceptance criteria
 
