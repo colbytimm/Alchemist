@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -70,14 +71,37 @@ func newModel(t *testing.T, catalog adapter.Catalog) tea.Model {
 	return model
 }
 
-// newLoadedModel returns a model whose catalog root has already arrived.
+// newLoadedModel returns a model whose catalog root has already arrived and
+// whose prefetches have settled.
 func newLoadedModel(t *testing.T, catalog adapter.Catalog) tea.Model {
 	t.Helper()
-	model := newModel(t, catalog)
-	for _, msg := range messages(model.Init()) {
-		model, _ = model.Update(msg)
-	}
+	m := newModel(t, catalog)
+	model, _ := settle(m, m.Init())
 	return model
+}
+
+// settle runs cmd and keeps feeding the model whatever the results produce,
+// until nothing new comes back. A response can start further work — a load
+// settling one chevron asks for the next — so stopping after one round would
+// leave the tree half built. Animation ticks are delivered but not followed:
+// the spinner reschedules itself forever.
+func settle(m tea.Model, cmd tea.Cmd) (tea.Model, []tea.Msg) {
+	pending := messages(cmd)
+	delivered := append([]tea.Msg(nil), pending...)
+	for len(pending) > 0 {
+		var next []tea.Msg
+		for _, msg := range pending {
+			model, cmd := m.Update(msg)
+			m = model
+			if _, animating := msg.(spinner.TickMsg); animating {
+				continue
+			}
+			next = append(next, messages(cmd)...)
+		}
+		delivered = append(delivered, next...)
+		pending = next
+	}
+	return m, delivered
 }
 
 // messages executes cmd the way the runtime does, flattening batches into what
@@ -98,16 +122,12 @@ func messages(cmd tea.Cmd) []tea.Msg {
 	return msgs
 }
 
-// press sends a key and feeds every message its commands produce back into the
-// model, returning the settled model together with those messages.
+// press sends a key and drives the model to rest, returning it together with
+// every message the key produced.
 func press(t *testing.T, m tea.Model, key tea.KeyMsg) (tea.Model, []tea.Msg) {
 	t.Helper()
 	model, cmd := m.Update(key)
-	msgs := messages(cmd)
-	for _, msg := range msgs {
-		model, _ = model.Update(msg)
-	}
-	return model, msgs
+	return settle(model, cmd)
 }
 
 func pressAll(t *testing.T, m tea.Model, keys ...tea.KeyMsg) tea.Model {

@@ -122,6 +122,57 @@ func TestCatalogTreatsNoChildrenAsLoaded(t *testing.T) {
 	assert.False(t, fetch.Needed, "a node that legitimately has no children is loaded")
 }
 
+func TestCatalogDropsTheChevronOfANodeThatCameBackEmpty(t *testing.T) {
+	c := newTree()
+	require.Contains(t, c.View(), theme.Icons().Collapsed, "the node offers an expansion before the fetch")
+
+	c = expand(t, c)
+
+	assert.NotContains(t, c.View(), theme.Icons().Expanded,
+		"a node with nothing under it must not look expandable")
+}
+
+func TestCatalogPrefetchAsksForEveryUnknownChild(t *testing.T) {
+	c, nodes, tick := newTree().Prefetch()
+
+	require.Len(t, nodes, 2, "both databases claim children nobody has counted")
+	assert.Equal(t, database.Path, nodes[0].Path)
+	assert.NotNil(t, tick, "the first prefetch starts the animation")
+	assert.NotContains(t, c.View(), theme.Icons().SpinnerFrames[0],
+		"a load the user did not ask for stays quiet")
+}
+
+func TestCatalogPrefetchSkipsWhatIsAlreadyKnownOrOnItsWay(t *testing.T) {
+	c := expand(t, newTree(), container) // sales is now cached
+	c, inFlight, _ := c.CursorDown().CursorDown().Toggle()
+	require.True(t, inFlight.Needed, "telemetry is mid-fetch")
+
+	_, nodes, _ := c.Prefetch()
+
+	require.Len(t, nodes, 1, "the cached database and the loading one are both left alone")
+	assert.Equal(t, container.Path, nodes[0].Path, "the container sales just revealed is the unknown one")
+}
+
+func TestCatalogPrefetchLeavesAFailedNodeAlone(t *testing.T) {
+	c := newTree().SetError(database.Path, errors.New("permission denied"))
+
+	_, nodes, _ := c.Prefetch()
+
+	require.Len(t, nodes, 1, "only the node that has not failed is asked again")
+	assert.Equal(t, sibling.Path, nodes[0].Path)
+}
+
+func TestCatalogPrefetchSettlesTheChevronWithoutExpanding(t *testing.T) {
+	c, nodes, _ := newTree().Prefetch()
+	require.NotEmpty(t, nodes)
+
+	c = c.SetChildren(database.Path, nil)
+
+	assert.NotContains(t, c.View(), theme.Icons().Expanded, "nothing was expanded")
+	assert.Equal(t, 1, strings.Count(c.View(), theme.Icons().Collapsed),
+		"the empty database drops its chevron, the unanswered one keeps it")
+}
+
 func TestCatalogDoesNotFetchWhileAFetchIsInFlight(t *testing.T) {
 	c, first, _ := newTree().Toggle()
 	require.True(t, first.Needed)

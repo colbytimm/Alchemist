@@ -102,7 +102,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	case CatalogLoadedMsg:
 		m.catalogPane = m.catalogPane.SetChildren(msg.Parent, msg.Nodes)
-		return m, nil
+		return m.prefetch()
 	case ScopeChangedMsg:
 		m.statusBar = m.statusBar.SetScope(msg.Scope)
 		return m, nil
@@ -215,6 +215,25 @@ func (m Model) selectNode() (Model, tea.Cmd) {
 	}
 	if fetch.Needed {
 		cmds = append(cmds, m.load(fetch.Node))
+	}
+	m, chevrons := m.prefetch() // the rows this opened onto are new to the screen
+	return m, tea.Batch(append(cmds, chevrons)...)
+}
+
+// prefetch loads the children of the rows a response just put on screen, so
+// their chevrons stop guessing. It runs behind the tree rather than ahead of
+// it: the catalog paints as soon as the root arrives, and each answer settles
+// one more row.
+func (m Model) prefetch() (Model, tea.Cmd) {
+	pane, nodes, tick := m.catalogPane.Prefetch()
+	m.catalogPane = pane
+
+	cmds := make([]tea.Cmd, 0, len(nodes)+1)
+	if tick != nil {
+		cmds = append(cmds, tick)
+	}
+	for _, node := range nodes {
+		cmds = append(cmds, m.loadChildren(node))
 	}
 	return m, tea.Batch(cmds...)
 }

@@ -148,6 +148,35 @@ func (c Catalog) SpinnerTick() tea.Cmd {
 	return c.spinner.Tick
 }
 
+// Prefetch reports the loads that settle the chevron of every row on screen.
+// An adapter that cannot answer HasChildren without listing them — Cosmos
+// cannot, for a database — has to claim it, and only the answer distinguishes
+// a node worth opening from one with nothing inside.
+func (c Catalog) Prefetch() (Catalog, []adapter.Node, tea.Cmd) {
+	var nodes []adapter.Node
+	var tick tea.Cmd
+	for _, node := range c.visibleRows() {
+		// A node that already failed is left alone. Retrying it on every
+		// unrelated response would reopen a wound the user has to close with
+		// a refresh anyway.
+		if !node.HasChildren || c.failures[pathKey(node.Path)] != "" {
+			continue
+		}
+		var (
+			fetch Fetch
+			start tea.Cmd
+		)
+		c, fetch, start = c.fetch(node)
+		if fetch.Needed {
+			nodes = append(nodes, fetch.Node)
+		}
+		if start != nil {
+			tick = start
+		}
+	}
+	return c, nodes, tick
+}
+
 // fetch asks for node's children unless they are already cached or a request
 // for them is still in flight. Letting a second request start would leave two
 // responses racing to be the one the tree keeps.
@@ -341,7 +370,9 @@ func (c Catalog) lines() ([]string, int) {
 
 func (c Catalog) nodeLine(node adapter.Node, selected bool) string {
 	text := strings.Repeat(indent, depth(node)) + c.chevron(node) + c.icon(node) + node.Name
-	if c.loading[pathKey(node.Path)] {
+	// Only a load the user asked for gets a spinner; a prefetch settling a
+	// chevron would otherwise light up every row on screen at once.
+	if key := pathKey(node.Path); c.expanded[key] && c.loading[key] {
 		text += " " + c.spinner.View()
 	}
 	text = c.clip(text)
@@ -372,13 +403,22 @@ func (c Catalog) errorLines(depth int, message string) []string {
 
 func (c Catalog) chevron(node adapter.Node) string {
 	switch {
-	case !node.HasChildren:
+	case !node.HasChildren || c.childless(node):
 		return indent
 	case c.expanded[pathKey(node.Path)]:
 		return c.icons.Expanded + " "
 	default:
 		return c.icons.Collapsed + " "
 	}
+}
+
+// childless reports whether node's children came back empty. An adapter that
+// cannot answer HasChildren without fetching them — Cosmos cannot, for a
+// database — claims it optimistically, so the chevron offering an expansion
+// has to be withdrawn once the fetch settles it.
+func (c Catalog) childless(node adapter.Node) bool {
+	children, loaded := c.children[pathKey(node.Path)]
+	return loaded && len(children) == 0
 }
 
 func (c Catalog) icon(node adapter.Node) string {

@@ -27,6 +27,16 @@ func TestRootLoadsOnInit(t *testing.T) {
 	assert.Contains(t, view, "telemetry")
 }
 
+func TestRootLoadPrefetchesChildrenToSettleChevrons(t *testing.T) {
+	catalog := newCountingCatalog(t)
+
+	newLoadedModel(t, catalog)
+
+	assert.Equal(t, 1, catalog.calls[firstDatabase],
+		"whether a database is worth expanding is only knowable by listing it")
+	assert.Equal(t, 1, catalog.calls["telemetry"])
+}
+
 func TestExpandLoadsChildrenOnceAndCachesThem(t *testing.T) {
 	catalog := newCountingCatalog(t)
 	m := newLoadedModel(t, catalog)
