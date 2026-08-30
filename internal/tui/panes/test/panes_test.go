@@ -12,7 +12,11 @@ import (
 	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
 
-const statusWidth = 80
+const (
+	paneWidth   = 28
+	paneHeight  = 12
+	statusWidth = 80
+)
 
 // TestMain pins a color profile. Without a TTY lipgloss renders everything
 // unstyled, which erases the focus and selection differences these tests exist
@@ -23,13 +27,15 @@ func TestMain(m *testing.M) {
 }
 
 func TestEditorAndResultsFillTheirFrames(t *testing.T) {
-	views := map[string]string{
+	panels := map[string]string{
 		"editor":  panes.NewEditor().SetSize(paneWidth, paneHeight).View(),
 		"results": panes.NewResults().SetSize(paneWidth, paneHeight).View(),
 	}
-	for name, view := range views {
-		assert.Equal(t, paneWidth, lipgloss.Width(view), name)
-		assert.Equal(t, paneHeight, lipgloss.Height(view), name)
+	for name, view := range panels {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, paneWidth, lipgloss.Width(view))
+			assert.Equal(t, paneHeight, lipgloss.Height(view))
+		})
 	}
 }
 
@@ -42,11 +48,10 @@ func TestFocusChangesThePaneBorder(t *testing.T) {
 }
 
 func TestStatusBarShowsProfileScopeAndHelpHint(t *testing.T) {
-	bar := panes.NewStatusBar(theme.Icons(), "dev").
+	view := panes.NewStatusBar(theme.Icons(), "dev").
 		SetWidth(statusWidth).
-		SetScope([]string{"sales", "orders"})
-
-	view := bar.View()
+		SetScope([]string{"sales", "orders"}).
+		View()
 
 	assert.Contains(t, view, "dev")
 	assert.Contains(t, view, "sales.orders")
@@ -61,11 +66,23 @@ func TestStatusBarSaysWhenThereIsNoScope(t *testing.T) {
 }
 
 func TestStatusBarNeverOutgrowsItsWidth(t *testing.T) {
-	for _, width := range []int{10, 30, 80, 200} {
-		bar := panes.NewStatusBar(theme.Icons(), "a-very-long-profile-name").
-			SetWidth(width).
-			SetScope([]string{"database", "container"})
+	widths := []struct {
+		name  string
+		width int
+	}{
+		{name: "far too narrow", width: 10},
+		{name: "narrow", width: 30},
+		{name: "minimum terminal", width: 80},
+		{name: "wide", width: 200},
+	}
+	for _, tt := range widths {
+		t.Run(tt.name, func(t *testing.T) {
+			view := panes.NewStatusBar(theme.Icons(), "a-very-long-profile-name").
+				SetWidth(tt.width).
+				SetScope([]string{"database", "container"}).
+				View()
 
-		assert.LessOrEqual(t, lipgloss.Width(bar.View()), width, "width %d", width)
+			assert.LessOrEqual(t, lipgloss.Width(view), tt.width)
+		})
 	}
 }

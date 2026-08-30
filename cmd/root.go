@@ -86,15 +86,9 @@ func (s *sessionFlags) bind(flags *pflag.FlagSet) {
 	flags.BoolVar(&s.verbose, "verbose", false, "log at debug level")
 }
 
+// run resolves the adapter and connects before touching the filesystem, so an
+// invocation that never reaches the TUI leaves no log directory behind.
 func (s sessionFlags) run(cmd *cobra.Command) error {
-	logger, logFile, err := logging.Open(s.logLevel())
-	if err != nil {
-		return err
-	}
-	// Closing the log file is the last thing to happen; a failure there is
-	// past the point where anything could act on it.
-	defer func() { _ = logFile.Close() }()
-
 	factory, err := adapter.Get(s.adapter)
 	if err != nil {
 		return err
@@ -104,6 +98,14 @@ func (s sessionFlags) run(cmd *cobra.Command) error {
 		return connectError(err)
 	}
 	defer func() { _ = conn.Close() }()
+
+	logger, logFile, err := logging.Open(s.logLevel())
+	if err != nil {
+		return err
+	}
+	// Closing the log file is the last thing to happen; a failure there is
+	// past the point where anything could act on it.
+	defer func() { _ = logFile.Close() }()
 
 	logger.Info("session started", "adapter", s.adapter)
 	program := tea.NewProgram(

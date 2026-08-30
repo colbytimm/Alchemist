@@ -12,17 +12,16 @@ const helpTitle = "Keys"
 // Help is the keybinding overlay. Its content is generated from the keymap it
 // is built with, so it can never list a stale binding.
 type Help struct {
-	model  help.Model
-	keys   help.KeyMap
-	width  int
-	height int
+	frame frame
+	model help.Model
+	keys  help.KeyMap
 }
 
 func NewHelp(keys help.KeyMap) Help {
 	model := help.New()
 	model.ShowAll = true
 	model.Styles = helpStyles()
-	return Help{model: model, keys: keys}
+	return Help{frame: frame{title: helpTitle, focused: true}, model: model, keys: keys}
 }
 
 // helpStyles replaces the bubble's near-invisible greys with the palette.
@@ -40,12 +39,11 @@ func helpStyles() help.Styles {
 }
 
 func (h Help) SetSize(width, height int) Help {
-	h.width, h.height = width, height
-	h.model.Width = max(width-2, 0)
+	h.frame = h.frame.size(width, height)
+	h.model.Width, _ = h.frame.inner()
 	return h
 }
 
 func (h Help) View() string {
-	return frame{title: helpTitle, width: h.width, height: h.height, focused: true}.
-		render(h.model.View(h.keys))
+	return h.frame.render(h.model.View(h.keys))
 }

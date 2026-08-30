@@ -9,34 +9,30 @@ const (
 	editorHint = "SELECT * FROM db.container AS c"
 )
 
-// Editor is the query buffer. It renders a hint until iteration 5 gives it a
-// textarea.
+// Editor is the query buffer, a hint until iteration 5 gives it a textarea.
 type Editor struct {
-	width   int
-	height  int
-	focused bool
+	frame frame
 }
 
 func NewEditor() Editor {
-	return Editor{}
+	return Editor{frame: frame{title: editorTitle}}
 }
 
 func (e Editor) SetSize(width, height int) Editor {
-	e.width, e.height = width, height
+	e.frame = e.frame.size(width, height)
 	return e
 }
 
 func (e Editor) Focus() Editor {
-	e.focused = true
+	e.frame = e.frame.focus()
 	return e
 }
 
 func (e Editor) Blur() Editor {
-	e.focused = false
+	e.frame = e.frame.blur()
 	return e
 }
 
 func (e Editor) View() string {
-	return frame{title: editorTitle, width: e.width, height: e.height, focused: e.focused}.
-		render(theme.HintStyle().Render(editorHint))
+	return e.frame.render(theme.HintStyle().Render(editorHint))
 }

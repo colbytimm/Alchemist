@@ -19,8 +19,7 @@ import (
 // Compile-time contract check.
 var _ tea.Model = Model{}
 
-// Pane sizing. The catalog keeps a fixed width where the terminal allows it and
-// the editor takes a third of what is left over the results.
+// Pane sizing.
 const (
 	statusBarHeight       = 1
 	preferredCatalogWidth = 28
@@ -29,8 +28,7 @@ const (
 	editorHeightDivisor   = 3
 )
 
-// focus names the pane receiving keys. The zero value is the catalog, which is
-// where a session starts.
+// focus names the pane receiving keys.
 type focus int
 
 const (
@@ -44,8 +42,8 @@ func (f focus) next() focus { return (f + 1) % focusCount }
 
 func (f focus) prev() focus { return (f + focusCount - 1) % focusCount }
 
-// Options configures a TUI session. Catalog is required; a nil Logger
-// discards output.
+// Options configures a TUI session. Icons and Catalog are required; a nil
+// Logger discards output.
 type Options struct {
 	Icons   theme.IconSet
 	Catalog adapter.Catalog
@@ -141,13 +139,11 @@ func (m Model) handleErr(msg ErrMsg) Model {
 	return m
 }
 
-func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if m.showHelp {
 		return m.handleOverlayKey(msg)
 	}
-	// Plain characters belong to the editor's buffer, so global letter
-	// shortcuts such as q and ? must not fire while it has focus.
-	if m.focus == focusEditor && msg.Type == tea.KeyRunes {
+	if m.focus == focusEditor && typesIntoBuffer(msg) {
 		return m, nil
 	}
 	switch {
@@ -169,7 +165,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.handleCatalogKey(msg)
 }
 
-func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+// typesIntoBuffer reports whether msg is a character the editor must receive
+// as text, so global shortcuts bound to plain keys — q, r, ?, space — cannot
+// steal it once the pane accepts typing.
+func typesIntoBuffer(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace
+}
+
+func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		return m, tea.Quit
@@ -193,52 +196,33 @@ func (m Model) handleCatalogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// selectNode expands or collapses the node under the cursor and, for a
-// container, republishes the scope queries default to.
+// selectNode also republishes the scope when the cursor is on a container,
+// which toggling alone cannot know to do.
 func (m Model) selectNode() (Model, tea.Cmd) {
 	node, ok := m.catalogPane.SelectedNode()
 	if !ok {
 		return m, nil
 	}
-	var cmds []tea.Cmd
+	pane, fetch, tick := m.catalogPane.Toggle()
+	m.catalogPane = pane
+
+	cmds := []tea.Cmd{tick}
 	if node.Kind == adapter.NodeContainer {
 		cmds = append(cmds, scopeChanged(node.Path))
 	}
-	if node.HasChildren {
-		var cmd tea.Cmd
-		m, cmd = m.toggle(node)
-		cmds = append(cmds, cmd)
+	if fetch.Needed {
+		cmds = append(cmds, m.loadChildren(fetch.Node))
 	}
 	return m, tea.Batch(cmds...)
 }
 
-// toggle expands or collapses node, fetching its children the first time it
-// opens and reusing the cache afterwards.
-func (m Model) toggle(node adapter.Node) (Model, tea.Cmd) {
-	if m.catalogPane.IsExpanded(node) {
-		m.catalogPane = m.catalogPane.Collapse(node)
-		return m, nil
-	}
-	m.catalogPane = m.catalogPane.Expand(node)
-	if m.catalogPane.IsLoaded(node) {
-		return m, nil
-	}
-	pane, tick := m.catalogPane.MarkLoading(node)
-	m.catalogPane = pane
-	return m, tea.Batch(tick, m.loadChildren(node))
-}
-
-// refreshNode drops the cached children of the node under the cursor and
-// fetches them again.
 func (m Model) refreshNode() (Model, tea.Cmd) {
-	node, ok := m.catalogPane.SelectedNode()
-	if !ok || !node.HasChildren {
+	pane, fetch, tick := m.catalogPane.Refresh()
+	m.catalogPane = pane
+	if !fetch.Needed {
 		return m, nil
 	}
-	pane := m.catalogPane.Invalidate(node).Expand(node)
-	pane, tick := pane.MarkLoading(node)
-	m.catalogPane = pane
-	return m, tea.Batch(tick, m.loadChildren(node))
+	return m, tea.Batch(tick, m.loadChildren(fetch.Node))
 }
 
 func (m Model) setFocus(f focus) Model {

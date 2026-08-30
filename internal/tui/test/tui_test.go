@@ -47,8 +47,7 @@ func (c *countingCatalog) Children(ctx context.Context, n adapter.Node) ([]adapt
 	return c.inner.Children(ctx, n)
 }
 
-// newCatalog opens a mock connection and wraps its catalog in a call counter.
-func newCatalog(t *testing.T, opts ...mock.Option) *countingCatalog {
+func newCountingCatalog(t *testing.T, opts ...mock.Option) *countingCatalog {
 	t.Helper()
 	conn, err := mock.New(opts...).Connect(context.Background(), nil)
 	require.NoError(t, err)
@@ -64,19 +63,19 @@ func newModel(t *testing.T, catalog adapter.Catalog) tea.Model {
 	return model
 }
 
-// loaded returns a model whose catalog root has already arrived.
-func loaded(t *testing.T, catalog adapter.Catalog) tea.Model {
+// newLoadedModel returns a model whose catalog root has already arrived.
+func newLoadedModel(t *testing.T, catalog adapter.Catalog) tea.Model {
 	t.Helper()
 	model := newModel(t, catalog)
-	for _, msg := range run(model.Init()) {
+	for _, msg := range messages(model.Init()) {
 		model, _ = model.Update(msg)
 	}
 	return model
 }
 
-// run executes cmd the way the runtime does, flattening batches into the
-// messages they produce. Nested commands are not followed.
-func run(cmd tea.Cmd) []tea.Msg {
+// messages executes cmd the way the runtime does, flattening batches into what
+// they produce. Nested commands are not followed.
+func messages(cmd tea.Cmd) []tea.Msg {
 	if cmd == nil {
 		return nil
 	}
@@ -87,29 +86,41 @@ func run(cmd tea.Cmd) []tea.Msg {
 	}
 	var msgs []tea.Msg
 	for _, c := range batch {
-		msgs = append(msgs, run(c)...)
+		msgs = append(msgs, messages(c)...)
 	}
 	return msgs
 }
 
-// press sends a key and feeds every message its commands produce back into
-// the model, returning the settled model together with those messages.
+// press sends a key and feeds every message its commands produce back into the
+// model, returning the settled model together with those messages.
 func press(t *testing.T, m tea.Model, key tea.KeyMsg) (tea.Model, []tea.Msg) {
 	t.Helper()
 	model, cmd := m.Update(key)
-	msgs := run(cmd)
+	msgs := messages(cmd)
 	for _, msg := range msgs {
 		model, _ = model.Update(msg)
 	}
 	return model, msgs
 }
 
+func pressAll(t *testing.T, m tea.Model, keys ...tea.KeyMsg) tea.Model {
+	t.Helper()
+	for _, key := range keys {
+		m, _ = press(t, m, key)
+	}
+	return m
+}
+
 func keyRune(r rune) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
 }
 
-// has reports whether msgs contains a message of type T.
-func has[T tea.Msg](msgs []tea.Msg) bool {
+func keyMsg(t tea.KeyType) tea.KeyMsg {
+	return tea.KeyMsg{Type: t}
+}
+
+// hasMsg reports whether msgs contains a message of type T.
+func hasMsg[T tea.Msg](msgs []tea.Msg) bool {
 	for _, msg := range msgs {
 		if _, ok := msg.(T); ok {
 			return true

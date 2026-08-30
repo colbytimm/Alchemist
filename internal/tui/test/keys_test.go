@@ -19,11 +19,25 @@ const (
 	helpHeight = 20
 )
 
-func TestEveryBindingIsGrouped(t *testing.T) {
-	fields := reflect.TypeOf(tui.KeyMap{}).NumField()
+// TestEveryBindingIsGroupedExactlyOnce is the drift guard: FullHelp is
+// hand-grouped, and a binding it omits would silently vanish from the overlay
+// while a duplicated one would keep the count looking right.
+func TestEveryBindingIsGroupedExactlyOnce(t *testing.T) {
+	keys := tui.DefaultKeyMap()
+	grouped := map[string]int{}
+	for _, binding := range keys.Bindings() {
+		grouped[binding.Help().Key]++
+	}
 
-	assert.Len(t, tui.DefaultKeyMap().Bindings(), fields,
-		"a binding added to KeyMap must also be placed in FullHelp")
+	fields := reflect.TypeOf(keys).NumField()
+	value := reflect.ValueOf(keys)
+	for i := range fields {
+		binding, ok := value.Field(i).Interface().(key.Binding)
+		require.True(t, ok, "KeyMap fields must all be bindings")
+		assert.Equal(t, 1, grouped[binding.Help().Key],
+			"%s should appear once in FullHelp", reflect.TypeOf(keys).Field(i).Name)
+	}
+	assert.Len(t, keys.Bindings(), fields, "FullHelp should list nothing beyond the keymap")
 }
 
 func TestEveryBindingHasKeysAndHelp(t *testing.T) {

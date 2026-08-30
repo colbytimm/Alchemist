@@ -116,7 +116,6 @@ func ErrorStyle() lipgloss.Style { return errorStyle }
 
 func SuccessStyle() lipgloss.Style { return successStyle }
 
-// SelectedStyle marks the row under the cursor.
 func SelectedStyle() lipgloss.Style { return selectedStyle }
 
 func SpinnerStyle() lipgloss.Style { return spinnerStyle }

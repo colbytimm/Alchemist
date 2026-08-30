@@ -7,34 +7,30 @@ const (
 	resultsHint  = "no results yet"
 )
 
-// Results is the result table. It renders a hint until iteration 5 gives it
-// rows to show.
+// Results is the result table, a hint until iteration 5 gives it rows.
 type Results struct {
-	width   int
-	height  int
-	focused bool
+	frame frame
 }
 
 func NewResults() Results {
-	return Results{}
+	return Results{frame: frame{title: resultsTitle}}
 }
 
 func (r Results) SetSize(width, height int) Results {
-	r.width, r.height = width, height
+	r.frame = r.frame.size(width, height)
 	return r
 }
 
 func (r Results) Focus() Results {
-	r.focused = true
+	r.frame = r.frame.focus()
 	return r
 }
 
 func (r Results) Blur() Results {
-	r.focused = false
+	r.frame = r.frame.blur()
 	return r
 }
 
 func (r Results) View() string {
-	return frame{title: resultsTitle, width: r.width, height: r.height, focused: r.focused}.
-		render(theme.HintStyle().Render(resultsHint))
+	return r.frame.render(theme.HintStyle().Render(resultsHint))
 }

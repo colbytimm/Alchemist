@@ -22,9 +22,18 @@ const (
 // rootKey is the map key of the top level of the tree, which has no node.
 const rootKey = ""
 
-// Catalog renders the lazy database tree. It holds no adapter: the root model
-// fetches children and feeds them back through SetChildren and SetError.
+// Fetch is the children request an interaction produced. Node is meaningful
+// only when Needed is true.
+type Fetch struct {
+	Node   adapter.Node
+	Needed bool
+}
+
+// Catalog renders the lazy database tree. It holds no adapter: it reports the
+// fetches it needs and the root model feeds the results back through
+// SetChildren and SetError.
 type Catalog struct {
+	frame    frame
 	icons    theme.IconSet
 	spinner  spinner.Model
 	roots    []adapter.Node
@@ -32,15 +41,13 @@ type Catalog struct {
 	expanded map[string]bool
 	loading  map[string]bool
 	failures map[string]string
-	cursor   int
-	width    int
-	height   int
-	focused  bool
+	cursor   []string
 	spinning bool
 }
 
 func NewCatalog(icons theme.IconSet) Catalog {
 	return Catalog{
+		frame: frame{title: catalogTitle},
 		icons: icons,
 		spinner: spinner.New(
 			spinner.WithSpinner(spinner.Spinner{Frames: icons.SpinnerFrames, FPS: spinnerFPS}),
@@ -70,29 +77,64 @@ func (c Catalog) Update(msg tea.Msg) (Catalog, tea.Cmd) {
 }
 
 func (c Catalog) SetSize(width, height int) Catalog {
-	c.width, c.height = width, height
+	c.frame = c.frame.size(width, height)
 	return c
 }
 
 func (c Catalog) Focus() Catalog {
-	c.focused = true
+	c.frame = c.frame.focus()
 	return c
 }
 
 func (c Catalog) Blur() Catalog {
-	c.focused = false
+	c.frame = c.frame.blur()
 	return c
 }
 
-// MarkLoading flags node's children as in flight. The returned command starts
-// the animation, and is nil when it is already running.
-func (c Catalog) MarkLoading(node adapter.Node) (Catalog, tea.Cmd) {
-	c.loading[pathKey(node.Path)] = true
+// Toggle opens or closes the node under the cursor, reporting the fetch its
+// children still need. The returned command starts the loading animation.
+func (c Catalog) Toggle() (Catalog, Fetch, tea.Cmd) {
+	node, ok := c.SelectedNode()
+	if !ok || !node.HasChildren {
+		return c, Fetch{}, nil
+	}
+	key := pathKey(node.Path)
+	if c.expanded[key] {
+		delete(c.expanded, key)
+		return c, Fetch{}, nil
+	}
+	c.expanded[key] = true
+	return c.fetch(node)
+}
+
+// Refresh drops the cached children of the node under the cursor and asks for
+// them again.
+func (c Catalog) Refresh() (Catalog, Fetch, tea.Cmd) {
+	node, ok := c.SelectedNode()
+	if !ok || !node.HasChildren {
+		return c, Fetch{}, nil
+	}
+	key := pathKey(node.Path)
+	delete(c.children, key)
+	delete(c.failures, key)
+	c.expanded[key] = true
+	return c.fetch(node)
+}
+
+// fetch asks for node's children unless they are already cached or a request
+// for them is still in flight. Letting a second request start would leave two
+// responses racing to be the one the tree keeps.
+func (c Catalog) fetch(node adapter.Node) (Catalog, Fetch, tea.Cmd) {
+	key := pathKey(node.Path)
+	if _, cached := c.children[key]; cached || c.loading[key] {
+		return c, Fetch{}, nil
+	}
+	c.loading[key] = true
 	if c.spinning {
-		return c, nil
+		return c, Fetch{Node: node, Needed: true}, nil
 	}
 	c.spinning = true
-	return c, c.spinner.Tick
+	return c, Fetch{Node: node, Needed: true}, c.spinner.Tick
 }
 
 // SetChildren records the nodes fetched for parent, clearing any earlier
@@ -103,13 +145,13 @@ func (c Catalog) SetChildren(parent []string, nodes []adapter.Node) Catalog {
 	delete(c.failures, key)
 	if key == rootKey {
 		c.roots = nodes
-	} else {
-		c.children[key] = nodes
+		return c
 	}
-	return c.clampCursor()
+	c.children[key] = nodes
+	return c
 }
 
-// SetError records a failed load so it renders under the node it belongs to.
+// SetError records a failed fetch so it renders under the node it belongs to.
 func (c Catalog) SetError(path []string, err error) Catalog {
 	key := pathKey(path)
 	delete(c.loading, key)
@@ -117,67 +159,56 @@ func (c Catalog) SetError(path []string, err error) Catalog {
 	return c
 }
 
-func (c Catalog) Expand(node adapter.Node) Catalog {
-	c.expanded[pathKey(node.Path)] = true
-	return c
-}
-
-func (c Catalog) Collapse(node adapter.Node) Catalog {
-	delete(c.expanded, pathKey(node.Path))
-	return c.clampCursor()
-}
-
-// Invalidate drops node's cached children so the next expand fetches them
-// again.
-func (c Catalog) Invalidate(node adapter.Node) Catalog {
-	key := pathKey(node.Path)
-	delete(c.children, key)
-	delete(c.failures, key)
-	return c
-}
-
-func (c Catalog) IsExpanded(node adapter.Node) bool {
-	return c.expanded[pathKey(node.Path)]
-}
-
-// IsLoaded reports whether node's children are cached, including when the
-// fetch legitimately returned none.
-func (c Catalog) IsLoaded(node adapter.Node) bool {
-	_, ok := c.children[pathKey(node.Path)]
-	return ok
-}
-
 func (c Catalog) SelectedNode() (adapter.Node, bool) {
 	rows := c.visible()
-	if c.cursor < 0 || c.cursor >= len(rows) {
+	i := c.cursorRow(rows)
+	if i < 0 {
 		return adapter.Node{}, false
 	}
-	return rows[c.cursor].node, true
+	return rows[i].node, true
 }
 
 func (c Catalog) CursorUp() Catalog {
-	c.cursor = max(c.cursor-1, 0)
-	return c
+	return c.moveCursor(-1)
 }
 
 func (c Catalog) CursorDown() Catalog {
-	c.cursor = min(c.cursor+1, len(c.visible())-1)
-	return c.clampCursor()
+	return c.moveCursor(1)
 }
 
 func (c Catalog) View() string {
+	_, height := c.frame.inner()
 	lines, cursorLine := c.lines()
-	body := strings.Join(window(lines, cursorLine, c.height-2), "\n")
-	return frame{title: catalogTitle, width: c.width, height: c.height, focused: c.focused}.render(body)
+	return c.frame.render(strings.Join(window(lines, cursorLine, height), "\n"))
 }
 
-func (c Catalog) clampCursor() Catalog {
-	c.cursor = min(c.cursor, len(c.visible())-1)
-	c.cursor = max(c.cursor, 0)
+func (c Catalog) moveCursor(delta int) Catalog {
+	rows := c.visible()
+	i := c.cursorRow(rows)
+	if i < 0 {
+		return c
+	}
+	c.cursor = rows[min(max(i+delta, 0), len(rows)-1)].node.Path
 	return c
 }
 
-// treeRow is one visible node together with its depth in the tree.
+// cursorRow locates the selected node, falling back to its nearest visible
+// ancestor when it has been collapsed away and to the first row when the
+// selection is gone entirely. Tracking the node rather than a row index keeps
+// the selection put when a slow load inserts rows above it.
+func (c Catalog) cursorRow(rows []treeRow) int {
+	found, depth := -1, -1
+	for i, row := range rows {
+		if prefixes(row.node.Path, c.cursor) && len(row.node.Path) > depth {
+			found, depth = i, len(row.node.Path)
+		}
+	}
+	if found < 0 && len(rows) > 0 {
+		return 0
+	}
+	return found
+}
+
 type treeRow struct {
 	node  adapter.Node
 	depth int
@@ -202,16 +233,19 @@ func (c Catalog) flatten(nodes []adapter.Node, depth int) []treeRow {
 // lines renders every row, interleaving inline failures, and reports which
 // line the cursor sits on so the view can scroll to it.
 func (c Catalog) lines() ([]string, int) {
+	rows := c.visible()
+	selected := c.cursorRow(rows)
+
 	var lines []string
 	if message := c.failures[rootKey]; message != "" {
 		lines = append(lines, c.errorLines(0, message)...)
 	}
 	cursorLine := 0
-	for i, row := range c.visible() {
-		if i == c.cursor {
+	for i, row := range rows {
+		if i == selected {
 			cursorLine = len(lines)
 		}
-		lines = append(lines, c.nodeLine(row, i == c.cursor))
+		lines = append(lines, c.nodeLine(row, i == selected))
 		if message := c.failures[pathKey(row.node.Path)]; message != "" {
 			lines = append(lines, c.errorLines(row.depth+1, message)...)
 		}
@@ -236,9 +270,8 @@ func (c Catalog) nodeLine(row treeRow, selected bool) string {
 func (c Catalog) errorLines(depth int, message string) []string {
 	marker := strings.Repeat(indent, depth) + c.icons.Failure + " "
 	hanging := strings.Repeat(" ", lipgloss.Width(marker))
-	wrapped := lipgloss.NewStyle().
-		Width(max(c.width-2-lipgloss.Width(marker), 1)).
-		Render(message)
+	width, _ := c.frame.inner()
+	wrapped := lipgloss.NewStyle().Width(max(width-lipgloss.Width(marker), 1)).Render(message)
 
 	var lines []string
 	for i, text := range strings.Split(wrapped, "\n") {
@@ -255,7 +288,7 @@ func (c Catalog) chevron(node adapter.Node) string {
 	switch {
 	case !node.HasChildren:
 		return indent
-	case c.IsExpanded(node):
+	case c.expanded[pathKey(node.Path)]:
 		return c.icons.Expanded + " "
 	default:
 		return c.icons.Collapsed + " "
@@ -274,7 +307,8 @@ func (c Catalog) icon(node adapter.Node) string {
 }
 
 func (c Catalog) clip(text string) string {
-	return ansi.Truncate(text, max(c.width-2, 0), "…")
+	width, _ := c.frame.inner()
+	return ansi.Truncate(text, width, "…")
 }
 
 // window returns the slice of lines of at most height rows that keeps the
@@ -287,8 +321,21 @@ func window(lines []string, cursorLine, height int) []string {
 	return lines[start : start+height]
 }
 
-// pathKey identifies a node by its catalog path. Cosmos database and container
-// names cannot contain "/", so joining on it cannot collide.
+// prefixes reports whether path is a leading segment of, or equal to, other.
+func prefixes(path, other []string) bool {
+	if len(path) > len(other) {
+		return false
+	}
+	for i, segment := range path {
+		if segment != other[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// pathKey identifies a node by its catalog path. NUL cannot appear in a
+// backend identifier, so no path can forge another's key.
 func pathKey(path []string) string {
-	return strings.Join(path, "/")
+	return strings.Join(path, "\x00")
 }
