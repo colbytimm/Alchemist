@@ -42,49 +42,59 @@ func Ash() lipgloss.AdaptiveColor { return ash }
 
 // IconSet groups the glyphs used across panes.
 type IconSet struct {
-	Database  string
-	Container string
-	Expanded  string
-	Collapsed string
-	Success   string
-	Failure   string
-	Spinner   string
+	Database      string
+	Container     string
+	Expanded      string
+	Collapsed     string
+	Success       string
+	Failure       string
+	Separator     string
+	SpinnerFrames []string
 }
 
 var (
 	unicodeIcons = IconSet{
-		Database:  "◆",
-		Container: "▪",
-		Expanded:  "▾",
-		Collapsed: "▸",
-		Success:   "✓",
-		Failure:   "✗",
-		Spinner:   "◌",
+		Database:      "◆",
+		Container:     "▪",
+		Expanded:      "▾",
+		Collapsed:     "▸",
+		Success:       "✓",
+		Failure:       "✗",
+		Separator:     "▪",
+		SpinnerFrames: []string{"◐", "◓", "◑", "◒"},
 	}
 	asciiIcons = IconSet{
-		Database:  "*",
-		Container: "-",
-		Expanded:  "v",
-		Collapsed: ">",
-		Success:   "+",
-		Failure:   "x",
-		Spinner:   "o",
+		Database:      "*",
+		Container:     "-",
+		Expanded:      "v",
+		Collapsed:     ">",
+		Success:       "+",
+		Failure:       "x",
+		Separator:     "|",
+		SpinnerFrames: []string{"|", "/", "-", `\`},
 	}
 )
 
 // Icons returns the default glyph set (no Nerd Font required).
-func Icons() IconSet { return unicodeIcons }
+func Icons() IconSet { return unicodeIcons.clone() }
 
 // ASCIIIcons returns a pure-ASCII fallback for limited terminals.
-func ASCIIIcons() IconSet { return asciiIcons }
+func ASCIIIcons() IconSet { return asciiIcons.clone() }
+
+func (s IconSet) clone() IconSet {
+	s.SpinnerFrames = append([]string(nil), s.SpinnerFrames...)
+	return s
+}
 
 var (
-	logoStyle    = lipgloss.NewStyle().Foreground(gold).Bold(true)
-	taglineStyle = lipgloss.NewStyle().Foreground(amethyst)
-	textStyle    = lipgloss.NewStyle().Foreground(parchment)
-	hintStyle    = lipgloss.NewStyle().Foreground(ash)
-	errorStyle   = lipgloss.NewStyle().Foreground(cinnabar)
-	successStyle = lipgloss.NewStyle().Foreground(verdigris)
+	logoStyle     = lipgloss.NewStyle().Foreground(gold).Bold(true)
+	taglineStyle  = lipgloss.NewStyle().Foreground(amethyst)
+	textStyle     = lipgloss.NewStyle().Foreground(parchment)
+	hintStyle     = lipgloss.NewStyle().Foreground(ash)
+	errorStyle    = lipgloss.NewStyle().Foreground(cinnabar)
+	successStyle  = lipgloss.NewStyle().Foreground(verdigris)
+	selectedStyle = lipgloss.NewStyle().Foreground(copper).Bold(true)
+	spinnerStyle  = lipgloss.NewStyle().Foreground(gold)
 
 	focusedBorderStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
@@ -105,6 +115,11 @@ func HintStyle() lipgloss.Style { return hintStyle }
 func ErrorStyle() lipgloss.Style { return errorStyle }
 
 func SuccessStyle() lipgloss.Style { return successStyle }
+
+// SelectedStyle marks the row under the cursor.
+func SelectedStyle() lipgloss.Style { return selectedStyle }
+
+func SpinnerStyle() lipgloss.Style { return spinnerStyle }
 
 func FocusedBorderStyle() lipgloss.Style { return focusedBorderStyle }
 

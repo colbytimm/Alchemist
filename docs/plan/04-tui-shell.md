@@ -81,9 +81,9 @@ fallbacks for terminals without Nerd Font glyphs.
   artifacts at 80×24 minimum).
 
 **Manual checklist:**
-- [ ] `./bin/alchemist --adapter mock` — expand/collapse fixture tree, focus cycling,
+- [x] `./bin/alchemist --adapter mock` — expand/collapse fixture tree, focus cycling,
       help overlay, resize behaves.
-- [ ] `./bin/alchemist --adapter cosmos --connection-string <emulator>` — real databases
+- [x] `./bin/alchemist --adapter cosmos --connection-string <emulator>` — real databases
       and containers appear; partition key shown on expand.
 
 ## Acceptance criteria

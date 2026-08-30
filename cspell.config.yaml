@@ -29,6 +29,7 @@ words:
   - lipgloss
   - pflag
   - stretchr
+  - termenv
   - textinput
   # Cosmos DB REST and SQL vocabulary
   - colls
@@ -68,6 +69,7 @@ words:
   - unparam
   # Go stdlib identifiers quoted in prose (the go dictionary only covers .go)
   - Errorf
+  - Failf
   - Fprintln
   - Getenv
   - goroutines

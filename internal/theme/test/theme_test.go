@@ -43,6 +43,8 @@ func TestStylesRenderContent(t *testing.T) {
 		"SuccessStyle":       theme.SuccessStyle().Render,
 		"FocusedBorderStyle": theme.FocusedBorderStyle().Render,
 		"BlurredBorderStyle": theme.BlurredBorderStyle().Render,
+		"SelectedStyle":      theme.SelectedStyle().Render,
+		"SpinnerStyle":       theme.SpinnerStyle().Render,
 	}
 	for name, render := range styles {
 		assert.Contains(t, render("sample"), "sample", name)
@@ -53,6 +55,9 @@ func TestAccessorsReturnCopies(t *testing.T) {
 	icons := theme.Icons()
 	icons.Database = "mutated"
 	assert.NotEqual(t, "mutated", theme.Icons().Database, "Icons must not hand out shared state")
+
+	icons.SpinnerFrames[0] = "mutated"
+	assert.NotEqual(t, "mutated", theme.Icons().SpinnerFrames[0], "spinner frames must be copied, not aliased")
 
 	gold := theme.Gold()
 	gold.Light = "#000000"
@@ -67,6 +72,19 @@ func TestIconSetsAreComplete(t *testing.T) {
 		assert.NotEmpty(t, icons.Collapsed)
 		assert.NotEmpty(t, icons.Success)
 		assert.NotEmpty(t, icons.Failure)
-		assert.NotEmpty(t, icons.Spinner)
+		assert.NotEmpty(t, icons.Separator)
+		assert.GreaterOrEqual(t, len(icons.SpinnerFrames), 2, "an animation needs more than one frame")
+	}
+}
+
+func TestASCIIIconsAreASCIIOnly(t *testing.T) {
+	icons := theme.ASCIIIcons()
+	glyphs := append([]string{
+		icons.Database, icons.Container, icons.Expanded, icons.Collapsed,
+		icons.Success, icons.Failure, icons.Separator,
+	}, icons.SpinnerFrames...)
+
+	for _, glyph := range glyphs {
+		assert.Equal(t, len(glyph), len([]rune(glyph)), "%q is not ASCII", glyph)
 	}
 }
