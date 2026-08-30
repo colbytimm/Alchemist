@@ -38,7 +38,7 @@ emulator-down:
 
 ## test-integration: run integration tests against the emulator
 test-integration:
-	go test -tags integration -count=1 -timeout 10m ./internal/adapter/cosmos/test/...
+	go test -tags integration -count=1 -timeout 10m ./internal/adapter/cosmos/test/... ./test/integration/...
 
 ## coverage-html: generate an HTML coverage report
 coverage-html:

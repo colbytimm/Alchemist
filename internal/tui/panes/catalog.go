@@ -437,14 +437,24 @@ func (c Catalog) clip(text string) string {
 	return ansi.Truncate(text, width, "…")
 }
 
-// window returns the slice of lines of at most height rows that keeps the
-// cursor line on screen.
+// window returns the at most height lines that keep the cursor line on
+// screen.
 func window(lines []string, cursorLine, height int) []string {
-	if height <= 0 || len(lines) <= height {
-		return lines
+	start, end := windowBounds(len(lines), cursorLine, height)
+	return lines[start:end]
+}
+
+// windowBounds is window over a count rather than the lines themselves, so a
+// caller with rows still to render can skip the ones that would not show.
+func windowBounds(count, cursorLine, height int) (start, end int) {
+	if height <= 0 {
+		return 0, 0
 	}
-	start := min(max(cursorLine-height/2, 0), len(lines)-height)
-	return lines[start : start+height]
+	if count <= height {
+		return 0, count
+	}
+	start = min(max(cursorLine-height/2, 0), count-height)
+	return start, start + height
 }
 
 // prefixes reports whether path is a leading segment of, or equal to, other.

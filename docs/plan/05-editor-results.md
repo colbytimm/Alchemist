@@ -10,7 +10,8 @@ instead of crashing the TUI.
 
 - `internal/tui/panes/editor.go` — editor pane on `bubbles/textarea`:
   - Plain text this iteration (highlighting is iteration 8).
-  - `F5` / `ctrl+enter` runs the buffer; `esc` returns focus to the previous pane.
+  - `F5` runs the buffer; `esc` returns focus to the previous pane. `ctrl+enter` is
+    dropped: terminals send a bare CR for it, so bubbletea can never deliver it.
   - Placeholder text hints scope syntax: `SELECT * FROM db.container AS c ...`.
 - Run-query flow (root model orchestrates):
   1. Resolve scope: explicit `db.container` in the query (via `internal/query`)
@@ -66,14 +67,15 @@ instead of crashing the TUI.
   inline error, no adapter call made.
 - Detail overlay renders valid pretty JSON for the row under cursor.
 
-**Manual checklist** (against the emulator, seeded via integration fixtures):
-- [ ] `SELECT * FROM c` with a container selected in the catalog → rows, RU > 0,
+**Manual checklist** (against the emulator, seeded via integration fixtures; walked by
+`test/integration/tui_test.go` under `make emulator-up && make test-integration`):
+- [x] `SELECT * FROM c` with a container selected in the catalog → rows, RU > 0,
       elapsed shown.
-- [ ] `SELECT * FROM sales.orders AS c WHERE c.pk = "x"` without a catalog selection
+- [x] `SELECT * FROM sales.orders AS c WHERE c.pk = "x"` without a catalog selection
       works.
-- [ ] Scroll to bottom on a >100-row container fetches the next page.
-- [ ] Intentional syntax error shows the Cosmos error message inline; TUI stays alive.
-- [ ] `enter` on a row shows the raw document; `esc` closes.
+- [x] Scroll to bottom on a >100-row container fetches the next page.
+- [x] Intentional syntax error shows the Cosmos error message inline; TUI stays alive.
+- [x] `enter` on a row shows the raw document; `esc` closes.
 
 ## Acceptance criteria
 

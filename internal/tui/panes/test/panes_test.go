@@ -3,11 +3,14 @@ package panes_test
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
@@ -24,6 +27,13 @@ const (
 func TestMain(m *testing.M) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	os.Exit(m.Run())
+}
+
+// plain drops the styling, so an assertion can match text a renderer split
+// into separately styled runs — a cursor sitting on the first character of
+// the editor's placeholder, say.
+func plain(view string) string {
+	return ansi.Strip(view)
 }
 
 func TestEditorAndResultsFillTheirFrames(t *testing.T) {
@@ -85,4 +95,55 @@ func TestStatusBarNeverOutgrowsItsWidth(t *testing.T) {
 			assert.LessOrEqual(t, lipgloss.Width(view), tt.width)
 		})
 	}
+}
+
+func TestStatusBarWaitsForAResultBeforeReportingStatistics(t *testing.T) {
+	view := plain(panes.NewStatusBar(theme.Icons(), "dev").SetWidth(statusWidth).View())
+
+	assert.Contains(t, view, "— rows")
+	assert.Contains(t, view, "— RU")
+	assert.Contains(t, view, "— elapsed")
+}
+
+func TestStatusBarReportsTheLoadedResultSet(t *testing.T) {
+	bar, _ := panes.NewStatusBar(theme.Icons(), "dev").SetWidth(statusWidth).SetProgress(panes.Progress{
+		Stats:  adapter.Stats{RowCount: 120, RequestCharge: 4.25, Elapsed: 12 * time.Millisecond},
+		More:   true,
+		Loaded: true,
+	})
+
+	view := plain(bar.View())
+	assert.Contains(t, view, "120 rows (+more)")
+	assert.Contains(t, view, "4.25 RU")
+	assert.Contains(t, view, "12ms")
+}
+
+func TestStatusBarDropsTheMoreHintOnTheLastPage(t *testing.T) {
+	bar, _ := panes.NewStatusBar(theme.Icons(), "dev").SetWidth(statusWidth).SetProgress(panes.Progress{
+		Stats:  adapter.Stats{RowCount: 30},
+		Loaded: true,
+	})
+
+	assert.NotContains(t, plain(bar.View()), "(+more)")
+}
+
+func TestStatusBarSpinsWhileAQueryRuns(t *testing.T) {
+	bar, tick := panes.NewStatusBar(theme.Icons(), "dev").SetWidth(statusWidth).
+		SetProgress(panes.Progress{Running: true})
+
+	assert.NotNil(t, tick, "a run that has just started drives the animation")
+	assert.Contains(t, plain(bar.View()), theme.Icons().SpinnerFrames[0])
+}
+
+func TestStatusBarStopsSpinningOnceTheRunSettles(t *testing.T) {
+	bar, tick := panes.NewStatusBar(theme.Icons(), "dev").SetWidth(statusWidth).
+		SetProgress(panes.Progress{Running: true})
+	bar, again := bar.SetProgress(panes.Progress{Running: true})
+	assert.Nil(t, again, "an animation already playing is not started twice")
+
+	settled, _ := bar.SetProgress(panes.Progress{Loaded: true})
+	_, stopped := settled.Update(tick())
+
+	assert.Nil(t, stopped, "the last tick of a settled run ends the animation")
+	assert.NotContains(t, plain(settled.View()), theme.Icons().SpinnerFrames[0])
 }

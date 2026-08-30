@@ -13,6 +13,10 @@ type KeyMap struct {
 	Down        key.Binding
 	Select      key.Binding
 	Refresh     key.Binding
+	Detail      key.Binding
+	ScrollLeft  key.Binding
+	ScrollRight key.Binding
+	FetchMore   key.Binding
 	Run         key.Binding
 	History     key.Binding
 	Help        key.Binding
@@ -50,13 +54,31 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh node"),
 		),
-		// Run and History stay disabled — and so stay out of the help overlay
-		// — until iterations 5 and 7 implement them.
-		Run: key.NewBinding(
-			key.WithKeys("f5", "ctrl+enter"),
-			key.WithHelp("f5", "run query"),
-			key.WithDisabled(),
+		Detail: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "row detail"),
 		),
+		ScrollLeft: key.NewBinding(
+			key.WithKeys("left", "h"),
+			key.WithHelp("h/←", "scroll left"),
+		),
+		ScrollRight: key.NewBinding(
+			key.WithKeys("right", "l"),
+			key.WithHelp("l/→", "scroll right"),
+		),
+		FetchMore: key.NewBinding(
+			key.WithKeys("m"),
+			key.WithHelp("m", "fetch more"),
+		),
+		// The plan pairs f5 with ctrl+enter, which bubbletea cannot deliver:
+		// terminals send a bare CR for both, so such a binding would never
+		// fire.
+		Run: key.NewBinding(
+			key.WithKeys("f5"),
+			key.WithHelp("f5", "run query"),
+		),
+		// History stays disabled — and so stays out of the help overlay —
+		// until iteration 7 implements it.
 		History: key.NewBinding(
 			key.WithKeys("f8"),
 			key.WithHelp("f8", "history"),
@@ -77,17 +99,28 @@ func DefaultKeyMap() KeyMap {
 	}
 }
 
-// FullHelp groups the bindings into the columns of the help overlay.
+// FullHelp lays the overlay out as one column of keys that work anywhere,
+// then a column for each pane that adds its own.
 func (k KeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{
-		{k.NextPane, k.PrevPane, k.FocusEditor},
-		{k.Up, k.Down, k.Select, k.Refresh},
-		{k.Run, k.History},
-		{k.Help, k.Close, k.Quit},
+	return [][]key.Binding{k.globalKeys(), k.catalogKeys(), k.resultsKeys()}
+}
+
+func (k KeyMap) globalKeys() []key.Binding {
+	return []key.Binding{
+		k.NextPane, k.PrevPane, k.FocusEditor, k.Run,
+		k.History, k.Help, k.Close, k.Quit,
 	}
+}
+
+func (k KeyMap) catalogKeys() []key.Binding {
+	return []key.Binding{k.Up, k.Down, k.Select, k.Refresh}
+}
+
+func (k KeyMap) resultsKeys() []key.Binding {
+	return []key.Binding{k.Detail, k.ScrollLeft, k.ScrollRight, k.FetchMore}
 }
 
 // ShortHelp names the bindings worth a single-line reminder.
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextPane, k.Select, k.Help, k.Quit}
+	return []key.Binding{k.NextPane, k.Select, k.Run, k.Help, k.Quit}
 }

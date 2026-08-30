@@ -22,7 +22,7 @@ const (
 )
 
 func TestViewShowsEveryPaneAndTheStatusBar(t *testing.T) {
-	view := newLoadedModel(t, newCountingCatalog(t)).View()
+	view := newLoadedModel(t, newConnection(t)).View()
 
 	for _, want := range []string{catalogTitle, editorTitle, resultsTitle} {
 		assert.Contains(t, view, want)
@@ -36,7 +36,7 @@ func TestViewShowsEveryPaneAndTheStatusBar(t *testing.T) {
 // unambiguous F2 binding as the reference for "the editor has focus" and
 // compare renders against it.
 func TestTabCyclesCatalogThenEditorThenResults(t *testing.T) {
-	catalog := newLoadedModel(t, newCountingCatalog(t))
+	catalog := newLoadedModel(t, newConnection(t))
 	editor := pressAll(t, catalog, keyMsg(tea.KeyF2))
 
 	oneTab := pressAll(t, catalog, keyMsg(tea.KeyTab))
@@ -51,7 +51,7 @@ func TestTabCyclesCatalogThenEditorThenResults(t *testing.T) {
 }
 
 func TestShiftTabCyclesBackwards(t *testing.T) {
-	catalog := newLoadedModel(t, newCountingCatalog(t))
+	catalog := newLoadedModel(t, newConnection(t))
 	results := pressAll(t, catalog, keyMsg(tea.KeyTab), keyMsg(tea.KeyTab))
 	editor := pressAll(t, catalog, keyMsg(tea.KeyF2))
 
@@ -62,7 +62,7 @@ func TestShiftTabCyclesBackwards(t *testing.T) {
 }
 
 func TestOnlyTheFocusedPaneTakesItsKeys(t *testing.T) {
-	catalog := newLoadedModel(t, newCountingCatalog(t))
+	catalog := newLoadedModel(t, newConnection(t))
 	require.NotEqual(t, catalog.View(), pressAll(t, catalog, keyMsg(tea.KeyDown)).View(),
 		"the focused catalog moves its cursor")
 
@@ -72,7 +72,7 @@ func TestOnlyTheFocusedPaneTakesItsKeys(t *testing.T) {
 }
 
 func TestCtrlCQuitsFromEveryPane(t *testing.T) {
-	m := newLoadedModel(t, newCountingCatalog(t))
+	m := newLoadedModel(t, newConnection(t))
 	for _, pane := range []string{"catalog", "editor", "results"} {
 		_, cmd := m.Update(keyMsg(tea.KeyCtrlC))
 		require.NotNil(t, cmd, "in the %s pane", pane)
@@ -82,7 +82,7 @@ func TestCtrlCQuitsFromEveryPane(t *testing.T) {
 }
 
 func TestQQuitsOutsideTheEditor(t *testing.T) {
-	m := newLoadedModel(t, newCountingCatalog(t))
+	m := newLoadedModel(t, newConnection(t))
 
 	_, cmd := m.Update(keyRune('q'))
 
@@ -91,16 +91,28 @@ func TestQQuitsOutsideTheEditor(t *testing.T) {
 }
 
 func TestTheEditorKeepsPlainKeysAsText(t *testing.T) {
-	editor := pressAll(t, newLoadedModel(t, newCountingCatalog(t)), keyMsg(tea.KeyF2))
+	editor := pressAll(t, newLoadedModel(t, newConnection(t)), keyMsg(tea.KeyF2))
 
-	for _, k := range []tea.KeyMsg{keyRune('q'), keyRune('r'), keyRune('?'), keyMsg(tea.KeySpace)} {
-		_, cmd := editor.Update(k)
-		assert.Nil(t, cmd, "%q belongs to the editor buffer, not a global shortcut", k.String())
+	for _, k := range []tea.KeyMsg{keyRune('q'), keyRune('r'), keyRune('?'), keySpace()} {
+		typed, cmd := editor.Update(k)
+		assert.Nil(t, cmd, "%q belongs to the buffer, not to a global shortcut", k.String())
+		assert.Contains(t, typed.View(), catalogTitle, "%q must not quit or open an overlay", k.String())
+		editor = typed
 	}
+
+	assert.Contains(t, editor.View(), "qr? ", "and every one of them was typed")
+}
+
+func TestEscapeReturnsTheEditorToThePreviousPane(t *testing.T) {
+	results := pressAll(t, newLoadedModel(t, newConnection(t)), keyMsg(tea.KeyTab), keyMsg(tea.KeyTab))
+
+	returned := pressAll(t, results, keyMsg(tea.KeyF2), keyMsg(tea.KeyEscape))
+
+	assert.Equal(t, results.View(), returned.View(), "esc should hand focus back to the results pane")
 }
 
 func TestHelpOverlayOpensAndCloses(t *testing.T) {
-	m := newLoadedModel(t, newCountingCatalog(t))
+	m := newLoadedModel(t, newConnection(t))
 
 	m = pressAll(t, m, keyRune('?'))
 	assert.NotContains(t, m.View(), catalogTitle, "the overlay replaces the layout")
@@ -110,18 +122,18 @@ func TestHelpOverlayOpensAndCloses(t *testing.T) {
 }
 
 func TestF1OpensHelpFromTheEditor(t *testing.T) {
-	editor := pressAll(t, newLoadedModel(t, newCountingCatalog(t)), keyMsg(tea.KeyF2))
+	editor := pressAll(t, newLoadedModel(t, newConnection(t)), keyMsg(tea.KeyF2))
 
 	assert.NotContains(t, pressAll(t, editor, keyMsg(tea.KeyF1)).View(), catalogTitle)
 }
 
 func TestDisabledBindingsDoNothing(t *testing.T) {
-	m := newLoadedModel(t, newCountingCatalog(t))
+	m := newLoadedModel(t, newConnection(t))
 
-	for _, k := range []tea.KeyMsg{keyMsg(tea.KeyF5), keyMsg(tea.KeyF8)} {
-		_, cmd := m.Update(k)
-		assert.Nil(t, cmd, "%s is bound but disabled until its iteration lands", k.String())
-	}
+	after, cmd := m.Update(keyMsg(tea.KeyF8))
+
+	assert.Nil(t, cmd, "history is bound but disabled until iteration 7 lands")
+	assert.Equal(t, m.View(), after.View())
 }
 
 func TestViewNeverOutgrowsTheTerminal(t *testing.T) {
@@ -138,7 +150,7 @@ func TestViewNeverOutgrowsTheTerminal(t *testing.T) {
 	}
 	for _, tt := range sizes {
 		t.Run(tt.name, func(t *testing.T) {
-			m := newLoadedModel(t, newCountingCatalog(t))
+			m := newLoadedModel(t, newConnection(t))
 			m, _ = m.Update(tea.WindowSizeMsg{Width: tt.width, Height: tt.height})
 
 			view := m.View()
@@ -149,7 +161,7 @@ func TestViewNeverOutgrowsTheTerminal(t *testing.T) {
 }
 
 func TestViewFillsTheMinimumTerminal(t *testing.T) {
-	view := newLoadedModel(t, newCountingCatalog(t)).View()
+	view := newLoadedModel(t, newConnection(t)).View()
 
 	assert.Equal(t, testWidth, lipgloss.Width(view))
 	assert.Equal(t, testHeight, lipgloss.Height(view))
@@ -159,7 +171,7 @@ func TestViewFillsTheMinimumTerminal(t *testing.T) {
 }
 
 func TestViewIsEmptyBeforeTheFirstResize(t *testing.T) {
-	m := tui.New(tui.Options{Icons: theme.Icons(), Catalog: newCountingCatalog(t)})
+	m := tui.New(tui.Options{Icons: theme.Icons(), Connection: newConnection(t)})
 
 	assert.Empty(t, m.View())
 }
