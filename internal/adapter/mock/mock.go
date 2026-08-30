@@ -183,11 +183,7 @@ func (cat *catalog) Children(ctx context.Context, n adapter.Node) ([]adapter.Nod
 	case adapter.NodeDatabase:
 		return cat.containers(n)
 	case adapter.NodeContainer:
-		return []adapter.Node{{
-			Kind: adapter.NodeField,
-			Name: adapter.MetaPartitionKey + " " + n.Meta[adapter.MetaPartitionKey],
-			Path: append(append([]string{}, n.Path...), adapter.MetaPartitionKey),
-		}}, nil
+		return adapter.PartitionKeyNodes(n), nil
 	default:
 		return nil, nil
 	}

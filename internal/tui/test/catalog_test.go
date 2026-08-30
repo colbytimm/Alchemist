@@ -86,7 +86,9 @@ func TestExpandingAContainerShowsItsPartitionKey(t *testing.T) {
 
 	m = pressAll(t, m, keyMsg(tea.KeyEnter), keyMsg(tea.KeyDown), keyMsg(tea.KeyEnter))
 
-	assert.Contains(t, m.View(), "partitionKey")
+	view := m.View()
+	assert.Contains(t, view, "partitionKey")
+	assert.Contains(t, view, "/customerId", "the key's paths are readable, not truncated behind the label")
 }
 
 func TestChildrenFailureRendersUnderTheNode(t *testing.T) {

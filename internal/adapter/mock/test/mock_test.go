@@ -45,9 +45,11 @@ func TestCatalogShape(t *testing.T) {
 
 	leaves, err := catalog.Children(ctx, containers[0])
 	require.NoError(t, err)
-	require.Len(t, leaves, 1)
+	require.Len(t, leaves, 2)
 	assert.Equal(t, adapter.NodeField, leaves[0].Kind)
-	assert.Equal(t, "partitionKey /customerId", leaves[0].Name)
+	assert.Equal(t, adapter.MetaPartitionKey, leaves[0].Name)
+	assert.Equal(t, "/customerId", leaves[1].Name)
+	assert.Equal(t, []string{"sales", "orders", "partitionKey", "/customerId"}, leaves[1].Path)
 
 	none, err := catalog.Children(ctx, leaves[0])
 	require.NoError(t, err)

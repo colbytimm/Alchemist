@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -37,6 +38,21 @@ var container = adapter.Node{
 	HasChildren: true,
 }
 
+// The metadata leaves a container serves, in one batch: a label and the one
+// partition key path beneath it.
+var (
+	partitionKeyLabel = adapter.Node{
+		Kind: adapter.NodeField,
+		Name: "partitionKey",
+		Path: []string{"sales", "orders", "partitionKey"},
+	}
+	partitionKeyPath = adapter.Node{
+		Kind: adapter.NodeField,
+		Name: "/customerId",
+		Path: []string{"sales", "orders", "partitionKey", "/customerId"},
+	}
+)
+
 // newTree is a sized catalog holding two collapsed databases.
 func newTree() panes.Catalog {
 	return panes.NewCatalog(theme.Icons()).
@@ -65,6 +81,17 @@ func TestCatalogHidesChildrenUntilExpanded(t *testing.T) {
 	require.NotContains(t, c.View(), container.Name)
 
 	assert.Contains(t, expand(t, c, container).View(), container.Name)
+}
+
+func TestCatalogNestsOneBatchOfChildrenByTheirPaths(t *testing.T) {
+	c := expand(t, expand(t, newTree(), container).CursorDown(), partitionKeyLabel, partitionKeyPath)
+	lines := strings.Split(c.View(), "\n")
+
+	label := columnOf(t, lines, partitionKeyLabel.Name)
+	path := columnOf(t, lines, partitionKeyPath.Name)
+
+	assert.Greater(t, path, label,
+		"a deeper path indents further even though it arrived alongside its parent")
 }
 
 func TestCatalogCollapseHidesChildrenAgain(t *testing.T) {
@@ -118,12 +145,7 @@ func TestCatalogRefreshFetchesAgain(t *testing.T) {
 }
 
 func TestCatalogRefreshForgetsTheWholeSubtree(t *testing.T) {
-	field := adapter.Node{
-		Kind: adapter.NodeField,
-		Name: "partitionKey /customerId",
-		Path: []string{"sales", "orders", "partitionKey"},
-	}
-	c := expand(t, expand(t, newTree(), container).CursorDown(), field)
+	c := expand(t, expand(t, newTree(), container).CursorDown(), partitionKeyLabel)
 	require.Contains(t, c.View(), "partitionKey")
 
 	c, fetch, _ := c.CursorUp().Refresh()
@@ -151,7 +173,7 @@ func TestCatalogShowsProgressWhileTheRootLoads(t *testing.T) {
 }
 
 func TestCatalogLeafNodesAskForNothing(t *testing.T) {
-	leaf := adapter.Node{Kind: adapter.NodeField, Name: "partitionKey /id", Path: []string{"leaf"}}
+	leaf := adapter.Node{Kind: adapter.NodeDatabase, Name: "empty", Path: []string{"empty"}}
 	c := panes.NewCatalog(theme.Icons()).
 		SetSize(paneWidth, paneHeight).
 		SetChildren(nil, []adapter.Node{leaf})
@@ -172,6 +194,14 @@ func TestCatalogCursorWalksTheExpandedTree(t *testing.T) {
 	node, ok = c.CursorDown().SelectedNode()
 	require.True(t, ok)
 	assert.Equal(t, container.Name, node.Name)
+}
+
+func TestCatalogCursorSkipsMetadataFields(t *testing.T) {
+	c := expand(t, expand(t, newTree(), container).CursorDown(), partitionKeyLabel, partitionKeyPath)
+	require.Equal(t, container.Name, selected(t, c).Name)
+
+	assert.Equal(t, sibling.Name, selected(t, c.CursorDown()).Name,
+		"the cursor steps over a container's metadata to the next selectable node")
 }
 
 func TestCatalogCursorFallsBackWhenItsNodeDisappears(t *testing.T) {
@@ -340,6 +370,13 @@ func selected(t *testing.T, c panes.Catalog) adapter.Node {
 	node, ok := c.SelectedNode()
 	require.True(t, ok, "expected a selected node")
 	return node
+}
+
+// columnOf is the cell want starts at on the first line holding it, which is
+// how far that row is indented.
+func columnOf(t *testing.T, lines []string, want string) int {
+	t.Helper()
+	return strings.Index(ansi.Strip(lines[indexOfLineContaining(t, lines, want)]), want)
 }
 
 func indexOfLineContaining(t *testing.T, lines []string, want string) int {

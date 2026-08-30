@@ -215,12 +215,12 @@ func (c Catalog) SetError(path []string, err error) Catalog {
 }
 
 func (c Catalog) SelectedNode() (adapter.Node, bool) {
-	rows := c.visible()
+	rows := c.selectableRows()
 	i := c.cursorRow(rows)
 	if i < 0 {
 		return adapter.Node{}, false
 	}
-	return rows[i].node, true
+	return rows[i], true
 }
 
 func (c Catalog) CursorUp() Catalog {
@@ -238,12 +238,12 @@ func (c Catalog) View() string {
 }
 
 func (c Catalog) moveCursor(delta int) Catalog {
-	rows := c.visible()
+	rows := c.selectableRows()
 	i := c.cursorRow(rows)
 	if i < 0 {
 		return c
 	}
-	c.cursor = rows[min(max(i+delta, 0), len(rows)-1)].node.Path
+	c.cursor = rows[min(max(i+delta, 0), len(rows)-1)].Path
 	return c
 }
 
@@ -251,17 +251,17 @@ func (c Catalog) moveCursor(delta int) Catalog {
 // ancestor when it has been collapsed away and to the first row when the
 // selection is gone entirely. Tracking the node rather than a row index keeps
 // the selection put when a slow load inserts rows above it.
-func (c Catalog) cursorRow(rows []treeRow) int {
+func (c Catalog) cursorRow(rows []adapter.Node) int {
 	if len(rows) == 0 {
 		return -1
 	}
 	if len(c.cursor) == 0 {
 		return 0
 	}
-	found, depth := 0, -1
+	found, longest := 0, -1
 	for i, row := range rows {
-		if prefixes(row.node.Path, c.cursor) && len(row.node.Path) > depth {
-			found, depth = i, len(row.node.Path)
+		if prefixes(row.Path, c.cursor) && len(row.Path) > longest {
+			found, longest = i, len(row.Path)
 		}
 	}
 	return found
@@ -270,38 +270,53 @@ func (c Catalog) cursorRow(rows []treeRow) int {
 // reanchor commits whatever the cursor resolved to, so a node that later
 // reappears at the abandoned path cannot recapture the selection.
 func (c Catalog) reanchor() Catalog {
-	rows := c.visible()
+	rows := c.selectableRows()
 	if i := c.cursorRow(rows); i >= 0 {
-		c.cursor = rows[i].node.Path
+		c.cursor = rows[i].Path
 	}
 	return c
 }
 
-type treeRow struct {
-	node  adapter.Node
-	depth int
+// visibleRows flattens the expanded tree into the rows to draw, in draw order.
+func (c Catalog) visibleRows() []adapter.Node {
+	return c.flatten(c.roots)
 }
 
-// visible flattens the expanded tree into the selectable rows, in draw order.
-func (c Catalog) visible() []treeRow {
-	return c.flatten(c.roots, 0)
-}
-
-func (c Catalog) flatten(nodes []adapter.Node, depth int) []treeRow {
-	var rows []treeRow
-	for _, node := range nodes {
-		rows = append(rows, treeRow{node: node, depth: depth})
-		if key := pathKey(node.Path); c.expanded[key] {
-			rows = append(rows, c.flatten(c.children[key], depth+1)...)
+// selectableRows are the rows the cursor may land on. A metadata field draws
+// but cannot be selected: there is nothing on one to expand or scope a query
+// to.
+func (c Catalog) selectableRows() []adapter.Node {
+	var rows []adapter.Node
+	for _, node := range c.visibleRows() {
+		if node.Kind != adapter.NodeField {
+			rows = append(rows, node)
 		}
 	}
 	return rows
 }
 
+func (c Catalog) flatten(nodes []adapter.Node) []adapter.Node {
+	var rows []adapter.Node
+	for _, node := range nodes {
+		rows = append(rows, node)
+		if key := pathKey(node.Path); c.expanded[key] {
+			rows = append(rows, c.flatten(c.children[key])...)
+		}
+	}
+	return rows
+}
+
+// depth is a node's indent level. Taking it from the path rather than from the
+// walk lets one batch of children nest among themselves, which is how a
+// container serves its partition key label and that key's paths together.
+func depth(node adapter.Node) int {
+	return max(len(node.Path)-1, 0)
+}
+
 // lines renders every row, interleaving inline failures, and reports which
 // line the cursor sits on so the view can scroll to it.
 func (c Catalog) lines() ([]string, int) {
-	rows := c.visible()
+	rows := c.visibleRows()
 	selected := c.cursorRow(rows)
 
 	var lines []string
@@ -317,16 +332,16 @@ func (c Catalog) lines() ([]string, int) {
 			cursorLine = len(lines)
 		}
 		lines = append(lines, c.nodeLine(row, i == selected))
-		if message := c.failures[pathKey(row.node.Path)]; message != "" {
-			lines = append(lines, c.errorLines(row.depth+1, message)...)
+		if message := c.failures[pathKey(row.Path)]; message != "" {
+			lines = append(lines, c.errorLines(depth(row)+1, message)...)
 		}
 	}
 	return lines, cursorLine
 }
 
-func (c Catalog) nodeLine(row treeRow, selected bool) string {
-	text := strings.Repeat(indent, row.depth) + c.chevron(row.node) + c.icon(row.node) + row.node.Name
-	if c.loading[pathKey(row.node.Path)] {
+func (c Catalog) nodeLine(node adapter.Node, selected bool) string {
+	text := strings.Repeat(indent, depth(node)) + c.chevron(node) + c.icon(node) + node.Name
+	if c.loading[pathKey(node.Path)] {
 		text += " " + c.spinner.View()
 	}
 	text = c.clip(text)
