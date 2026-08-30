@@ -58,8 +58,10 @@ const MetaPartitionKey = "partitionKey"
 
 // Node is one entry in the catalog tree.
 type Node struct {
-	Kind        NodeKind
-	Name        string
+	Kind NodeKind
+	Name string
+	// Path identifies the node within its account and must not be empty; an
+	// empty path is how callers denote the tree's root.
 	Path        []string
 	Meta        map[string]string
 	HasChildren bool

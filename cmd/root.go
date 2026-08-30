@@ -97,6 +97,8 @@ func (s sessionFlags) run(cmd *cobra.Command) error {
 	if err != nil {
 		return connectError(err)
 	}
+	// The session is over by the time this runs; a close failure has no
+	// bearing on the exit path.
 	defer func() { _ = conn.Close() }()
 
 	logger, logFile, err := logging.Open(s.logLevel())

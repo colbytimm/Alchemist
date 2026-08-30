@@ -2,6 +2,7 @@ package tui_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -31,14 +32,20 @@ func TestMain(m *testing.M) {
 }
 
 // countingCatalog reports how often each node's children were fetched, so a
-// test can tell a cache hit from a second round trip.
+// test can tell a cache hit from a second round trip. failRoot fails that
+// many opening root fetches before serving the fixture.
 type countingCatalog struct {
-	inner adapter.Catalog
-	calls map[string]int
+	inner    adapter.Catalog
+	calls    map[string]int
+	failRoot int
 }
 
 func (c *countingCatalog) Root(ctx context.Context) ([]adapter.Node, error) {
 	c.calls[""]++
+	if c.failRoot > 0 {
+		c.failRoot--
+		return nil, errors.New("catalog unreachable")
+	}
 	return c.inner.Root(ctx)
 }
 

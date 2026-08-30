@@ -117,6 +117,39 @@ func TestCatalogRefreshFetchesAgain(t *testing.T) {
 	assert.Equal(t, database.Path, fetch.Node.Path)
 }
 
+func TestCatalogRefreshForgetsTheWholeSubtree(t *testing.T) {
+	field := adapter.Node{
+		Kind: adapter.NodeField,
+		Name: "partitionKey /customerId",
+		Path: []string{"sales", "orders", "partitionKey"},
+	}
+	c := expand(t, expand(t, newTree(), container).CursorDown(), field)
+	require.Contains(t, c.View(), "partitionKey")
+
+	c, fetch, _ := c.CursorUp().Refresh()
+	require.True(t, fetch.Needed)
+	c = c.SetChildren(database.Path, []adapter.Node{container})
+
+	assert.NotContains(t, c.View(), "partitionKey",
+		"a refreshed node must not keep serving what its descendants held before")
+}
+
+func TestCatalogRefreshWithNothingSelectedReloadsTheRoot(t *testing.T) {
+	empty := panes.NewCatalog(theme.Icons()).SetSize(paneWidth, paneHeight)
+
+	_, fetch, _ := empty.Refresh()
+
+	require.True(t, fetch.Needed, "an empty tree has no node to refresh, so ask for the top level")
+	assert.Empty(t, fetch.Node.Path)
+}
+
+func TestCatalogShowsProgressWhileTheRootLoads(t *testing.T) {
+	c, fetch, _ := panes.NewCatalog(theme.Icons()).SetSize(paneWidth, paneHeight).Reload()
+
+	require.True(t, fetch.Needed)
+	assert.Contains(t, c.View(), "loading")
+}
+
 func TestCatalogLeafNodesAskForNothing(t *testing.T) {
 	leaf := adapter.Node{Kind: adapter.NodeField, Name: "partitionKey /id", Path: []string{"leaf"}}
 	c := panes.NewCatalog(theme.Icons()).
@@ -150,6 +183,17 @@ func TestCatalogCursorFallsBackWhenItsNodeDisappears(t *testing.T) {
 
 	assert.Equal(t, database.Name, selected(t, c).Name,
 		"the cursor falls back to the nearest surviving ancestor")
+}
+
+func TestCatalogCursorStaysWhereItFellBackTo(t *testing.T) {
+	c := expand(t, newTree(), container).CursorDown()
+	c = c.SetChildren(database.Path, nil)
+	require.Equal(t, database.Name, selected(t, c).Name)
+
+	c = c.SetChildren(database.Path, []adapter.Node{container})
+
+	assert.Equal(t, database.Name, selected(t, c).Name,
+		"a node reappearing at the abandoned path must not recapture the cursor")
 }
 
 func TestCatalogCursorStaysOnItsNodeWhenRowsAppearAbove(t *testing.T) {

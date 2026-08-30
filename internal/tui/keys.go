@@ -91,13 +91,3 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 func (k KeyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.NextPane, k.Select, k.Help, k.Quit}
 }
-
-// Bindings flattens FullHelp so callers that iterate the keymap cannot drift
-// from what the overlay renders.
-func (k KeyMap) Bindings() []key.Binding {
-	var all []key.Binding
-	for _, group := range k.FullHelp() {
-		all = append(all, group...)
-	}
-	return all
-}

@@ -84,11 +84,14 @@ func New(opts Options) Model {
 		statusBar:   panes.NewStatusBar(opts.Icons, opts.Profile),
 		help:        panes.NewHelp(keys),
 	}
+	// The tick is discarded because Init, which bubbletea always calls next,
+	// starts the animation; a constructor cannot hand back a command.
+	m.catalogPane, _, _ = m.catalogPane.Reload()
 	return m.setFocus(focusCatalog)
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.loadRoot()
+	return tea.Batch(m.catalogPane.SpinnerTick(), m.loadRoot())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -211,7 +214,7 @@ func (m Model) selectNode() (Model, tea.Cmd) {
 		cmds = append(cmds, scopeChanged(node.Path))
 	}
 	if fetch.Needed {
-		cmds = append(cmds, m.loadChildren(fetch.Node))
+		cmds = append(cmds, m.load(fetch.Node))
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -222,7 +225,15 @@ func (m Model) refreshNode() (Model, tea.Cmd) {
 	if !fetch.Needed {
 		return m, nil
 	}
-	return m, tea.Batch(tick, m.loadChildren(fetch.Node))
+	return m, tea.Batch(tick, m.load(fetch.Node))
+}
+
+// load fetches node's children, or the top level when node has no path.
+func (m Model) load(node adapter.Node) tea.Cmd {
+	if len(node.Path) == 0 {
+		return m.loadRoot()
+	}
+	return m.loadChildren(node)
 }
 
 func (m Model) setFocus(f focus) Model {

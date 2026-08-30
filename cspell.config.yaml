@@ -85,6 +85,7 @@ words:
   - pinnable
   - pushdown
   - pkgs
+  - reanchor
   - toks
   - unpinnable
   # Concatenated-initialism examples in the naming reference

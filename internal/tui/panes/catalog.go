@@ -17,13 +17,19 @@ const (
 	catalogTitle = "Catalog"
 	indent       = "  "
 	spinnerFPS   = time.Second / 8
+	loadingLabel = "loading"
 )
 
-// rootKey is the map key of the top level of the tree, which has no node.
-const rootKey = ""
+const (
+	// separator joins path elements into a map key. NUL cannot appear in a
+	// backend identifier, so no path can forge another's key.
+	separator = "\x00"
+	// rootKey is the key of the top level of the tree, which has no node.
+	rootKey = ""
+)
 
-// Fetch is the children request an interaction produced. Node is meaningful
-// only when Needed is true.
+// Fetch is the load an interaction produced. Node is meaningful only when
+// Needed is true, and a Node with no Path means the top level of the tree.
 type Fetch struct {
 	Node   adapter.Node
 	Needed bool
@@ -32,6 +38,12 @@ type Fetch struct {
 // Catalog renders the lazy database tree. It holds no adapter: it reports the
 // fetches it needs and the root model feeds the results back through
 // SetChildren and SetError.
+//
+// Following the bubbles models it composes, its methods take a value receiver
+// but share the underlying maps, so a caller must keep every Catalog it is
+// handed. Dropping one still mutates the original — and dropping a Fetch
+// leaves its node marked in flight with no request behind it, which no later
+// interaction can clear.
 type Catalog struct {
 	frame    frame
 	icons    theme.IconSet
@@ -107,18 +119,33 @@ func (c Catalog) Toggle() (Catalog, Fetch, tea.Cmd) {
 	return c.fetch(node)
 }
 
-// Refresh drops the cached children of the node under the cursor and asks for
-// them again.
+// Refresh drops the cached children of the node under the cursor, and of
+// everything below it, then asks for them again. With nothing selected it
+// reloads the top level, which is the only way back from a failed startup
+// fetch. A refresh while that node is already loading is dropped rather than
+// raced; the animation shows the request it will answer with.
 func (c Catalog) Refresh() (Catalog, Fetch, tea.Cmd) {
 	node, ok := c.SelectedNode()
-	if !ok || !node.HasChildren {
+	if !ok {
+		return c.Reload()
+	}
+	if !node.HasChildren {
 		return c, Fetch{}, nil
 	}
-	key := pathKey(node.Path)
-	delete(c.children, key)
-	delete(c.failures, key)
-	c.expanded[key] = true
+	c = c.invalidate(node)
+	c.expanded[pathKey(node.Path)] = true
 	return c.fetch(node)
+}
+
+// Reload asks for the top level of the tree.
+func (c Catalog) Reload() (Catalog, Fetch, tea.Cmd) {
+	return c.fetch(adapter.Node{})
+}
+
+// SpinnerTick starts the loading animation. The root model runs it from Init,
+// which cannot record on the model that the animation began.
+func (c Catalog) SpinnerTick() tea.Cmd {
+	return c.spinner.Tick
 }
 
 // fetch asks for node's children unless they are already cached or a request
@@ -137,6 +164,34 @@ func (c Catalog) fetch(node adapter.Node) (Catalog, Fetch, tea.Cmd) {
 	return c, Fetch{Node: node, Needed: true}, c.spinner.Tick
 }
 
+// invalidate forgets node's children and everything below them, so a refresh
+// cannot leave descendants showing what they held before it.
+func (c Catalog) invalidate(node adapter.Node) Catalog {
+	prefix := pathKey(node.Path)
+	for key := range c.children {
+		if under(key, prefix) {
+			delete(c.children, key)
+		}
+	}
+	for key := range c.expanded {
+		if under(key, prefix) {
+			delete(c.expanded, key)
+		}
+	}
+	for key := range c.failures {
+		if under(key, prefix) {
+			delete(c.failures, key)
+		}
+	}
+	return c
+}
+
+// under reports whether key names the node at prefix or one of its
+// descendants.
+func under(key, prefix string) bool {
+	return key == prefix || strings.HasPrefix(key, prefix+separator)
+}
+
 // SetChildren records the nodes fetched for parent, clearing any earlier
 // failure there. An empty parent sets the top level of the tree.
 func (c Catalog) SetChildren(parent []string, nodes []adapter.Node) Catalog {
@@ -145,10 +200,10 @@ func (c Catalog) SetChildren(parent []string, nodes []adapter.Node) Catalog {
 	delete(c.failures, key)
 	if key == rootKey {
 		c.roots = nodes
-		return c
+	} else {
+		c.children[key] = nodes
 	}
-	c.children[key] = nodes
-	return c
+	return c.reanchor()
 }
 
 // SetError records a failed fetch so it renders under the node it belongs to.
@@ -197,16 +252,29 @@ func (c Catalog) moveCursor(delta int) Catalog {
 // selection is gone entirely. Tracking the node rather than a row index keeps
 // the selection put when a slow load inserts rows above it.
 func (c Catalog) cursorRow(rows []treeRow) int {
-	found, depth := -1, -1
+	if len(rows) == 0 {
+		return -1
+	}
+	if len(c.cursor) == 0 {
+		return 0
+	}
+	found, depth := 0, -1
 	for i, row := range rows {
 		if prefixes(row.node.Path, c.cursor) && len(row.node.Path) > depth {
 			found, depth = i, len(row.node.Path)
 		}
 	}
-	if found < 0 && len(rows) > 0 {
-		return 0
-	}
 	return found
+}
+
+// reanchor commits whatever the cursor resolved to, so a node that later
+// reappears at the abandoned path cannot recapture the selection.
+func (c Catalog) reanchor() Catalog {
+	rows := c.visible()
+	if i := c.cursorRow(rows); i >= 0 {
+		c.cursor = rows[i].node.Path
+	}
+	return c
 }
 
 type treeRow struct {
@@ -237,6 +305,9 @@ func (c Catalog) lines() ([]string, int) {
 	selected := c.cursorRow(rows)
 
 	var lines []string
+	if c.loading[rootKey] {
+		lines = append(lines, theme.HintStyle().Render(c.clip(c.spinner.View()+" "+loadingLabel)))
+	}
 	if message := c.failures[rootKey]; message != "" {
 		lines = append(lines, c.errorLines(0, message)...)
 	}
@@ -334,8 +405,6 @@ func prefixes(path, other []string) bool {
 	return true
 }
 
-// pathKey identifies a node by its catalog path. NUL cannot appear in a
-// backend identifier, so no path can forge another's key.
 func pathKey(path []string) string {
-	return strings.Join(path, "\x00")
+	return strings.Join(path, separator)
 }

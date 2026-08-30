@@ -107,6 +107,21 @@ func TestRootFailureRendersInTheCatalog(t *testing.T) {
 	assert.Contains(t, m.View(), "injected")
 }
 
+// A failed opening fetch leaves no node to refresh, so without this the
+// catalog would stay empty for the rest of the session.
+func TestAFailedRootLoadCanBeRetried(t *testing.T) {
+	catalog := newCountingCatalog(t)
+	catalog.failRoot = 1
+	m := newLoadedModel(t, catalog)
+	require.Contains(t, m.View(), "unreachable")
+
+	m = pressAll(t, m, keyRune('r'))
+
+	assert.Equal(t, 2, catalog.calls[""], "r should ask for the top level again")
+	assert.Contains(t, m.View(), firstDatabase, "the retry populates the tree")
+	assert.NotContains(t, m.View(), "unreachable", "the failure clears once the retry lands")
+}
+
 func TestCursorStopsAtTheEndsOfTheTree(t *testing.T) {
 	m := newLoadedModel(t, newCountingCatalog(t))
 

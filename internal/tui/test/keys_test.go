@@ -21,11 +21,11 @@ const (
 
 // TestEveryBindingIsGroupedExactlyOnce is the drift guard: FullHelp is
 // hand-grouped, and a binding it omits would silently vanish from the overlay
-// while a duplicated one would keep the count looking right.
+// while a duplicated one would keep a plain count looking right.
 func TestEveryBindingIsGroupedExactlyOnce(t *testing.T) {
 	keys := tui.DefaultKeyMap()
 	grouped := map[string]int{}
-	for _, binding := range keys.Bindings() {
+	for _, binding := range bindings(keys) {
 		grouped[binding.Help().Key]++
 	}
 
@@ -37,11 +37,20 @@ func TestEveryBindingIsGroupedExactlyOnce(t *testing.T) {
 		assert.Equal(t, 1, grouped[binding.Help().Key],
 			"%s should appear once in FullHelp", reflect.TypeOf(keys).Field(i).Name)
 	}
-	assert.Len(t, keys.Bindings(), fields, "FullHelp should list nothing beyond the keymap")
+	assert.Len(t, bindings(keys), fields, "FullHelp should list nothing beyond the keymap")
+}
+
+// bindings flattens the overlay's columns into the bindings it will render.
+func bindings(keys tui.KeyMap) []key.Binding {
+	var all []key.Binding
+	for _, group := range keys.FullHelp() {
+		all = append(all, group...)
+	}
+	return all
 }
 
 func TestEveryBindingHasKeysAndHelp(t *testing.T) {
-	for _, binding := range tui.DefaultKeyMap().Bindings() {
+	for _, binding := range bindings(tui.DefaultKeyMap()) {
 		require.NotEmpty(t, binding.Keys())
 		assert.NotEmpty(t, binding.Help().Key)
 		assert.NotEmpty(t, binding.Help().Desc)
@@ -52,7 +61,7 @@ func TestHelpOverlayListsEveryEnabledBinding(t *testing.T) {
 	keys := tui.DefaultKeyMap()
 	view := panes.NewHelp(keys).SetSize(helpWidth, helpHeight).View()
 
-	for _, binding := range keys.Bindings() {
+	for _, binding := range bindings(keys) {
 		if !binding.Enabled() {
 			continue
 		}
@@ -65,7 +74,7 @@ func TestHelpOverlayHidesDisabledBindings(t *testing.T) {
 	keys := tui.DefaultKeyMap()
 	view := panes.NewHelp(keys).SetSize(helpWidth, helpHeight).View()
 
-	for _, binding := range disabled(keys.Bindings()) {
+	for _, binding := range disabled(bindings(keys)) {
 		assert.NotContains(t, view, binding.Help().Desc,
 			"a binding waiting on a later iteration must not be advertised")
 	}
@@ -75,7 +84,7 @@ func TestHelpOverlayFitsTheMinimumTerminal(t *testing.T) {
 	keys := tui.DefaultKeyMap()
 	view := panes.NewHelp(keys).SetSize(testWidth, testHeight).View()
 
-	for _, binding := range keys.Bindings() {
+	for _, binding := range bindings(keys) {
 		if !binding.Enabled() {
 			continue
 		}
@@ -85,7 +94,7 @@ func TestHelpOverlayFitsTheMinimumTerminal(t *testing.T) {
 
 func TestShortHelpIsASubsetOfTheKeymap(t *testing.T) {
 	keys := tui.DefaultKeyMap()
-	all := strings.Join(describe(keys.Bindings()), "\n")
+	all := strings.Join(describe(bindings(keys)), "\n")
 
 	require.NotEmpty(t, keys.ShortHelp())
 	for _, binding := range keys.ShortHelp() {
@@ -93,9 +102,9 @@ func TestShortHelpIsASubsetOfTheKeymap(t *testing.T) {
 	}
 }
 
-func disabled(bindings []key.Binding) []key.Binding {
+func disabled(all []key.Binding) []key.Binding {
 	var out []key.Binding
-	for _, binding := range bindings {
+	for _, binding := range all {
 		if !binding.Enabled() {
 			out = append(out, binding)
 		}
@@ -103,9 +112,9 @@ func disabled(bindings []key.Binding) []key.Binding {
 	return out
 }
 
-func describe(bindings []key.Binding) []string {
-	descriptions := make([]string, 0, len(bindings))
-	for _, binding := range bindings {
+func describe(all []key.Binding) []string {
+	descriptions := make([]string, 0, len(all))
+	for _, binding := range all {
 		descriptions = append(descriptions, binding.Help().Desc)
 	}
 	return descriptions
