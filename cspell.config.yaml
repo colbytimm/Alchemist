@@ -36,6 +36,7 @@ words:
   - documentdb
   - enablecrosspartition
   - partitionkey
+  - populatequerymetrics
   - upserts
   - vnext
   # Go tooling and linters

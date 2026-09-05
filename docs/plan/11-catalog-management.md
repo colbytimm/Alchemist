@@ -37,8 +37,9 @@ them up for free:
 | `t` | edit throughput of the database or container under the cursor |
 
 No context-derived meanings: `n` and `c` name what they create, so nothing depends on
-where the cursor happens to sit except which database a new container lands in. On a
-field row (a partition key path), `c`/`d`/`t` act on the container it belongs to.
+where the cursor happens to sit except which database a new container lands in. The
+cursor can never sit on a metadata field row — `selectableRows` excludes `NodeField` —
+so every binding here has exactly two cases to handle.
 
 ```
 ┌─ New container ─────────────────────────────┐
