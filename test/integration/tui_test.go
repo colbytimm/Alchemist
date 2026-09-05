@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -137,33 +138,54 @@ func newModel(t *testing.T, conn adapter.Connection) tea.Model {
 	t.Helper()
 	m := tui.New(tui.Options{Icons: theme.Icons(), Connection: conn, Profile: cosmos.Name})
 	model, _ := m.Update(tea.WindowSizeMsg{Width: testWidth, Height: testHeight})
-	return settle(t, model, model.Init())
+	return settle(model, model.Init())
 }
 
-// settle runs cmd the way the runtime does and delivers what it produces.
-func settle(t *testing.T, m tea.Model, cmd tea.Cmd) tea.Model {
-	t.Helper()
+// settle runs cmd and keeps feeding the model whatever the results produce,
+// until nothing new comes back: a catalog load prefetches the children of the
+// rows it put on screen, and a selection depends on those having landed.
+// Animation ticks are delivered but not followed, since the spinner
+// reschedules itself forever.
+func settle(m tea.Model, cmd tea.Cmd) tea.Model {
+	pending := messages(cmd)
+	for len(pending) > 0 {
+		var next []tea.Msg
+		for _, msg := range pending {
+			model, cmd := m.Update(msg)
+			m = model
+			if _, animating := msg.(spinner.TickMsg); animating {
+				continue
+			}
+			next = append(next, messages(cmd)...)
+		}
+		pending = next
+	}
+	return m
+}
+
+// messages executes cmd the way the runtime does, flattening batches into what
+// they produce.
+func messages(cmd tea.Cmd) []tea.Msg {
 	if cmd == nil {
-		return m
+		return nil
 	}
 	msg := cmd()
-	if batch, ok := msg.(tea.BatchMsg); ok {
-		for _, c := range batch {
-			m = settle(t, m, c)
-		}
-		return m
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		return []tea.Msg{msg}
 	}
-	// Only the first round of commands is followed; deeper ones drive
-	// animations, which have nothing to say about the flow under test.
-	model, _ := m.Update(msg)
-	return model
+	var msgs []tea.Msg
+	for _, c := range batch {
+		msgs = append(msgs, messages(c)...)
+	}
+	return msgs
 }
 
 func press(t *testing.T, m tea.Model, keys ...tea.KeyMsg) tea.Model {
 	t.Helper()
 	for _, key := range keys {
 		model, cmd := m.Update(key)
-		m = settle(t, model, cmd)
+		m = settle(model, cmd)
 	}
 	return m
 }
