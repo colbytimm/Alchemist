@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -n '{suppressOutput:true,hookSpecificOutput:{hookEventName:\"SessionStart\",additionalContext:\"MANDATORY: before any code, test, refactor, review, or documentation change in this repo, read .claude/CLEAN_CODE.md in full with the Read tool. Its rules override default behavior. Do not work from a summary of it.\"}}' 2>/dev/null || true",
+            "statusMessage": "Loading Clean Code rules",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

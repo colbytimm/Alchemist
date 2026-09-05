@@ -1,0 +1,112 @@
+version: "0.2"
+language: en
+
+# Go identifiers appear in prose (docs, skill references) as often as in .go
+# files, so the Go dictionary is enabled globally rather than per languageId.
+dictionaries:
+  - bash
+  - go
+  - node
+  - softwareTerms
+
+dictionaryDefinitions: []
+
+ignorePaths:
+  - .git/**
+  - go.mod
+  - go.sum
+
+words:
+  # Module and dependency names
+  - alecthomas
+  - azcore
+  - azcosmos
+  - azidentity
+  - bubbletea
+  - charmbracelet
+  - colbytimm
+  - dbus
+  - lipgloss
+  - pflag
+  - stretchr
+  - textinput
+  # Cosmos DB REST and SQL vocabulary
+  - colls
+  - documentdb
+  - enablecrosspartition
+  - partitionkey
+  - upserts
+  - vnext
+  # Go tooling and linters
+  - benchmem
+  - bodyclose
+  - copylocks
+  - coverpkg
+  - coverprofile
+  - depguard
+  - errcheck
+  - errname
+  - errorlint
+  - gocognit
+  - gocritic
+  - goimports
+  - golangci
+  - goreleaser
+  - gosec
+  - govet
+  - govulncheck
+  - ineffassign
+  - ldflags
+  - nilnil
+  - nosec
+  - godoc
+  - gofmt
+  - securego
+  - staticcheck
+  - testdata
+  - unconvert
+  - unparam
+  # Go stdlib identifiers quoted in prose (the go dictionary only covers .go)
+  - Errorf
+  - Fprintln
+  - Getenv
+  - goroutines
+  - Itoa
+  - strconv
+  - unmarshal
+  # Project vocabulary
+  - cands
+  - idents
+  - keymap
+  - mydb
+  - pageable
+  - pinnable
+  - pushdown
+  - pkgs
+  - toks
+  - unpinnable
+  # Concatenated-initialism examples in the naming reference
+  - DBURL
+  - XMLAPI
+  # Prose the base dictionary lacks
+  - dedup
+  - equi
+  - lintable
+  - misparse
+  - parallelizable
+  - unpunctuated
+  - unwritable
+  - uppercased
+
+ignoreWords:
+  # Deliberately malformed SQL in the "bad sql" integration test.
+  - SELEC
+  # Truncated pane label inside an ASCII mockup.
+  - custome
+
+import: []
+
+overrides:
+  # The go-style skill quotes upstream guides that use British spellings.
+  - filename: .claude/skills/**
+    language: en,en-GB

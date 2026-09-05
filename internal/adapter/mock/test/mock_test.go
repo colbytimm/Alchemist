@@ -30,7 +30,7 @@ func TestCatalogShape(t *testing.T) {
 	assert.Equal(t, "sales", roots[0].Name)
 	assert.Equal(t, "telemetry", roots[1].Name)
 	for _, db := range roots {
-		assert.Equal(t, "database", db.Kind)
+		assert.Equal(t, adapter.NodeDatabase, db.Kind)
 		assert.True(t, db.HasChildren)
 	}
 
@@ -38,22 +38,22 @@ func TestCatalogShape(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, containers, 2)
 	assert.Equal(t, "orders", containers[0].Name)
-	assert.Equal(t, "/customerId", containers[0].Meta["partitionKey"])
+	assert.Equal(t, "/customerId", containers[0].Meta[adapter.MetaPartitionKey])
 	assert.Equal(t, "customers", containers[1].Name)
-	assert.Equal(t, "/region", containers[1].Meta["partitionKey"])
+	assert.Equal(t, "/region", containers[1].Meta[adapter.MetaPartitionKey])
 	assert.Equal(t, []string{"sales", "orders"}, containers[0].Path)
 
 	leaves, err := catalog.Children(ctx, containers[0])
 	require.NoError(t, err)
 	require.Len(t, leaves, 1)
-	assert.Equal(t, "field", leaves[0].Kind)
+	assert.Equal(t, adapter.NodeField, leaves[0].Kind)
 	assert.Equal(t, "partitionKey /customerId", leaves[0].Name)
 
 	none, err := catalog.Children(ctx, leaves[0])
 	require.NoError(t, err)
 	assert.Empty(t, none)
 
-	_, err = catalog.Children(ctx, adapter.Node{Kind: "database", Name: "nope"})
+	_, err = catalog.Children(ctx, adapter.Node{Kind: adapter.NodeDatabase, Name: "nope"})
 	require.Error(t, err)
 }
 
@@ -73,7 +73,7 @@ func TestCursorPaging(t *testing.T) {
 		assert.Len(t, p.Raw, 10)
 		assert.InDelta(t, 2.5, p.Stats.RequestCharge, 0.001)
 		assert.Equal(t, 10, p.Stats.RowCount)
-		assert.Equal(t, page < 3, p.Stats.More)
+		assert.Equal(t, page < 3, cursor.HasMore(), "page %d", page)
 		for _, raw := range p.Raw {
 			assert.True(t, json.Valid(raw))
 		}
@@ -93,27 +93,34 @@ func TestWithPages(t *testing.T) {
 	assert.False(t, cursor.HasMore())
 }
 
+func requireInjected(t *testing.T, err error, op string) {
+	t.Helper()
+	var injected *mock.InjectedError
+	require.ErrorAs(t, err, &injected)
+	assert.Equal(t, op, injected.Op)
+}
+
 func TestInjectedErrors(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := mock.New(mock.WithError(mock.OpConnect)).Connect(ctx, nil)
-	require.ErrorContains(t, err, "injected connect error")
+	requireInjected(t, err, mock.OpConnect)
 
-	require.ErrorContains(t, connect(t, mock.WithError(mock.OpPing)).Ping(ctx), "injected ping error")
+	requireInjected(t, connect(t, mock.WithError(mock.OpPing)).Ping(ctx), mock.OpPing)
 
 	_, err = connect(t, mock.WithError(mock.OpQuery)).Query(ctx, adapter.Query{})
-	require.ErrorContains(t, err, "injected query error")
+	requireInjected(t, err, mock.OpQuery)
 
 	cursor, err := connect(t, mock.WithError(mock.OpNextPage)).Query(ctx, adapter.Query{})
 	require.NoError(t, err)
 	_, err = cursor.NextPage(ctx)
-	require.ErrorContains(t, err, "injected next_page error")
+	requireInjected(t, err, mock.OpNextPage)
 
 	catalog := connect(t, mock.WithError(mock.OpRoot), mock.WithError(mock.OpChildren)).Catalog()
 	_, err = catalog.Root(ctx)
-	require.ErrorContains(t, err, "injected root error")
-	_, err = catalog.Children(ctx, adapter.Node{Kind: "database", Name: "sales"})
-	require.ErrorContains(t, err, "injected children error")
+	requireInjected(t, err, mock.OpRoot)
+	_, err = catalog.Children(ctx, adapter.Node{Kind: adapter.NodeDatabase, Name: "sales"})
+	requireInjected(t, err, mock.OpChildren)
 }
 
 func TestLatencyRespectsContext(t *testing.T) {
