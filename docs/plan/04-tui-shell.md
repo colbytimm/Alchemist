@@ -33,10 +33,10 @@ fallbacks for terminals without Nerd Font glyphs.
   | Key | Action |
   |---|---|
   | `tab` / `shift+tab` | cycle focus Catalog → Editor → Results |
-  | `F1` or `?` (when not editing) | help overlay |
-  | `F2` | focus editor |
-  | `F5` / `ctrl+enter` | run query (iteration 5) |
-  | `F8` | history overlay (iteration 7) |
+  | `?` (when not editing) | help overlay |
+  | `e` (when not editing) | focus editor |
+  | `ctrl+r` | run query (iteration 5) |
+  | `ctrl+o` | history overlay (iteration 7) |
   | `enter` / `space` | expand/collapse catalog node |
   | `r` (in catalog) | refresh node |
   | `ctrl+c`, `q` (outside editor) | quit |

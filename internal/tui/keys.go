@@ -24,6 +24,8 @@ type KeyMap struct {
 	Quit        key.Binding
 }
 
+// DefaultKeyMap binds no function key: too many terminals and laptop
+// keyboards deliver them unreliably or not at all.
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
 		NextPane: key.NewBinding(
@@ -35,8 +37,8 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("shift+tab", "prev pane"),
 		),
 		FocusEditor: key.NewBinding(
-			key.WithKeys("f2"),
-			key.WithHelp("f2", "editor"),
+			key.WithKeys("e"),
+			key.WithHelp("e", "editor"),
 		),
 		Up: key.NewBinding(
 			key.WithKeys("up", "k"),
@@ -70,23 +72,22 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("m"),
 			key.WithHelp("m", "fetch more"),
 		),
-		// The plan pairs f5 with ctrl+enter, which bubbletea cannot deliver:
-		// terminals send a bare CR for both, so such a binding would never
-		// fire.
+		// ctrl+enter cannot join this binding: terminals send a bare CR for
+		// it, so bubbletea would never deliver it.
 		Run: key.NewBinding(
-			key.WithKeys("f5"),
-			key.WithHelp("f5", "run query"),
+			key.WithKeys("ctrl+r"),
+			key.WithHelp("ctrl+r", "run query"),
 		),
 		// History stays disabled — and so stays out of the help overlay —
 		// until iteration 7 implements it.
 		History: key.NewBinding(
-			key.WithKeys("f8"),
-			key.WithHelp("f8", "history"),
+			key.WithKeys("ctrl+o"),
+			key.WithHelp("ctrl+o", "history"),
 			key.WithDisabled(),
 		),
 		Help: key.NewBinding(
-			key.WithKeys("f1", "?"),
-			key.WithHelp("f1/?", "help"),
+			key.WithKeys("?"),
+			key.WithHelp("?", "help"),
 		),
 		Close: key.NewBinding(
 			key.WithKeys("esc"),

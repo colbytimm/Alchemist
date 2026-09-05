@@ -182,7 +182,7 @@ name is one edit away from a retry rather than a re-typed dialog.
 
 Deleting the container the query scope points at clears the scope
 (`ScopeChangedMsg{}`); leaving the status bar naming a container that no longer exists
-would be a lie about what the next `F5` would run.
+would be a lie about what the next `ctrl+r` would run.
 
 ## Out of scope
 

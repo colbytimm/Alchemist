@@ -24,12 +24,12 @@ func selectContainer(t *testing.T, m tea.Model) tea.Model {
 // typeQuery fills the editor with text and leaves the focus there.
 func typeQuery(t *testing.T, m tea.Model, text string) tea.Model {
 	t.Helper()
-	return pressAll(t, m, keyMsg(tea.KeyF2), keyText(text))
+	return pressAll(t, m, keyRune('e'), keyText(text))
 }
 
 func runQuery(t *testing.T, m tea.Model, text string) tea.Model {
 	t.Helper()
-	return pressAll(t, typeQuery(t, m, text), keyMsg(tea.KeyF5))
+	return pressAll(t, typeQuery(t, m, text), keyMsg(tea.KeyCtrlR))
 }
 
 // focusResults moves from the editor, where running a query leaves the focus,
@@ -56,7 +56,7 @@ func TestRunningAQueryRendersItsFirstPage(t *testing.T) {
 func TestAQueryInFlightSaysItIsRunning(t *testing.T) {
 	m := typeQuery(t, selectContainer(t, newLoadedModel(t, newConnection(t))), "SELECT * FROM c")
 
-	running, _ := m.Update(keyMsg(tea.KeyF5))
+	running, _ := m.Update(keyMsg(tea.KeyCtrlR))
 
 	view := running.View()
 	assert.Contains(t, view, theme.Icons().SpinnerFrames[0], "the status bar spins while the query runs")
@@ -122,7 +122,7 @@ func TestAFailedQueryShowsTheServiceErrorAndKeepsTheBuffer(t *testing.T) {
 	assert.Contains(t, m.View(), "unreachable", "the service message reaches the pane intact")
 	assert.Contains(t, m.View(), "SELECT * FROM c", "and the editor keeps the buffer")
 
-	m = pressAll(t, m, keyMsg(tea.KeyF5))
+	m = pressAll(t, m, keyMsg(tea.KeyCtrlR))
 
 	assert.NotContains(t, m.View(), "unreachable", "a successful re-run clears the error")
 	assert.Contains(t, m.View(), "item-1-0")
@@ -160,7 +160,7 @@ func TestAQueryAcrossTwoContainersIsRejected(t *testing.T) {
 func TestRunningAnEmptyBufferSaysThereIsNothingToRun(t *testing.T) {
 	conn := newConnection(t)
 
-	m := pressAll(t, selectContainer(t, newLoadedModel(t, conn)), keyMsg(tea.KeyF5))
+	m := pressAll(t, selectContainer(t, newLoadedModel(t, conn)), keyMsg(tea.KeyCtrlR))
 
 	assert.Contains(t, m.View(), "nothing to run")
 	assert.Empty(t, conn.queries)
@@ -170,8 +170,8 @@ func TestASecondRunDiscardsTheFirstAndClosesItsCursor(t *testing.T) {
 	conn := newConnection(t)
 	m := typeQuery(t, selectContainer(t, newLoadedModel(t, conn)), "SELECT * FROM c")
 
-	first, firstCmd := m.Update(keyMsg(tea.KeyF5))
-	second, secondCmd := first.Update(keyMsg(tea.KeyF5))
+	first, firstCmd := m.Update(keyMsg(tea.KeyCtrlR))
+	second, secondCmd := first.Update(keyMsg(tea.KeyCtrlR))
 
 	superseded, _ := settle(second, firstCmd)
 	assert.Contains(t, superseded.View(), "— rows", "the page of a replaced run must not render")
@@ -186,8 +186,8 @@ func TestASecondRunCancelsTheContextOfTheFirst(t *testing.T) {
 	conn := newConnection(t)
 	m := typeQuery(t, selectContainer(t, newLoadedModel(t, conn)), "SELECT * FROM c")
 
-	first, firstCmd := m.Update(keyMsg(tea.KeyF5))
-	second, _ := first.Update(keyMsg(tea.KeyF5))
+	first, firstCmd := m.Update(keyMsg(tea.KeyCtrlR))
+	second, _ := first.Update(keyMsg(tea.KeyCtrlR))
 	settle(second, firstCmd)
 
 	require.Len(t, conn.contexts, 1)

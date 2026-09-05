@@ -10,8 +10,8 @@ instead of crashing the TUI.
 
 - `internal/tui/panes/editor.go` — editor pane on `bubbles/textarea`:
   - Plain text this iteration (highlighting is iteration 8).
-  - `F5` runs the buffer; `esc` returns focus to the previous pane. `ctrl+enter` is
-    dropped: terminals send a bare CR for it, so bubbletea can never deliver it.
+  - `ctrl+r` runs the buffer; `esc` returns focus to the previous pane. No binding uses
+    a function key, and `ctrl+enter` cannot be one: terminals send a bare CR for it.
   - Placeholder text hints scope syntax: `SELECT * FROM db.container AS c ...`.
 - Run-query flow (root model orchestrates):
   1. Resolve scope: explicit `db.container` in the query (via `internal/query`)

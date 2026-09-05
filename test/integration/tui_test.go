@@ -198,6 +198,10 @@ func keyText(s string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
 
+func keyRune(r rune) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
+}
+
 func view(m tea.Model) string {
 	return ansi.Strip(m.View())
 }
@@ -224,7 +228,7 @@ func selectFixtureContainer(t *testing.T, m tea.Model, conn adapter.Connection) 
 
 func runQuery(t *testing.T, m tea.Model, text string) tea.Model {
 	t.Helper()
-	return press(t, m, keyMsg(tea.KeyF2), keyText(text), keyMsg(tea.KeyF5))
+	return press(t, m, keyRune('e'), keyText(text), keyMsg(tea.KeyCtrlR))
 }
 
 func number(t *testing.T, pattern *regexp.Regexp, rendered string) float64 {
@@ -287,8 +291,7 @@ func TestIntegrationRunQuery(t *testing.T) {
 		assert.Contains(t, view(failed), "cosmos:", "the service message reaches the pane")
 		assert.Contains(t, view(failed), "Catalog", "and the layout is still standing")
 
-		recovered := press(t, failed,
-			keyMsg(tea.KeyF2), keyMsg(tea.KeyCtrlU), keyText("SELECT * FROM c"), keyMsg(tea.KeyF5))
+		recovered := press(t, failed, keyMsg(tea.KeyCtrlU), keyText("SELECT * FROM c"), keyMsg(tea.KeyCtrlR))
 		assert.Contains(t, view(recovered), "item-0", "a valid query runs straight after")
 	})
 

@@ -33,11 +33,11 @@ func TestViewShowsEveryPaneAndTheStatusBar(t *testing.T) {
 }
 
 // Focus is only visible in a pane's border color, so these tests use the
-// unambiguous F2 binding as the reference for "the editor has focus" and
+// dedicated e binding as the reference for "the editor has focus" and
 // compare renders against it.
 func TestTabCyclesCatalogThenEditorThenResults(t *testing.T) {
 	catalog := newLoadedModel(t, newConnection(t))
-	editor := pressAll(t, catalog, keyMsg(tea.KeyF2))
+	editor := pressAll(t, catalog, keyRune('e'))
 
 	oneTab := pressAll(t, catalog, keyMsg(tea.KeyTab))
 	assert.Equal(t, editor.View(), oneTab.View(), "one tab should land on the editor")
@@ -53,7 +53,7 @@ func TestTabCyclesCatalogThenEditorThenResults(t *testing.T) {
 func TestShiftTabCyclesBackwards(t *testing.T) {
 	catalog := newLoadedModel(t, newConnection(t))
 	results := pressAll(t, catalog, keyMsg(tea.KeyTab), keyMsg(tea.KeyTab))
-	editor := pressAll(t, catalog, keyMsg(tea.KeyF2))
+	editor := pressAll(t, catalog, keyRune('e'))
 
 	assert.Equal(t, results.View(), pressAll(t, catalog, keyMsg(tea.KeyShiftTab)).View(),
 		"one shift+tab should land on the results pane")
@@ -66,7 +66,7 @@ func TestOnlyTheFocusedPaneTakesItsKeys(t *testing.T) {
 	require.NotEqual(t, catalog.View(), pressAll(t, catalog, keyMsg(tea.KeyDown)).View(),
 		"the focused catalog moves its cursor")
 
-	editor := pressAll(t, catalog, keyMsg(tea.KeyF2))
+	editor := pressAll(t, catalog, keyRune('e'))
 	assert.Equal(t, editor.View(), pressAll(t, editor, keyMsg(tea.KeyDown)).View(),
 		"a blurred catalog ignores the same key")
 }
@@ -91,22 +91,22 @@ func TestQQuitsOutsideTheEditor(t *testing.T) {
 }
 
 func TestTheEditorKeepsPlainKeysAsText(t *testing.T) {
-	editor := pressAll(t, newLoadedModel(t, newConnection(t)), keyMsg(tea.KeyF2))
+	editor := pressAll(t, newLoadedModel(t, newConnection(t)), keyRune('e'))
 
-	for _, k := range []tea.KeyMsg{keyRune('q'), keyRune('r'), keyRune('?'), keySpace()} {
+	for _, k := range []tea.KeyMsg{keyRune('q'), keyRune('r'), keyRune('?'), keyRune('e'), keySpace()} {
 		typed, cmd := editor.Update(k)
 		assert.Nil(t, cmd, "%q belongs to the buffer, not to a global shortcut", k.String())
 		assert.Contains(t, typed.View(), catalogTitle, "%q must not quit or open an overlay", k.String())
 		editor = typed
 	}
 
-	assert.Contains(t, editor.View(), "qr? ", "and every one of them was typed")
+	assert.Contains(t, editor.View(), "qr?e ", "and every one of them was typed")
 }
 
 func TestEscapeReturnsTheEditorToThePreviousPane(t *testing.T) {
 	results := pressAll(t, newLoadedModel(t, newConnection(t)), keyMsg(tea.KeyTab), keyMsg(tea.KeyTab))
 
-	returned := pressAll(t, results, keyMsg(tea.KeyF2), keyMsg(tea.KeyEscape))
+	returned := pressAll(t, results, keyRune('e'), keyMsg(tea.KeyEscape))
 
 	assert.Equal(t, results.View(), returned.View(), "esc should hand focus back to the results pane")
 }
@@ -121,16 +121,17 @@ func TestHelpOverlayOpensAndCloses(t *testing.T) {
 	assert.Contains(t, m.View(), catalogTitle)
 }
 
-func TestF1OpensHelpFromTheEditor(t *testing.T) {
-	editor := pressAll(t, newLoadedModel(t, newConnection(t)), keyMsg(tea.KeyF2))
+// ? is text while editing, so help is one esc away from the editor.
+func TestHelpOpensFromTheEditorAfterEscape(t *testing.T) {
+	editor := pressAll(t, newLoadedModel(t, newConnection(t)), keyRune('e'))
 
-	assert.NotContains(t, pressAll(t, editor, keyMsg(tea.KeyF1)).View(), catalogTitle)
+	assert.NotContains(t, pressAll(t, editor, keyMsg(tea.KeyEscape), keyRune('?')).View(), catalogTitle)
 }
 
 func TestDisabledBindingsDoNothing(t *testing.T) {
 	m := newLoadedModel(t, newConnection(t))
 
-	after, cmd := m.Update(keyMsg(tea.KeyF8))
+	after, cmd := m.Update(keyMsg(tea.KeyCtrlO))
 
 	assert.Nil(t, cmd, "history is bound but disabled until iteration 7 lands")
 	assert.Equal(t, m.View(), after.View())

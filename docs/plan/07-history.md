@@ -31,11 +31,11 @@ per line:
 - `internal/history/history.go` — `Entry` struct, `Store` interface
   (`Append(Entry) error`, `Recent(n int) ([]Entry, error)`), JSONL implementation,
   no-op implementation (`--no-history` / unwritable state dir).
-- `internal/tui/panes/history.go` — history overlay (`F8`):
+- `internal/tui/panes/history.go` — history overlay (`ctrl+o`):
   - `bubbles/list`-style scrollable entries: relative time, ok/fail glyph
     (✓ Verdigris / ✗ Cinnabar), scope, first line of query, RU.
   - `/` filter (substring match on query text and scope).
-  - `enter` → load query + scope into the editor (does not run); `ctrl+enter` → load
+  - `enter` → load query + scope into the editor (does not run); `ctrl+r` → load
     and run immediately; `esc` closes.
 - Root model: append an entry on every `PageLoadedMsg` (first page) and
   `QueryFailedMsg`; recording failures must not interfere with the render path
@@ -62,13 +62,13 @@ per line:
 - Trim triggers at threshold and preserves newest entries.
 - Unwritable dir → constructor returns no-op store + warning (TUI unaffected).
 - History model: filter narrows list; `enter` emits `RecallMsg{Entry}` (assert editor
-  receives text + scope); `ctrl+enter` additionally triggers the run flow.
+  receives text + scope); `ctrl+r` additionally triggers the run flow.
 - Recorded entry for a failed query has `ok:false` and no panic on nil stats.
 
 **Manual checklist:**
-- [ ] Run 3 queries (1 failing) against the emulator; `F8` shows all 3, newest first.
+- [ ] Run 3 queries (1 failing) against the emulator; `ctrl+o` shows all 3, newest first.
 - [ ] Filter by container name narrows the list.
-- [ ] `enter` recalls into the editor with scope restored; `ctrl+enter` re-runs.
+- [ ] `enter` recalls into the editor with scope restored; `ctrl+r` re-runs.
 - [ ] `jq . < ~/.local/state/alchemist/history.jsonl` parses every line.
 
 ## Acceptance criteria
