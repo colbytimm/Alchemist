@@ -46,11 +46,7 @@ func (cat *catalog) Children(ctx context.Context, n adapter.Node) ([]adapter.Nod
 	case adapter.NodeDatabase:
 		return cat.containers(ctx, n)
 	case adapter.NodeContainer:
-		return []adapter.Node{{
-			Kind: adapter.NodeField,
-			Name: adapter.MetaPartitionKey + " " + n.Meta[adapter.MetaPartitionKey],
-			Path: append(append([]string{}, n.Path...), adapter.MetaPartitionKey),
-		}}, nil
+		return adapter.PartitionKeyNodes(n), nil
 	default:
 		return nil, nil
 	}
@@ -71,10 +67,12 @@ func (cat *catalog) containers(ctx context.Context, n adapter.Node) ([]adapter.N
 		}
 		for _, props := range page.Containers {
 			nodes = append(nodes, adapter.Node{
-				Kind:        adapter.NodeContainer,
-				Name:        props.ID,
-				Path:        []string{n.Name, props.ID},
-				Meta:        map[string]string{adapter.MetaPartitionKey: strings.Join(props.PartitionKeyDefinition.Paths, ",")},
+				Kind: adapter.NodeContainer,
+				Name: props.ID,
+				Path: []string{n.Name, props.ID},
+				Meta: map[string]string{
+					adapter.MetaPartitionKey: strings.Join(props.PartitionKeyDefinition.Paths, adapter.PartitionKeyPathSeparator),
+				},
 				HasChildren: true,
 			})
 		}

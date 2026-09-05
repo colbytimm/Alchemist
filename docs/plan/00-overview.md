@@ -27,9 +27,11 @@ can be added without touching the TUI.
 | Results viewer | Results pane: pageable table with fetch-more | 5 |
 | Query history | History overlay, JSONL-backed | 7 |
 | Data exporter | JSON / CSV export | 8 |
+| DDL via SQL (Cosmos has none) | Catalog management: create/delete, throughput | 11 |
 | Adapter plugins | Go interfaces + registry | 2, 3 |
 | Profiles / config | TOML profiles + OS keychain secrets | 6 |
 | Help overlay | Keybinding help (`?` / F1) | 4 |
+| — | Info overlay: resource metadata (`i`) | 12 |
 
 The alchemy identity lives in the **theme only** — the color palette and icon glyphs
 defined in `internal/theme` (see [01-scaffold.md](01-scaffold.md)). Components, panes,
@@ -143,6 +145,8 @@ The TUI converts errors into messages rendered in the Assay pane.
 | 8 | [08-export-polish.md](08-export-polish.md) | JSON/CSV export, syntax highlighting, README | 5 |
 | 9 | [09-ci-release.md](09-ci-release.md) | PR/main workflows, goreleaser release pipeline | 1 (grows with 3) |
 | 10 | [10-cross-container.md](10-cross-container.md) | Client-side cross-container queries (union scan, simulated join) | 5 |
+| 11 | [11-catalog-management.md](11-catalog-management.md) | Create/delete databases and containers, throughput editing | 3, 4 |
+| 12 | [12-info-view.md](12-info-view.md) | Info overlay: per-resource metadata for a database or container | 3, 4 |
 
 Iterations 3 and 4 are parallelizable — both depend only on the interfaces from 2.
 

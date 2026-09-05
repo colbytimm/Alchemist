@@ -29,12 +29,14 @@ words:
   - lipgloss
   - pflag
   - stretchr
+  - termenv
   - textinput
   # Cosmos DB REST and SQL vocabulary
   - colls
   - documentdb
   - enablecrosspartition
   - partitionkey
+  - populatequerymetrics
   - upserts
   - vnext
   # Go tooling and linters
@@ -68,6 +70,7 @@ words:
   - unparam
   # Go stdlib identifiers quoted in prose (the go dictionary only covers .go)
   - Errorf
+  - Failf
   - Fprintln
   - Getenv
   - goroutines
@@ -83,6 +86,7 @@ words:
   - pinnable
   - pushdown
   - pkgs
+  - reanchor
   - toks
   - unpinnable
   # Concatenated-initialism examples in the naming reference

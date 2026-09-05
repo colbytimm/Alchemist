@@ -6,6 +6,7 @@ package adapter
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -53,16 +54,48 @@ const (
 	NodeField     NodeKind = "field"
 )
 
-// MetaPartitionKey is the Node.Meta key holding a partition key path, e.g. "/pk".
+// MetaPartitionKey is the Node.Meta key holding a container's partition key,
+// e.g. "/pk". A hierarchical key holds every path, joined by
+// PartitionKeyPathSeparator.
 const MetaPartitionKey = "partitionKey"
+
+// PartitionKeyPathSeparator joins the paths of a hierarchical partition key.
+const PartitionKeyPathSeparator = ","
 
 // Node is one entry in the catalog tree.
 type Node struct {
-	Kind        NodeKind
-	Name        string
+	Kind NodeKind
+	Name string
+	// Path identifies the node within its account and must not be empty; an
+	// empty path is how callers denote the tree's root.
 	Path        []string
 	Meta        map[string]string
 	HasChildren bool
+}
+
+// PartitionKeyNodes is the metadata subtree of a container: a label leaf, then
+// one leaf per key path nested under it. Every adapter serves the same shape,
+// so a hierarchical key reads the same everywhere and stays legible in a pane
+// too narrow for all its paths on one line.
+func PartitionKeyNodes(container Node) []Node {
+	joined := container.Meta[MetaPartitionKey]
+	if joined == "" {
+		return nil
+	}
+	label := fieldNode(container.Path, MetaPartitionKey)
+	nodes := []Node{label}
+	for _, path := range strings.Split(joined, PartitionKeyPathSeparator) {
+		nodes = append(nodes, fieldNode(label.Path, path))
+	}
+	return nodes
+}
+
+func fieldNode(parent []string, name string) Node {
+	return Node{
+		Kind: NodeField,
+		Name: name,
+		Path: append(append([]string{}, parent...), name),
+	}
 }
 
 // Cursor streams result pages; the TUI wraps NextPage in a tea.Cmd.
