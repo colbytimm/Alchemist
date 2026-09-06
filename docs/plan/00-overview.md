@@ -30,7 +30,7 @@ can be added without touching the TUI.
 | DDL via SQL (Cosmos has none) | Catalog management: create/delete, throughput | 11 |
 | Adapter plugins | Go interfaces + registry | 2, 3 |
 | Profiles / config | TOML profiles + OS keychain secrets | 6 |
-| Help overlay | Keybinding help (`?` / F1) | 4 |
+| Help overlay | Keybinding help (`?`) | 4 |
 | — | Info overlay: resource metadata (`i`) | 12 |
 
 The alchemy identity lives in the **theme only** — the color palette and icon glyphs

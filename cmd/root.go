@@ -112,10 +112,10 @@ func (s sessionFlags) run(cmd *cobra.Command) error {
 	logger.Info("session started", "adapter", s.adapter)
 	program := tea.NewProgram(
 		tui.New(tui.Options{
-			Icons:   s.icons(),
-			Catalog: conn.Catalog(),
-			Logger:  logger,
-			Profile: s.adapter,
+			Icons:      s.icons(),
+			Connection: conn,
+			Logger:     logger,
+			Profile:    s.adapter,
 		}),
 		tea.WithAltScreen(),
 		tea.WithContext(cmd.Context()),

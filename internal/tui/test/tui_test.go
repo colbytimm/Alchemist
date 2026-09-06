@@ -32,50 +32,102 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// countingCatalog reports how often each node's children were fetched, so a
-// test can tell a cache hit from a second round trip. failRoot fails that
-// many opening root fetches before serving the fixture.
-type countingCatalog struct {
-	inner    adapter.Catalog
-	calls    map[string]int
-	failRoot int
+// recordingConnection wraps a mock connection, and serves as its own catalog,
+// so a test can see everything the model asked of the backend in one place:
+// how often each node's children were fetched, which queries ran, how many
+// page reads reached it, whether a cursor it walked away from was closed,
+// and — by keeping the contexts it was handed, which only a recorder has any
+// business doing — whether a replaced run was cancelled. failRoot, failQuery
+// and failPage fail that many calls before the fixture answers, which is how
+// a test gets a failure the next attempt recovers from.
+type recordingConnection struct {
+	inner     adapter.Connection
+	calls     map[string]int
+	queries   []adapter.Query
+	contexts  []context.Context
+	pageReads int
+	failRoot  int
+	failQuery int
+	failPage  int
+	closed    int
 }
 
-func (c *countingCatalog) Root(ctx context.Context) ([]adapter.Node, error) {
+func newConnection(t *testing.T, opts ...mock.Option) *recordingConnection {
+	t.Helper()
+	inner, err := mock.New(opts...).Connect(context.Background(), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, inner.Close()) })
+	return &recordingConnection{inner: inner, calls: map[string]int{}}
+}
+
+func (c *recordingConnection) Catalog() adapter.Catalog { return c }
+
+func (c *recordingConnection) Root(ctx context.Context) ([]adapter.Node, error) {
 	c.calls[""]++
 	if c.failRoot > 0 {
 		c.failRoot--
 		return nil, errors.New("catalog unreachable")
 	}
-	return c.inner.Root(ctx)
+	return c.inner.Catalog().Root(ctx)
 }
 
-func (c *countingCatalog) Children(ctx context.Context, n adapter.Node) ([]adapter.Node, error) {
+func (c *recordingConnection) Children(ctx context.Context, n adapter.Node) ([]adapter.Node, error) {
 	c.calls[n.Name]++
-	return c.inner.Children(ctx, n)
+	return c.inner.Catalog().Children(ctx, n)
 }
 
-func newCountingCatalog(t *testing.T, opts ...mock.Option) *countingCatalog {
-	t.Helper()
-	conn, err := mock.New(opts...).Connect(context.Background(), nil)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, conn.Close()) })
-	return &countingCatalog{inner: conn.Catalog(), calls: map[string]int{}}
+func (c *recordingConnection) Query(ctx context.Context, q adapter.Query) (adapter.Cursor, error) {
+	c.queries = append(c.queries, q)
+	c.contexts = append(c.contexts, ctx)
+	if c.failQuery > 0 {
+		c.failQuery--
+		return nil, errors.New("container unreachable")
+	}
+	cursor, err := c.inner.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	return &recordingCursor{Cursor: cursor, connection: c}, nil
+}
+
+func (c *recordingConnection) Ping(ctx context.Context) error { return c.inner.Ping(ctx) }
+
+func (c *recordingConnection) Close() error { return c.inner.Close() }
+
+// recordingCursor tallies its close on the connection that opened it, and
+// fails the pages that connection was told to fail.
+type recordingCursor struct {
+	adapter.Cursor
+	connection *recordingConnection
+}
+
+func (c *recordingCursor) NextPage(ctx context.Context) (adapter.Page, error) {
+	c.connection.pageReads++
+	if c.connection.failPage > 0 {
+		c.connection.failPage--
+		return adapter.Page{}, errors.New("page unreachable")
+	}
+	return c.Cursor.NextPage(ctx)
+}
+
+func (c *recordingCursor) Close() error {
+	c.connection.closed++
+	return c.Cursor.Close()
 }
 
 // newModel builds a model sized to the minimum supported terminal.
-func newModel(t *testing.T, catalog adapter.Catalog) tea.Model {
+func newModel(t *testing.T, connection adapter.Connection) tea.Model {
 	t.Helper()
-	m := tui.New(tui.Options{Icons: theme.Icons(), Catalog: catalog, Profile: mock.Name})
+	m := tui.New(tui.Options{Icons: theme.Icons(), Connection: connection, Profile: mock.Name})
 	model, _ := m.Update(tea.WindowSizeMsg{Width: testWidth, Height: testHeight})
 	return model
 }
 
 // newLoadedModel returns a model whose catalog root has already arrived and
 // whose prefetches have settled.
-func newLoadedModel(t *testing.T, catalog adapter.Catalog) tea.Model {
+func newLoadedModel(t *testing.T, connection adapter.Connection) tea.Model {
 	t.Helper()
-	m := newModel(t, catalog)
+	m := newModel(t, connection)
 	model, _ := settle(m, m.Init())
 	return model
 }
@@ -140,6 +192,17 @@ func pressAll(t *testing.T, m tea.Model, keys ...tea.KeyMsg) tea.Model {
 
 func keyRune(r rune) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
+}
+
+// keyText types a whole string in one message, the way a paste arrives.
+func keyText(s string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+}
+
+// keySpace is the space bar as bubbletea reports it: its own key type, with
+// the rune still attached.
+func keySpace() tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
 }
 
 func keyMsg(t tea.KeyType) tea.KeyMsg {

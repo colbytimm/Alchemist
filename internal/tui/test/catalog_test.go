@@ -18,63 +18,63 @@ const (
 )
 
 func TestRootLoadsOnInit(t *testing.T) {
-	catalog := newCountingCatalog(t)
+	conn := newConnection(t)
 
-	view := newLoadedModel(t, catalog).View()
+	view := newLoadedModel(t, conn).View()
 
-	assert.Equal(t, 1, catalog.calls[""])
+	assert.Equal(t, 1, conn.calls[""])
 	assert.Contains(t, view, firstDatabase)
 	assert.Contains(t, view, "telemetry")
 }
 
 func TestRootLoadPrefetchesChildrenToSettleChevrons(t *testing.T) {
-	catalog := newCountingCatalog(t)
+	conn := newConnection(t)
 
-	newLoadedModel(t, catalog)
+	newLoadedModel(t, conn)
 
-	assert.Equal(t, 1, catalog.calls[firstDatabase],
+	assert.Equal(t, 1, conn.calls[firstDatabase],
 		"whether a database is worth expanding is only knowable by listing it")
-	assert.Equal(t, 1, catalog.calls["telemetry"])
+	assert.Equal(t, 1, conn.calls["telemetry"])
 }
 
 func TestExpandLoadsChildrenOnceAndCachesThem(t *testing.T) {
-	catalog := newCountingCatalog(t)
-	m := newLoadedModel(t, catalog)
+	conn := newConnection(t)
+	m := newLoadedModel(t, conn)
 
 	m = pressAll(t, m, keyMsg(tea.KeyEnter))
-	require.Equal(t, 1, catalog.calls[firstDatabase])
+	require.Equal(t, 1, conn.calls[firstDatabase])
 	assert.Contains(t, m.View(), firstContainer)
 
 	m = pressAll(t, m, keyMsg(tea.KeyEnter))
 	assert.NotContains(t, m.View(), firstContainer, "a second enter collapses the node")
 
 	m = pressAll(t, m, keyMsg(tea.KeyEnter))
-	assert.Equal(t, 1, catalog.calls[firstDatabase], "re-expanding must reuse the cached children")
+	assert.Equal(t, 1, conn.calls[firstDatabase], "re-expanding must reuse the cached children")
 	assert.Contains(t, m.View(), firstContainer)
 }
 
 func TestRefreshFetchesTheNodeAgain(t *testing.T) {
-	catalog := newCountingCatalog(t)
-	m := newLoadedModel(t, catalog)
+	conn := newConnection(t)
+	m := newLoadedModel(t, conn)
 
 	m = pressAll(t, m, keyMsg(tea.KeyEnter))
-	require.Equal(t, 1, catalog.calls[firstDatabase])
+	require.Equal(t, 1, conn.calls[firstDatabase])
 
 	m = pressAll(t, m, keyRune('r'))
-	assert.Equal(t, 2, catalog.calls[firstDatabase])
+	assert.Equal(t, 2, conn.calls[firstDatabase])
 	assert.Contains(t, m.View(), firstContainer)
 }
 
 func TestSpaceExpandsLikeEnter(t *testing.T) {
-	m := newLoadedModel(t, newCountingCatalog(t))
+	m := newLoadedModel(t, newConnection(t))
 
-	m = pressAll(t, m, keyMsg(tea.KeySpace))
+	m = pressAll(t, m, keySpace())
 
 	assert.Contains(t, m.View(), firstContainer)
 }
 
 func TestSelectingAContainerChangesScope(t *testing.T) {
-	m := newLoadedModel(t, newCountingCatalog(t))
+	m := newLoadedModel(t, newConnection(t))
 	m = pressAll(t, m, keyMsg(tea.KeyEnter), keyMsg(tea.KeyDown))
 
 	m, msgs := press(t, m, keyMsg(tea.KeyEnter))
@@ -84,7 +84,7 @@ func TestSelectingAContainerChangesScope(t *testing.T) {
 }
 
 func TestSelectingADatabaseLeavesScopeAlone(t *testing.T) {
-	m := newLoadedModel(t, newCountingCatalog(t))
+	m := newLoadedModel(t, newConnection(t))
 
 	_, msgs := press(t, m, keyMsg(tea.KeyEnter))
 
@@ -92,7 +92,7 @@ func TestSelectingADatabaseLeavesScopeAlone(t *testing.T) {
 }
 
 func TestExpandingAContainerShowsItsPartitionKey(t *testing.T) {
-	m := newLoadedModel(t, newCountingCatalog(t))
+	m := newLoadedModel(t, newConnection(t))
 
 	m = pressAll(t, m, keyMsg(tea.KeyEnter), keyMsg(tea.KeyDown), keyMsg(tea.KeyEnter))
 
@@ -102,7 +102,7 @@ func TestExpandingAContainerShowsItsPartitionKey(t *testing.T) {
 }
 
 func TestChildrenFailureRendersUnderTheNode(t *testing.T) {
-	m := newLoadedModel(t, newCountingCatalog(t, mock.WithError(mock.OpChildren)))
+	m := newLoadedModel(t, newConnection(t, mock.WithError(mock.OpChildren)))
 
 	m, msgs := press(t, m, keyMsg(tea.KeyEnter))
 
@@ -114,7 +114,7 @@ func TestChildrenFailureRendersUnderTheNode(t *testing.T) {
 }
 
 func TestRootFailureRendersInTheCatalog(t *testing.T) {
-	m := newLoadedModel(t, newCountingCatalog(t, mock.WithError(mock.OpRoot)))
+	m := newLoadedModel(t, newConnection(t, mock.WithError(mock.OpRoot)))
 
 	assert.Contains(t, m.View(), "injected")
 }
@@ -122,20 +122,20 @@ func TestRootFailureRendersInTheCatalog(t *testing.T) {
 // A failed opening fetch leaves no node to refresh, so without this the
 // catalog would stay empty for the rest of the session.
 func TestAFailedRootLoadCanBeRetried(t *testing.T) {
-	catalog := newCountingCatalog(t)
-	catalog.failRoot = 1
-	m := newLoadedModel(t, catalog)
+	conn := newConnection(t)
+	conn.failRoot = 1
+	m := newLoadedModel(t, conn)
 	require.Contains(t, m.View(), "unreachable")
 
 	m = pressAll(t, m, keyRune('r'))
 
-	assert.Equal(t, 2, catalog.calls[""], "r should ask for the top level again")
+	assert.Equal(t, 2, conn.calls[""], "r should ask for the top level again")
 	assert.Contains(t, m.View(), firstDatabase, "the retry populates the tree")
 	assert.NotContains(t, m.View(), "unreachable", "the failure clears once the retry lands")
 }
 
 func TestCursorStopsAtTheEndsOfTheTree(t *testing.T) {
-	m := newLoadedModel(t, newCountingCatalog(t))
+	m := newLoadedModel(t, newConnection(t))
 
 	top := m.View()
 	m = pressAll(t, m, keyMsg(tea.KeyUp))
