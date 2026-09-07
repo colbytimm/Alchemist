@@ -33,13 +33,9 @@ func Dir() (string, error) {
 	return filepath.Join(home, ".local", "state", "alchemist"), nil
 }
 
-// Open creates the state directory and returns a logger appending to its log
-// file, together with the closer for that file.
-func Open(level log.Level) (*log.Logger, io.Closer, error) {
-	dir, err := Dir()
-	if err != nil {
-		return nil, nil, err
-	}
+// Open creates dir and returns a logger appending to the log file inside it,
+// together with the closer for that file.
+func Open(dir string, level log.Level) (*log.Logger, io.Closer, error) {
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return nil, nil, fmt.Errorf("logging: create %s: %w", dir, err)
 	}

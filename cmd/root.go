@@ -101,7 +101,11 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 		defer func() { _ = launch.connection.Close() }()
 	}
 
-	logger, logFile, err := logging.Open(s.logLevel())
+	stateDir, err := logging.Dir()
+	if err != nil {
+		return err
+	}
+	logger, logFile, err := logging.Open(stateDir, s.logLevel())
 	if err != nil {
 		return err
 	}
@@ -117,7 +121,7 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 			Connect:    launch.connect,
 			Form:       launch.form,
 			Logger:     logger,
-			History:    s.openHistory(logger),
+			History:    s.historyStore(logger, stateDir),
 			Profile:    launch.profile,
 			Database:   launch.database,
 		}),
@@ -249,27 +253,19 @@ func connectError(err error) error {
 		cosmos.Name, mock.Name, cosmos.ErrMissingCredentials)
 }
 
-// openHistory readies the query log beside the log file. A session whose
-// log cannot be opened runs without one and says so in the log file: a
-// missing history is not worth refusing to start over.
-func (s sessionFlags) openHistory(logger *log.Logger) history.Store {
+// historyStore readies the query log in the state directory. A session
+// whose log cannot be opened runs without one and says so in the log file:
+// a missing history is not worth refusing to start over.
+func (s sessionFlags) historyStore(logger *log.Logger, dir string) history.Store {
 	if !s.history {
 		return history.Discard{}
 	}
-	store, err := openStateHistory()
+	store, err := history.Open(dir)
 	if err != nil {
 		logger.Warn("query history is off for this session", "error", err)
 		return history.Discard{}
 	}
 	return store
-}
-
-func openStateHistory() (history.File, error) {
-	dir, err := logging.Dir()
-	if err != nil {
-		return history.File{}, err
-	}
-	return history.Open(dir)
 }
 
 func (s sessionFlags) icons() theme.IconSet {

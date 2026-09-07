@@ -78,8 +78,6 @@ func (m Model) handleHistoryKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// closeHistory is esc: it clears a filter first, and closes the overlay
-// once there is none.
 func (m Model) closeHistory() Model {
 	if m.historyPane.Filtering() {
 		m.historyPane = m.historyPane.ClearFilter()
@@ -95,9 +93,6 @@ func (m Model) filterUpdate(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, cmd
 }
 
-// recall loads the selected entry into the editor, scope included, and
-// leaves the overlay for the editor. It reports false, and changes nothing,
-// when no entry is selected.
 func (m Model) recall() (Model, bool) {
 	entry, ok := m.historyPane.Selected()
 	if !ok {

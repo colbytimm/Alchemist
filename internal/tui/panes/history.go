@@ -93,7 +93,6 @@ func (h History) Fail(err error) History {
 	return h.ClearFilter()
 }
 
-// StartFilter gives the filter line the keyboard.
 func (h History) StartFilter() History {
 	h.filter.Focus()
 	return h
@@ -104,7 +103,6 @@ func (h History) Filtering() bool {
 	return h.filter.Focused()
 }
 
-// ClearFilter empties the filter line and takes the keyboard from it.
 func (h History) ClearFilter() History {
 	h.filter.Reset()
 	h.filter.Blur()
@@ -132,7 +130,6 @@ func (h History) CursorDown() History {
 	return h.moveCursor(1)
 }
 
-// Selected returns the entry under the cursor.
 func (h History) Selected() (history.Entry, bool) {
 	matches := h.matches()
 	if h.cursor >= len(matches) {
@@ -158,8 +155,6 @@ func (h History) moveCursor(delta int) History {
 	return h
 }
 
-// matches lists the entries the filter keeps: those whose query or scope
-// contains the text, case aside.
 func (h History) matches() []history.Entry {
 	needle := strings.ToLower(strings.TrimSpace(h.filter.Value()))
 	if needle == "" {
@@ -208,9 +203,6 @@ func (h History) rows(width, height int) []string {
 	return lines
 }
 
-// row lays an entry out as age, outcome, scope, the first line of the
-// query, and the request charge, with the query taking whatever width the
-// fixed columns leave.
 func (h History) row(entry history.Entry, scopeWidth, width int, selected bool) string {
 	text := theme.TextStyle()
 	if selected {
@@ -231,8 +223,6 @@ func (h History) outcome(entry history.Entry, selected bool) string {
 	return style.Bold(selected).Render(glyph)
 }
 
-// scopeWidth sizes the scope column to the widest scope listed, capped so
-// one long name cannot crowd out the queries.
 func scopeWidth(entries []history.Entry) int {
 	width := 0
 	for _, entry := range entries {
@@ -260,8 +250,6 @@ func firstLine(query string) string {
 	return strings.TrimRight(line, " \t\r")
 }
 
-// relativeTime says how long before now t was, in the largest unit that
-// counts at least one, and gives the date once that would be a month.
 func relativeTime(t, now time.Time) string {
 	age := now.Sub(t)
 	switch {

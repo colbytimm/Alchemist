@@ -33,17 +33,15 @@ func TestDirFallsBackToTheHomeDirectory(t *testing.T) {
 	assert.Equal(t, filepath.Join(home, ".local", "state", "alchemist"), dir)
 }
 
-func TestOpenWritesToTheStateDirectory(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+func TestOpenWritesToTheDirectoryItIsGiven(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "alchemist")
 
-	logger, file, err := logging.Open(log.InfoLevel)
+	logger, file, err := logging.Open(dir, log.InfoLevel)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, file.Close()) })
 
 	logger.Info("session started", "adapter", "mock")
 
-	dir, err := logging.Dir()
-	require.NoError(t, err)
 	contents, err := os.ReadFile(filepath.Join(dir, logging.FileName))
 	require.NoError(t, err)
 	assert.Contains(t, string(contents), "session started")
@@ -61,41 +59,36 @@ func TestOpenKeepsDebugRecordsOnlyWhenAsked(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			dir := t.TempDir()
 
-			logger, file, err := logging.Open(tt.level)
+			logger, file, err := logging.Open(dir, tt.level)
 			require.NoError(t, err)
 			logger.Debug("catalog fetched")
 			require.NoError(t, file.Close())
 
-			assert.Equal(t, tt.want, len(readLog(t)) > 0)
+			assert.Equal(t, tt.want, len(readLog(t, dir)) > 0)
 		})
 	}
 }
 
-func readLog(t *testing.T) []byte {
+func readLog(t *testing.T, dir string) []byte {
 	t.Helper()
-	dir, err := logging.Dir()
-	require.NoError(t, err)
 	contents, err := os.ReadFile(filepath.Join(dir, logging.FileName))
 	require.NoError(t, err)
 	return contents
 }
 
 func TestOpenAppendsToAnExistingLog(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	dir := t.TempDir()
 
 	for _, message := range []string{"first session", "second session"} {
-		logger, file, err := logging.Open(log.InfoLevel)
+		logger, file, err := logging.Open(dir, log.InfoLevel)
 		require.NoError(t, err)
 		logger.Info(message)
 		require.NoError(t, file.Close())
 	}
 
-	dir, err := logging.Dir()
-	require.NoError(t, err)
-	contents, err := os.ReadFile(filepath.Join(dir, logging.FileName))
-	require.NoError(t, err)
-	assert.Contains(t, string(contents), "first session")
-	assert.Contains(t, string(contents), "second session")
+	contents := string(readLog(t, dir))
+	assert.Contains(t, contents, "first session")
+	assert.Contains(t, contents, "second session")
 }

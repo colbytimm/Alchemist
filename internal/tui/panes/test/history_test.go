@@ -102,17 +102,22 @@ func TestHistoryAgesEntriesAgainstTheMomentTheyLoaded(t *testing.T) {
 		{name: "minutes", age: 12 * time.Minute, want: "12m ago"},
 		{name: "hours", age: 3 * time.Hour, want: "3h ago"},
 		{name: "days", age: 49 * time.Hour, want: "2d ago"},
-		{name: "a month and more is a date", age: 45 * 24 * time.Hour, want: "2026-07-23"},
 		{name: "a clock that ran backwards is just now", age: -time.Hour, want: "just now"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			entry := ran(tt.age, orders, "SELECT 1")
-			entry.Time = entry.Time.In(time.UTC)
-
-			assert.Contains(t, plain(newHistory(entry).View()), tt.want)
+			assert.Contains(t, plain(newHistory(ran(tt.age, orders, "SELECT 1")).View()), tt.want)
 		})
 	}
+}
+
+func TestHistoryDatesARunOlderThanAMonth(t *testing.T) {
+	entry := ran(45*24*time.Hour, orders, "SELECT 1")
+
+	view := plain(newHistory(entry).View())
+
+	assert.Contains(t, view, entry.Time.Local().Format(time.DateOnly), "in the local zone, like a person would say it")
+	assert.NotContains(t, view, "ago")
 }
 
 func TestHistoryShowsOnlyTheFirstLineOfAQuery(t *testing.T) {

@@ -51,7 +51,6 @@ type Entry struct {
 
 // Store records runs and serves them back.
 type Store interface {
-	// Append records one run.
 	Append(entry Entry) error
 	// Recent returns at most n entries, newest first.
 	Recent(n int) ([]Entry, error)
@@ -70,8 +69,7 @@ type File struct {
 	path string
 }
 
-// Open readies the log in dir: the directory and file are created, a log
-// past MaxEntries is trimmed, and a location that cannot be written is
+// Open readies the log in dir. A location that cannot be written is
 // refused here rather than at the first query.
 func Open(dir string) (File, error) {
 	if err := os.MkdirAll(dir, dirMode); err != nil {
@@ -87,8 +85,7 @@ func Open(dir string) (File, error) {
 	return f, nil
 }
 
-// Append writes entry as one line. An error message longer than
-// maxErrorLength is cut.
+// Append writes entry as one line.
 func (f File) Append(entry Entry) error {
 	entry.Error = truncate(entry.Error, maxErrorLength)
 	line, err := json.Marshal(entry)
@@ -167,7 +164,6 @@ func (f File) trim() error {
 	return nil
 }
 
-// lines reads the whole file, or nothing when there is none yet.
 func (f File) lines() ([][]byte, error) {
 	data, err := os.ReadFile(f.path) // #nosec G304 -- constant file name under the directory handed to Open
 	if errors.Is(err, fs.ErrNotExist) {
@@ -183,7 +179,6 @@ func (f File) lines() ([][]byte, error) {
 	return bytes.Split(data, []byte("\n")), nil
 }
 
-// truncate cuts s to at most n characters.
 func truncate(s string, n int) string {
 	runes := []rune(s)
 	if len(runes) <= n {
