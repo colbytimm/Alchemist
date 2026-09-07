@@ -63,3 +63,15 @@ type ErrMsg struct {
 	Path []string
 	Err  error
 }
+
+// ConnectedMsg delivers the connection the connect screen opened, and the
+// name of the profile it belongs to.
+type ConnectedMsg struct {
+	Connection adapter.Connection
+	Profile    string
+}
+
+// ConnectFailedMsg reports why the connect screen's attempt did not connect.
+type ConnectFailedMsg struct {
+	Err error
+}

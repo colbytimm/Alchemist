@@ -8,14 +8,30 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
 
 // Bubble Tea commands run detached from the command-line context, so each one
 // carries its own deadline.
 const (
-	loadTimeout  = 15 * time.Second
-	queryTimeout = 60 * time.Second
+	connectTimeout = 30 * time.Second
+	loadTimeout    = 15 * time.Second
+	queryTimeout   = 60 * time.Second
 )
+
+// openConnection hands the form to the connector the session was built with.
+func (m Model) openConnection(form panes.ConnectForm) tea.Cmd {
+	connect := m.connect
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
+		defer cancel()
+		conn, err := connect(ctx, form)
+		if err != nil {
+			return ConnectFailedMsg{Err: err}
+		}
+		return ConnectedMsg{Connection: conn, Profile: form.Profile}
+	}
+}
 
 func (m Model) loadRoot() tea.Cmd {
 	catalog := m.catalog

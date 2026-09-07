@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/colbytimm/alchemist/cmd"
+	"github.com/colbytimm/alchemist/internal/config"
 )
 
 func main() {
@@ -19,5 +20,5 @@ func run() error {
 	if err := cmd.RegisterAdapters(); err != nil {
 		return err
 	}
-	return cmd.NewRootCmd().Execute()
+	return cmd.NewRootCmd(config.SystemKeyring()).Execute()
 }

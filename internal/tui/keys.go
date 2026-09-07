@@ -18,6 +18,7 @@ type KeyMap struct {
 	ScrollRight key.Binding
 	FetchMore   key.Binding
 	Run         key.Binding
+	Connect     key.Binding
 	History     key.Binding
 	Help        key.Binding
 	Close       key.Binding
@@ -78,6 +79,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+r"),
 			key.WithHelp("ctrl+r", "run query"),
 		),
+		Connect: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "connect"),
+		),
 		// History stays disabled — and so stays out of the help overlay —
 		// until iteration 7 implements it.
 		History: key.NewBinding(
@@ -104,6 +109,13 @@ func DefaultKeyMap() KeyMap {
 // then a column for each pane that adds its own.
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{k.globalKeys(), k.catalogKeys(), k.resultsKeys()}
+}
+
+// ConnectKeys are the bindings only the connect screen answers to. It shows
+// them in a hint line of its own: the help overlay is not reachable from
+// there.
+func (k KeyMap) ConnectKeys() []key.Binding {
+	return []key.Binding{k.Connect}
 }
 
 func (k KeyMap) globalKeys() []key.Binding {

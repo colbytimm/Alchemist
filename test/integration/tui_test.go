@@ -76,13 +76,21 @@ func connectWithRetry(t *testing.T) adapter.Connection {
 	conn, err := cosmos.Adapter{}.Connect(context.Background(), settings())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, conn.Close()) })
+	waitForEmulator(t, conn)
+	return conn
+}
+
+// waitForEmulator pings until the emulator answers: the container reports
+// healthy before it serves requests.
+func waitForEmulator(t *testing.T, conn adapter.Connection) {
+	t.Helper()
 	deadline := time.Now().Add(90 * time.Second)
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		err = conn.Ping(ctx)
+		err := conn.Ping(ctx)
 		cancel()
 		if err == nil {
-			return conn
+			return
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("emulator not reachable: %v", err)

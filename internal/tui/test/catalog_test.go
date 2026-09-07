@@ -7,7 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/adapter/mock"
+	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui"
 )
 
@@ -145,4 +147,29 @@ func TestCursorStopsAtTheEndsOfTheTree(t *testing.T) {
 	bottom := m.View()
 	m = pressAll(t, m, keyMsg(tea.KeyDown))
 	assert.Equal(t, bottom, m.View(), "the cursor cannot move past the last node")
+}
+
+func newModelOpeningDatabase(t *testing.T, connection adapter.Connection, database string) tea.Model {
+	t.Helper()
+	m := tui.New(tui.Options{Icons: theme.Icons(), Connection: connection, Profile: mock.Name, Database: database})
+	model, _ := m.Update(tea.WindowSizeMsg{Width: testWidth, Height: testHeight})
+	model, _ = settle(model, model.Init())
+	return model
+}
+
+func TestDefaultDatabaseOpensOnLoad(t *testing.T) {
+	m := newModelOpeningDatabase(t, newConnection(t), "telemetry")
+
+	assert.Contains(t, m.View(), "events", "the default database's containers are on screen")
+	assert.NotContains(t, m.View(), firstContainer, "the other databases stay collapsed")
+
+	collapsed := pressAll(t, m, keyMsg(tea.KeyEnter))
+	assert.NotContains(t, collapsed.View(), "events", "the cursor rests on the opened database")
+}
+
+func TestUnknownDefaultDatabaseLeavesTheCatalogClosed(t *testing.T) {
+	m := newModelOpeningDatabase(t, newConnection(t), "nowhere")
+
+	assert.Contains(t, m.View(), firstDatabase)
+	assert.NotContains(t, m.View(), firstContainer)
 }

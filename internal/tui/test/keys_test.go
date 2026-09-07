@@ -19,14 +19,16 @@ const (
 	helpHeight = 20
 )
 
-// TestEveryBindingIsGroupedExactlyOnce is the drift guard: FullHelp is
-// hand-grouped, and a binding it omits would silently vanish from the overlay
-// while a duplicated one would keep a plain count looking right.
+// TestEveryBindingIsGroupedExactlyOnce is the drift guard: FullHelp and
+// ConnectKeys are hand-grouped, and a binding they omit would silently vanish
+// from the overlay while a duplicated one would keep a plain count looking
+// right.
 func TestEveryBindingIsGroupedExactlyOnce(t *testing.T) {
 	keys := tui.DefaultKeyMap()
+	advertised := append(bindings(keys), keys.ConnectKeys()...)
 	grouped := map[string]int{}
-	for _, binding := range bindings(keys) {
-		grouped[binding.Help().Key]++
+	for _, binding := range advertised {
+		grouped[identity(binding)]++
 	}
 
 	fields := reflect.TypeOf(keys).NumField()
@@ -34,10 +36,16 @@ func TestEveryBindingIsGroupedExactlyOnce(t *testing.T) {
 	for i := range fields {
 		binding, ok := value.Field(i).Interface().(key.Binding)
 		require.True(t, ok, "KeyMap fields must all be bindings")
-		assert.Equal(t, 1, grouped[binding.Help().Key],
-			"%s should appear once in FullHelp", reflect.TypeOf(keys).Field(i).Name)
+		assert.Equal(t, 1, grouped[identity(binding)],
+			"%s should be advertised once", reflect.TypeOf(keys).Field(i).Name)
 	}
-	assert.Len(t, bindings(keys), fields, "FullHelp should list nothing beyond the keymap")
+	assert.Len(t, advertised, fields, "the groups should list nothing beyond the keymap")
+}
+
+// identity tells bindings apart by what they advertise; two may share a key
+// in different contexts, as enter does.
+func identity(binding key.Binding) string {
+	return binding.Help().Key + " " + binding.Help().Desc
 }
 
 // bindings flattens the overlay's columns into the bindings it will render.

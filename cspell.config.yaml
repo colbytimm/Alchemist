@@ -75,6 +75,7 @@ words:
   - Getenv
   - goroutines
   - Itoa
+  - omitzero
   - strconv
   - unmarshal
   # Project vocabulary
