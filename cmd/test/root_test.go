@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/colbytimm/alchemist/internal/adapter/cosmos"
 	"github.com/colbytimm/alchemist/internal/adapter/mock"
 	"github.com/colbytimm/alchemist/internal/config"
+	"github.com/colbytimm/alchemist/internal/history"
 )
 
 // fakeKeyring is an in-memory config.Keyring.
@@ -139,6 +141,7 @@ func TestSessionFlags(t *testing.T) {
 		"adapter": "",
 		"ascii":   "false",
 		"verbose": "false",
+		"history": "true",
 	}
 	for name, want := range defaults {
 		flag := flags.Lookup(name)
@@ -238,6 +241,26 @@ func TestHelpFlag(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "Cosmos DB")
 	assert.Contains(t, out, "profile", "the help must point at the profile subcommand")
+}
+
+func historyPath() string {
+	return filepath.Join(os.Getenv("XDG_STATE_HOME"), "alchemist", history.FileName)
+}
+
+func TestALaunchReadiesTheHistoryFile(t *testing.T) {
+	err := newHarness(t).launch("--adapter", mock.Name)
+
+	require.ErrorIs(t, err, tea.ErrProgramKilled)
+	_, statErr := os.Stat(historyPath())
+	assert.NoError(t, statErr, "the log is opened, and so its file created, before the first query")
+}
+
+func TestHistoryOffLeavesNoHistoryFile(t *testing.T) {
+	err := newHarness(t).launch("--adapter", mock.Name, "--history=false")
+
+	require.ErrorIs(t, err, tea.ErrProgramKilled)
+	_, statErr := os.Stat(historyPath())
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
 func TestNoLogDirectoryIsCreatedWhenTheSessionNeverStarts(t *testing.T) {

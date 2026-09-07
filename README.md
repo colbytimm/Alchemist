@@ -71,6 +71,22 @@ A machine with no keychain — a container, a CI runner, a server without a Secr
 Service — falls through to the environment. `alchemist profile list` shows which source
 each profile resolves to, and never the key itself, so its output is safe to share.
 
+## Query history
+
+Every query that reaches the account is appended to `history.jsonl` under
+`$XDG_STATE_HOME/alchemist` (`~/.local/state/alchemist` by default), beside the log
+file: the query as typed, the scope it ran in, and its statistics, never a key or an
+endpoint. Failed queries are recorded too, with the error, since fixing one is the
+usual reason to look back.
+
+`ctrl+o` opens the history, newest first. `/` filters by query text or scope, `enter`
+loads the selected query into the editor with its scope restored, and `ctrl+r` loads
+it and runs it at once. `alchemist --history=false` records nothing for that session.
+
+The file is one JSON object per line, so `jq . < history.jsonl` reads it. A line a
+session never finished writing is skipped, and the file is trimmed to its newest
+2,500 entries once it passes 5,000.
+
 ## Development
 
 ```sh

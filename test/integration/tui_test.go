@@ -12,8 +12,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,6 +30,7 @@ import (
 
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/adapter/cosmos"
+	"github.com/colbytimm/alchemist/internal/history"
 	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui"
 )
@@ -144,7 +147,15 @@ func freshFixture(t *testing.T) {
 
 func newModel(t *testing.T, conn adapter.Connection) tea.Model {
 	t.Helper()
-	m := tui.New(tui.Options{Icons: theme.Icons(), Connection: conn, Profile: cosmos.Name})
+	return newSession(t, tui.Options{Connection: conn})
+}
+
+// newSession builds a model from opts, with the icons and profile every test
+// shares filled in, and lets its catalog load.
+func newSession(t *testing.T, opts tui.Options) tea.Model {
+	t.Helper()
+	opts.Icons, opts.Profile = theme.Icons(), cosmos.Name
+	m := tui.New(opts)
 	model, _ := m.Update(tea.WindowSizeMsg{Width: testWidth, Height: testHeight})
 	return settle(model, model.Init())
 }
@@ -239,6 +250,13 @@ func runQuery(t *testing.T, m tea.Model, text string) tea.Model {
 	return press(t, m, keyRune('e'), keyText(text), keyMsg(tea.KeyCtrlR))
 }
 
+// runAnother replaces the one-line query a run left in the editor, where the
+// focus still is, and runs text instead.
+func runAnother(t *testing.T, m tea.Model, text string) tea.Model {
+	t.Helper()
+	return press(t, m, keyMsg(tea.KeyCtrlU), keyText(text), keyMsg(tea.KeyCtrlR))
+}
+
 func number(t *testing.T, pattern *regexp.Regexp, rendered string) float64 {
 	t.Helper()
 	match := pattern.FindStringSubmatch(rendered)
@@ -313,4 +331,50 @@ func TestIntegrationRunQuery(t *testing.T) {
 
 		assert.Contains(t, view(press(t, opened, keyMsg(tea.KeyEscape))), "Catalog")
 	})
+}
+
+// TestIntegrationQueryHistory is the manual checklist of
+// docs/plan/07-history.md, driven through the model with a log on disk.
+func TestIntegrationQueryHistory(t *testing.T) {
+	conn := connectWithRetry(t)
+	freshFixture(t)
+	dir := t.TempDir()
+	store, err := history.Open(dir)
+	require.NoError(t, err)
+	m := selectFixtureContainer(t, newSession(t, tui.Options{Connection: conn, History: store}), conn)
+
+	m = runQuery(t, m, "SELECT * FROM c")
+	m = runAnother(t, m, "SELEC * FRM c")
+	m = runAnother(t, m, `SELECT * FROM c WHERE c.pk = "pk-1"`)
+
+	opened := press(t, m, keyMsg(tea.KeyCtrlO))
+	rendered := view(opened)
+	assert.Contains(t, rendered, "History", "ctrl+o opens the overlay")
+	assert.Less(t, strings.Index(rendered, "WHERE c.pk"), strings.Index(rendered, "SELEC * FRM c"), "newest first")
+	assert.Less(t, strings.Index(rendered, "SELEC * FRM c"), strings.LastIndex(rendered, "SELECT * FROM c"),
+		"the bare query, run first, is the last row")
+	assert.Contains(t, rendered, theme.Icons().Failure, "the syntax error is listed as a failure")
+
+	filtered := view(press(t, opened, keyRune('/'), keyText(fixtureContainer)))
+	assert.Contains(t, filtered, "SELEC * FRM c", "every run targeted the fixture container")
+	narrowed := view(press(t, opened, keyRune('/'), keyText("pk-1")))
+	assert.Contains(t, narrowed, "WHERE c.pk")
+	assert.NotContains(t, narrowed, "SELEC * FRM c", "the filter narrows the list")
+
+	recalled := press(t, opened, keyMsg(tea.KeyDown), keyMsg(tea.KeyEnter))
+	assert.Contains(t, view(recalled), "Catalog", "enter closes the overlay")
+	assert.Contains(t, view(recalled), "SELEC * FRM c", "with the failed query back in the editor")
+	assert.Contains(t, view(recalled), fixtureDatabase+"."+fixtureContainer, "and its scope restored")
+
+	rerun := press(t, recalled, keyMsg(tea.KeyCtrlO), keyMsg(tea.KeyDown), keyMsg(tea.KeyDown), keyMsg(tea.KeyCtrlR))
+	assert.Contains(t, view(rerun), "item-0", "ctrl+r runs the oldest query again")
+
+	contents, err := os.ReadFile(filepath.Join(dir, history.FileName))
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(string(contents)), "\n")
+	assert.Len(t, lines, 4, "three runs and the re-run")
+	for i, line := range lines {
+		assert.True(t, json.Valid([]byte(line)), "line %d is not JSON: %s", i+1, line)
+		assert.NotContains(t, line, wellKnownKey, "the log holds no credential")
+	}
 }

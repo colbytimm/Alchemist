@@ -84,3 +84,9 @@ func (e Editor) Value() string {
 func (e Editor) View() string {
 	return e.frame.render(e.area.View())
 }
+
+// SetValue replaces the buffer, leaving the cursor at its end.
+func (e Editor) SetValue(text string) Editor {
+	e.area.SetValue(text)
+	return e
+}

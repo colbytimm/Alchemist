@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/history"
 	"github.com/colbytimm/alchemist/internal/query"
 	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
@@ -62,6 +63,7 @@ const (
 	overlayNone overlay = iota
 	overlayHelp
 	overlayDetail
+	overlayHistory
 )
 
 // runState is how far the current query has got.
@@ -82,14 +84,16 @@ func (s runState) loaded() bool { return s == runLoaded || s == runFetching }
 // Options configures a TUI session. Icons are required. With a Connection
 // the session opens on the catalog; without one it opens on the connect
 // screen, seeded from Form, and calls Connect with what the screen submits.
-// A nil Logger discards output. Database, when set, is expanded in the
-// catalog as soon as the root arrives.
+// A nil Logger discards output, and a nil History records nothing.
+// Database, when set, is expanded in the catalog as soon as the root
+// arrives.
 type Options struct {
 	Icons      theme.IconSet
 	Connection adapter.Connection
 	Connect    Connector
 	Form       panes.ConnectForm
 	Logger     *log.Logger
+	History    history.Store
 	Profile    string
 	Database   string
 }
@@ -112,12 +116,14 @@ type Model struct {
 	catalog    adapter.Catalog
 	connect    Connector
 	logger     *log.Logger
+	history    history.Store
 
 	connectPane panes.Connect
 	catalogPane panes.Catalog
 	editor      panes.Editor
 	results     panes.Results
 	detail      panes.Detail
+	historyPane panes.History
 	statusBar   panes.StatusBar
 	help        panes.Help
 
@@ -125,6 +131,7 @@ type Model struct {
 	// session closes itself; one it was handed is closed by whoever made it.
 	ownsConnection  bool
 	defaultDatabase string
+	profile         string
 
 	scope      []string
 	state      runState
@@ -132,6 +139,9 @@ type Model struct {
 	pageCursor adapter.Cursor
 	cancel     context.CancelFunc
 	stats      adapter.Stats
+	// historyEntry is the record of the current run, appended to the log
+	// once the run has settled one way or the other.
+	historyEntry history.Entry
 
 	screen        screen
 	focus         focus
@@ -146,21 +156,28 @@ func New(opts Options) Model {
 	if logger == nil {
 		logger = log.New(io.Discard)
 	}
+	store := opts.History
+	if store == nil {
+		store = history.Discard{}
+	}
 	keys := DefaultKeyMap()
 	m := Model{
 		keys:        keys,
 		connection:  opts.Connection,
 		connect:     opts.Connect,
 		logger:      logger,
+		history:     store,
 		connectPane: panes.NewConnect(opts.Icons, opts.Form),
 		catalogPane: panes.NewCatalog(opts.Icons),
 		editor:      panes.NewEditor(),
 		results:     panes.NewResults(),
 		detail:      panes.NewDetail(),
+		historyPane: panes.NewHistory(opts.Icons, keys.HistoryKeys()),
 		statusBar:   panes.NewStatusBar(opts.Icons, opts.Profile),
 		help:        panes.NewHelp(keys),
 
 		defaultDatabase: opts.Database,
+		profile:         opts.Profile,
 		screen:          screenConnect,
 	}
 	if opts.Connection != nil {
@@ -199,9 +216,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.prefetch()
 	case ScopeChangedMsg:
-		m.scope = msg.Scope
-		m.statusBar = m.statusBar.SetScope(msg.Scope)
-		return m, nil
+		return m.setScope(msg.Scope), nil
 	case PageLoadedMsg:
 		return m.loadPage(msg)
 	case PageAppendedMsg:
@@ -217,6 +232,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ConnectFailedMsg:
 		m.connectPane = m.connectPane.Fail(msg.Err)
 		return m, nil
+	case HistoryLoadedMsg:
+		return m.openHistory(msg), nil
 	}
 	return m.animate(msg)
 }
@@ -239,6 +256,8 @@ func (m Model) layout() string {
 		return m.help.View()
 	case m.overlay == overlayDetail:
 		return m.detail.View()
+	case m.overlay == overlayHistory:
+		return m.historyPane.View()
 	}
 	right := lipgloss.JoinVertical(lipgloss.Left, m.editor.View(), m.results.View())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, m.catalogPane.View(), right)
@@ -260,6 +279,9 @@ func (m Model) handleErr(msg ErrMsg) Model {
 	switch msg.Op {
 	case OpCatalogRoot, OpCatalogChildren:
 		m.catalogPane = m.catalogPane.SetError(msg.Path, msg.Err)
+	case OpHistory:
+		m.historyPane = m.historyPane.Fail(msg.Err)
+		m.overlay = overlayHistory
 	}
 	return m
 }
@@ -288,6 +310,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.setFocus(focusEditor), nil
 	case key.Matches(msg, m.keys.Run):
 		return m.startRun()
+	case key.Matches(msg, m.keys.History):
+		return m, m.loadHistory()
 	}
 	return m.handleFocusedKey(msg)
 }
@@ -312,6 +336,9 @@ func (m Model) handleFocusedKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if m.overlay == overlayHistory {
+		return m.handleHistoryKey(msg)
+	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		return m.quit()
@@ -376,6 +403,7 @@ func (m Model) enterSession(msg ConnectedMsg) (Model, tea.Cmd) {
 	m.connection = msg.Connection
 	m.catalog = msg.Connection.Catalog()
 	m.ownsConnection = true
+	m.profile = msg.Profile
 	m.statusBar = m.statusBar.SetProfile(msg.Profile)
 	m.screen = screenMain
 	m.logger.Info("connected", "profile", msg.Profile)
@@ -469,6 +497,7 @@ func (m Model) startRun() (Model, tea.Cmd) {
 	if err != nil {
 		return m.showFailure(err, runFailed)
 	}
+	m.historyEntry = m.newHistoryEntry(q.Scope)
 	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 	m.cancel = cancel
 	m.state = runRunning
@@ -519,7 +548,8 @@ func (m Model) loadPage(msg PageLoadedMsg) (Model, tea.Cmd) {
 	}
 	m.stats = msg.Page.Stats
 	m.results = m.results.Load(msg.Page)
-	return m.acceptPage(msg.cursor)
+	model, cmd := m.acceptPage(msg.cursor)
+	return model, tea.Batch(cmd, model.recordSuccess(msg.Page.Stats))
 }
 
 func (m Model) appendPage(msg PageAppendedMsg) (Model, tea.Cmd) {
@@ -544,7 +574,8 @@ func (m Model) failRun(msg QueryFailedMsg) (Model, tea.Cmd) {
 	if msg.run != m.run {
 		return m, nil
 	}
-	return m.showFailure(msg.Err, runFailed)
+	model, cmd := m.showFailure(msg.Err, runFailed)
+	return model, tea.Batch(cmd, model.recordFailure(msg.Err))
 }
 
 // failPage keeps the result set loaded: a page that never arrived says
@@ -591,6 +622,12 @@ func (m Model) hasMore() bool {
 		return true
 	}
 	return m.pageCursor != nil && m.pageCursor.HasMore()
+}
+
+func (m Model) setScope(scope []string) Model {
+	m.scope = scope
+	m.statusBar = m.statusBar.SetScope(scope)
+	return m
 }
 
 func (m Model) syncStatusBar() (Model, tea.Cmd) {
@@ -719,6 +756,7 @@ func (m Model) resize(width, height int) Model {
 	m.statusBar = m.statusBar.SetWidth(width)
 	m.help = m.help.SetSize(width, height)
 	m.detail = m.detail.SetSize(width, height)
+	m.historyPane = m.historyPane.SetSize(width, height)
 	return m
 }
 

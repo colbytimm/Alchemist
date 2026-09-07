@@ -17,6 +17,7 @@ import (
 	"github.com/colbytimm/alchemist/internal/adapter/cosmos"
 	"github.com/colbytimm/alchemist/internal/adapter/mock"
 	"github.com/colbytimm/alchemist/internal/config"
+	"github.com/colbytimm/alchemist/internal/history"
 	"github.com/colbytimm/alchemist/internal/logging"
 	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui"
@@ -75,6 +76,7 @@ type sessionFlags struct {
 	adapter string
 	ascii   bool
 	verbose bool
+	history bool
 }
 
 func (s *sessionFlags) bind(flags *pflag.FlagSet) {
@@ -82,6 +84,8 @@ func (s *sessionFlags) bind(flags *pflag.FlagSet) {
 		fmt.Sprintf("connect an adapter with no profile (%s serves fixture data)", mock.Name))
 	flags.BoolVar(&s.ascii, "ascii", false, "draw with ASCII glyphs instead of Unicode")
 	flags.BoolVar(&s.verbose, "verbose", false, "log at debug level")
+	flags.BoolVar(&s.history, "history", true,
+		fmt.Sprintf("record every query run to %s in the state directory", history.FileName))
 }
 
 // run resolves what to connect to before touching the filesystem, so an
@@ -113,6 +117,7 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 			Connect:    launch.connect,
 			Form:       launch.form,
 			Logger:     logger,
+			History:    s.openHistory(logger),
 			Profile:    launch.profile,
 			Database:   launch.database,
 		}),
@@ -242,6 +247,29 @@ func connectError(err error) error {
 	}
 	return fmt.Errorf("%s needs a profile: run alchemist to set one up, or pass --adapter %s to browse fixture data: %w",
 		cosmos.Name, mock.Name, cosmos.ErrMissingCredentials)
+}
+
+// openHistory readies the query log beside the log file. A session whose
+// log cannot be opened runs without one and says so in the log file: a
+// missing history is not worth refusing to start over.
+func (s sessionFlags) openHistory(logger *log.Logger) history.Store {
+	if !s.history {
+		return history.Discard{}
+	}
+	store, err := openStateHistory()
+	if err != nil {
+		logger.Warn("query history is off for this session", "error", err)
+		return history.Discard{}
+	}
+	return store
+}
+
+func openStateHistory() (history.File, error) {
+	dir, err := logging.Dir()
+	if err != nil {
+		return history.File{}, err
+	}
+	return history.Open(dir)
 }
 
 func (s sessionFlags) icons() theme.IconSet {

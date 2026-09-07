@@ -20,6 +20,9 @@ type KeyMap struct {
 	Run         key.Binding
 	Connect     key.Binding
 	History     key.Binding
+	Filter      key.Binding
+	Recall      key.Binding
+	Rerun       key.Binding
 	Help        key.Binding
 	Close       key.Binding
 	Quit        key.Binding
@@ -83,12 +86,21 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "connect"),
 		),
-		// History stays disabled — and so stays out of the help overlay —
-		// until iteration 7 implements it.
 		History: key.NewBinding(
 			key.WithKeys("ctrl+o"),
 			key.WithHelp("ctrl+o", "history"),
-			key.WithDisabled(),
+		),
+		Filter: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "filter"),
+		),
+		Recall: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "recall"),
+		),
+		Rerun: key.NewBinding(
+			key.WithKeys("ctrl+r"),
+			key.WithHelp("ctrl+r", "recall and run"),
 		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),
@@ -116,6 +128,13 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 // there.
 func (k KeyMap) ConnectKeys() []key.Binding {
 	return []key.Binding{k.Connect}
+}
+
+// HistoryKeys are the bindings only the history overlay answers to. Like
+// ConnectKeys they go in a hint line of the overlay itself, since the help
+// overlay is not reachable from there.
+func (k KeyMap) HistoryKeys() []key.Binding {
+	return []key.Binding{k.Filter, k.Recall, k.Rerun}
 }
 
 func (k KeyMap) globalKeys() []key.Binding {
