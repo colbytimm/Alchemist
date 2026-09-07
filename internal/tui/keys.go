@@ -130,9 +130,8 @@ func (k KeyMap) ConnectKeys() []key.Binding {
 	return []key.Binding{k.Connect}
 }
 
-// HistoryKeys are the bindings only the history overlay answers to. Like
-// ConnectKeys they go in a hint line of the overlay itself, since the help
-// overlay is not reachable from there.
+// HistoryKeys are the bindings only the history overlay answers to, shown in
+// a hint line of its own like ConnectKeys.
 func (k KeyMap) HistoryKeys() []key.Binding {
 	return []key.Binding{k.Filter, k.Recall, k.Rerun}
 }

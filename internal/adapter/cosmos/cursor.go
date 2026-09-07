@@ -34,7 +34,7 @@ func (c *cursor) NextPage(ctx context.Context) (adapter.Page, error) {
 	start := time.Now()
 	resp, err := c.pager.NextPage(ctx)
 	if err != nil {
-		return adapter.Page{}, fmt.Errorf("cosmos: query page: %w", err)
+		return adapter.Page{}, wrap("query page", err)
 	}
 	page, err := c.builder.Build(resp.Items)
 	if err != nil {

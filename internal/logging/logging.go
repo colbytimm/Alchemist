@@ -20,8 +20,8 @@ const (
 	fileMode = 0o600
 )
 
-// Dir returns the state directory holding the log file: $XDG_STATE_HOME
-// when set, otherwise ~/.local/state.
+// Dir returns the state directory: $XDG_STATE_HOME/alchemist when set,
+// otherwise ~/.local/state/alchemist.
 func Dir() (string, error) {
 	if base := os.Getenv("XDG_STATE_HOME"); base != "" {
 		return filepath.Join(base, "alchemist"), nil

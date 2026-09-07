@@ -2,6 +2,7 @@ package panes_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -210,6 +211,33 @@ func TestHistoryCursorStopsAtTheEnds(t *testing.T) {
 	assert.Equal(t, pane.View(), pane.CursorUp().View(), "the cursor cannot move above the first row")
 	last := pane.CursorDown()
 	assert.Equal(t, last.View(), last.CursorDown().View(), "the cursor cannot move past the last row")
+}
+
+func TestHistoryScrollsToKeepTheCursorOnScreen(t *testing.T) {
+	entries := make([]history.Entry, 0, 2*paneHeight)
+	for i := range cap(entries) {
+		entries = append(entries, ran(time.Minute, orders, fmt.Sprintf("SELECT %d", i)))
+	}
+	pane := newHistory(entries...)
+	require.NotContains(t, plain(pane.View()), "SELECT 23", "the last entry starts past the fold")
+
+	for range len(entries) {
+		pane = pane.CursorDown()
+	}
+
+	view := plain(pane.View())
+	assert.Contains(t, view, "SELECT 23")
+	assert.NotContains(t, view, "SELECT 0 ", "the first entry scrolled off")
+}
+
+func TestHistoryKeepsARowWithAWideChargeInsideTheFrame(t *testing.T) {
+	entry := ran(time.Minute, orders, "SELECT * FROM c")
+	entry.RequestCharge = 123456.78
+
+	view := plain(newHistory(entry).View())
+
+	assert.Contains(t, view, "123456.78 RU")
+	assert.Equal(t, historyWidth, lipgloss.Width(view))
 }
 
 func TestHistoryMarksTheRowUnderTheCursor(t *testing.T) {

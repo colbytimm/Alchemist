@@ -167,6 +167,17 @@ func TestOpenCreatesAPrivateFile(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }
 
+func TestRecentReportsAFileItCannotRead(t *testing.T) {
+	log, path := openLog(t)
+	require.NoError(t, os.Remove(path))
+	require.NoError(t, os.Mkdir(path, 0o700))
+
+	_, err := log.Recent(10)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), path, "the message must say which file")
+}
+
 func TestOpenRefusesALocationItCannotWrite(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "occupied")
 	require.NoError(t, os.WriteFile(dir, []byte("a file where the directory should be"), 0o600))

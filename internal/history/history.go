@@ -85,7 +85,6 @@ func Open(dir string) (File, error) {
 	return f, nil
 }
 
-// Append writes entry as one line.
 func (f File) Append(entry Entry) error {
 	entry.Error = truncate(entry.Error, maxErrorLength)
 	line, err := json.Marshal(entry)
@@ -142,9 +141,8 @@ func (f File) openForAppend() (*os.File, error) {
 	return file, nil
 }
 
-// trim cuts a log past MaxEntries back to its newest KeepEntries lines. The
-// replacement is written beside the log and renamed over it, so a crash
-// mid-trim leaves the log whole.
+// trim writes the lines it keeps beside the log and renames them over it,
+// so a crash mid-trim leaves the log whole.
 func (f File) trim() error {
 	lines, err := f.lines()
 	if err != nil {

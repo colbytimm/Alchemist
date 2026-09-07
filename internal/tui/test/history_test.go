@@ -121,6 +121,18 @@ func TestAFailedRunIsRecordedWithItsError(t *testing.T) {
 	assert.Equal(t, "SELECT * FROM c", store.entries[0].Query)
 }
 
+func TestASupersededRunIsNotRecorded(t *testing.T) {
+	store := &recordingStore{}
+	m := typeQuery(t, selectContainer(t, newHistoryModel(t, newConnection(t), store)), "SELECT * FROM c")
+
+	first, firstCmd := m.Update(keyMsg(tea.KeyCtrlR))
+	second, secondCmd := first.Update(keyMsg(tea.KeyCtrlR))
+	superseded, _ := settle(second, firstCmd)
+	settle(superseded, secondCmd)
+
+	assert.Len(t, store.entries, 1, "only the run whose page was shown is recorded")
+}
+
 func TestAQueryThatNeverReachesTheAdapterIsNotRecorded(t *testing.T) {
 	store := &recordingStore{}
 

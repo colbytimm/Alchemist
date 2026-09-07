@@ -10,8 +10,6 @@ import (
 	"github.com/colbytimm/alchemist/internal/history"
 )
 
-// newHistoryEntry starts the record of a run: what was typed, where it was
-// sent, and when. The outcome is filled in once the run settles.
 func (m Model) newHistoryEntry(scope []string) history.Entry {
 	return history.Entry{
 		Time:    time.Now().UTC(),

@@ -25,7 +25,7 @@ func (cat *catalog) Root(ctx context.Context) ([]adapter.Node, error) {
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("cosmos: list databases: %w", err)
+			return nil, wrap("list databases", err)
 		}
 		for _, db := range page.Databases {
 			nodes = append(nodes, adapter.Node{
@@ -63,7 +63,7 @@ func (cat *catalog) containers(ctx context.Context, n adapter.Node) ([]adapter.N
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("cosmos: list containers of %q: %w", n.Name, err)
+			return nil, wrap(fmt.Sprintf("list containers of %q", n.Name), err)
 		}
 		for _, props := range page.Containers {
 			nodes = append(nodes, adapter.Node{

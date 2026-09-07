@@ -211,7 +211,7 @@ func (h History) row(entry history.Entry, scopeWidth, width int, selected bool) 
 	age := fit(relativeTime(entry.Time, h.now), timeWidth)
 	scope := fit(scopeText(entry.Scope), scopeWidth)
 	charge := fmt.Sprintf("%*s", chargeWidth, chargeText(entry))
-	query := fit(firstLine(entry.Query), max(width-timeWidth-scopeWidth-chargeWidth-rowGaps, 1))
+	query := fit(firstLine(entry.Query), max(width-timeWidth-scopeWidth-lipgloss.Width(charge)-rowGaps, 1))
 	return text.Render(age+" ") + h.outcome(entry, selected) + text.Render(" "+scope+" "+query+" "+charge)
 }
 

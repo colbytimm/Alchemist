@@ -136,7 +136,7 @@ func (c *connection) partitionKeyPath(ctx context.Context, container *azcosmos.C
 func (c *connection) Ping(ctx context.Context) error {
 	pager := c.client.NewQueryDatabasesPager("select * from dbs d", nil)
 	if _, err := pager.NextPage(ctx); err != nil {
-		return fmt.Errorf("cosmos: ping: %w", err)
+		return wrap("ping", err)
 	}
 	return nil
 }

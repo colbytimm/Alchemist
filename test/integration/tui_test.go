@@ -315,6 +315,8 @@ func TestIntegrationRunQuery(t *testing.T) {
 		failed := runQuery(t, m, "SELEC * FRM c")
 
 		assert.Contains(t, view(failed), "cosmos:", "the service message reaches the pane")
+		assert.Contains(t, view(failed), "Syntax error", "with what the service said")
+		assert.NotContains(t, view(failed), "localhost", "and not the request URL")
 		assert.Contains(t, view(failed), "Catalog", "and the layout is still standing")
 
 		recovered := press(t, failed, keyMsg(tea.KeyCtrlU), keyText("SELECT * FROM c"), keyMsg(tea.KeyCtrlR))
@@ -376,5 +378,6 @@ func TestIntegrationQueryHistory(t *testing.T) {
 	for i, line := range lines {
 		assert.True(t, json.Valid([]byte(line)), "line %d is not JSON: %s", i+1, line)
 		assert.NotContains(t, line, wellKnownKey, "the log holds no credential")
+		assert.NotContains(t, line, "localhost", "nor the endpoint, even in a recorded error")
 	}
 }
