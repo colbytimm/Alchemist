@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -15,9 +16,11 @@ import (
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/adapter/cosmos"
 	"github.com/colbytimm/alchemist/internal/adapter/mock"
+	"github.com/colbytimm/alchemist/internal/config"
 	"github.com/colbytimm/alchemist/internal/logging"
 	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui"
+	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
 
 // RegisterAdapters wires the concrete adapters into the registry. Calling it
@@ -38,68 +41,61 @@ func RegisterAdapters() error {
 	return nil
 }
 
-// NewRootCmd builds the root command for the alchemist binary.
-func NewRootCmd() *cobra.Command {
+// NewRootCmd builds the root command. Profile keys are read from, and
+// offered to, keyring.
+func NewRootCmd(keyring config.Keyring) *cobra.Command {
 	var session sessionFlags
 	cmd := &cobra.Command{
-		Use:           "alchemist",
-		Short:         "A terminal IDE for Azure Cosmos DB",
-		Long:          "Alchemist is a keyboard-driven terminal IDE for Azure Cosmos DB (NoSQL API):\nbrowse databases and containers, write SQL, and page through results.",
-		Example:       "  alchemist --connection-string \"AccountEndpoint=https://...\"\n  alchemist --adapter mock",
+		Use:   "alchemist [profile]",
+		Short: "A terminal IDE for Azure Cosmos DB",
+		Long: "Alchemist is a keyboard-driven terminal IDE for Azure Cosmos DB (NoSQL API):\n" +
+			"browse databases and containers, write SQL, and page through results.\n\n" +
+			"Run it with no profile and it asks for the account to connect to; run it with\n" +
+			"one and it connects. alchemist profile does the same from the command line.",
+		Example: "  alchemist                 # the default profile, or the connect screen\n" +
+			"  alchemist prod            # the profile called prod\n" +
+			"  alchemist --adapter mock  # fixture data, no profile needed",
 		Version:       fmt.Sprintf("%s (built %s)", app.Version, app.BuildDate),
-		Args:          cobra.NoArgs,
+		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return session.run(cmd)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return session.run(cmd, args, keyring)
 		},
 	}
 	session.bind(cmd.Flags())
-	cmd.MarkFlagsMutuallyExclusive("connection-string", "endpoint")
-	cmd.MarkFlagsRequiredTogether("endpoint", "key")
+	cmd.AddCommand(newProfileCmd(keyring))
 	cmd.SetVersionTemplate(fmt.Sprintf("%s {{.Version}}\n", app.Name))
 	cmd.CompletionOptions.DisableDefaultCmd = true
 	return cmd
 }
 
-// sessionFlags are the flags that configure one TUI session. The credential
-// flags are temporary: profiles replace them in iteration 6.
+// sessionFlags configure one TUI session.
 type sessionFlags struct {
-	adapter            string
-	endpoint           string
-	key                string
-	connectionString   string
-	insecureSkipVerify bool
-	ascii              bool
-	verbose            bool
+	adapter string
+	ascii   bool
+	verbose bool
 }
 
 func (s *sessionFlags) bind(flags *pflag.FlagSet) {
-	flags.StringVar(&s.adapter, "adapter", cosmos.Name,
-		fmt.Sprintf("adapter to connect with (%s, %s)", cosmos.Name, mock.Name))
-	flags.StringVar(&s.endpoint, "endpoint", "", "Cosmos account endpoint")
-	flags.StringVar(&s.key, "key", "", "Cosmos account key")
-	flags.StringVar(&s.connectionString, "connection-string", "", "Cosmos connection string")
-	flags.BoolVar(&s.insecureSkipVerify, "insecure-skip-verify", false,
-		"skip TLS verification (for the Cosmos emulator's self-signed certificate)")
+	flags.StringVar(&s.adapter, "adapter", "",
+		fmt.Sprintf("connect an adapter with no profile (%s serves fixture data)", mock.Name))
 	flags.BoolVar(&s.ascii, "ascii", false, "draw with ASCII glyphs instead of Unicode")
 	flags.BoolVar(&s.verbose, "verbose", false, "log at debug level")
 }
 
-// run resolves the adapter and connects before touching the filesystem, so an
+// run resolves what to connect to before touching the filesystem, so an
 // invocation that never reaches the TUI leaves no log directory behind.
-func (s sessionFlags) run(cmd *cobra.Command) error {
-	factory, err := adapter.Get(s.adapter)
+func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyring) error {
+	launch, err := s.resolveLaunch(cmd.Context(), args, keyring)
 	if err != nil {
 		return err
 	}
-	conn, err := factory().Connect(cmd.Context(), s.settings())
-	if err != nil {
-		return connectError(err)
+	if launch.connection != nil {
+		// The session is over by the time this runs; a close failure has no
+		// bearing on the exit path.
+		defer func() { _ = launch.connection.Close() }()
 	}
-	// The session is over by the time this runs; a close failure has no
-	// bearing on the exit path.
-	defer func() { _ = conn.Close() }()
 
 	logger, logFile, err := logging.Open(s.logLevel())
 	if err != nil {
@@ -109,13 +105,16 @@ func (s sessionFlags) run(cmd *cobra.Command) error {
 	// past the point where anything could act on it.
 	defer func() { _ = logFile.Close() }()
 
-	logger.Info("session started", "adapter", s.adapter)
+	logger.Info("session started", "profile", launch.profile)
 	program := tea.NewProgram(
 		tui.New(tui.Options{
 			Icons:      s.icons(),
-			Connection: conn,
+			Connection: launch.connection,
+			Connect:    launch.connect,
+			Form:       launch.form,
 			Logger:     logger,
-			Profile:    s.adapter,
+			Profile:    launch.profile,
+			Database:   launch.database,
 		}),
 		tea.WithAltScreen(),
 		tea.WithContext(cmd.Context()),
@@ -126,25 +125,123 @@ func (s sessionFlags) run(cmd *cobra.Command) error {
 	return err
 }
 
-// connectError restates a credential failure in the flag names the user typed.
-// The adapter can only name the setting keys it was handed, which say nothing
-// about how to supply them, and running with no arguments at all lands here.
+// launch is what a session starts with: a live connection, or the connect
+// screen that opens one.
+type launch struct {
+	profile    string
+	database   string
+	connection adapter.Connection
+	connect    tui.Connector
+	form       panes.ConnectForm
+}
+
+// resolveLaunch picks the connection: --adapter names an adapter to run with
+// no profile at all; otherwise the profile in args, or the default one.
+func (s sessionFlags) resolveLaunch(ctx context.Context, args []string, keyring config.Keyring) (launch, error) {
+	if s.adapter != "" {
+		if len(args) > 0 {
+			return launch{}, errors.New("cmd: a profile and --adapter are alternatives; pass one or the other")
+		}
+		conn, err := connect(ctx, s.adapter, nil)
+		if err != nil {
+			return launch{}, connectError(err)
+		}
+		return launch{profile: s.adapter, connection: conn}, nil
+	}
+	var name string
+	if len(args) > 0 {
+		name = args[0]
+	}
+	return profileLaunch(ctx, name, keyring)
+}
+
+// profileLaunch connects the named profile, or opens the connect screen when
+// no profile exists yet or the key of this one is nowhere to be found.
+func profileLaunch(ctx context.Context, name string, keyring config.Keyring) (launch, error) {
+	store, cfg, err := loadConfig()
+	if err != nil {
+		return launch{}, err
+	}
+	profile, err := cfg.Profile(name)
+	if errors.Is(err, config.ErrNoProfiles) {
+		return setupLaunch(store, keyring, config.Profile{Name: name, Adapter: cosmos.Name}), nil
+	}
+	if err != nil {
+		return launch{}, err
+	}
+	secret, err := config.SecretResolver{Keyring: keyring}.Resolve(profile.Name)
+	if errors.Is(err, config.ErrSecretNotFound) {
+		return setupLaunch(store, keyring, profile), nil
+	}
+	if err != nil {
+		return launch{}, err
+	}
+	conn, err := connect(ctx, profile.Adapter, profile.Settings(secret))
+	if err != nil {
+		return launch{}, err
+	}
+	return launch{profile: profile.Name, database: profile.Database, connection: conn}, nil
+}
+
+// setupLaunch opens the connect screen for profile, which may be no more than
+// a name. What the screen submits is connected and pinged before anything is
+// saved, so an attempt that did not connect leaves nothing behind.
+func setupLaunch(store config.Store, keyring config.Keyring, profile config.Profile) launch {
+	return launch{
+		database: profile.Database,
+		form: panes.ConnectForm{
+			Profile:    profile.Name,
+			Endpoint:   profile.Endpoint,
+			SkipVerify: profile.InsecureSkipVerify,
+			StoreKey:   true,
+		},
+		connect: func(ctx context.Context, form panes.ConnectForm) (adapter.Connection, error) {
+			saved := profile
+			saved.Name, saved.Endpoint, saved.InsecureSkipVerify = form.Profile, form.Endpoint, form.SkipVerify
+			conn, err := connect(ctx, saved.Adapter, saved.Settings(config.Secret{Key: form.Key}))
+			if err != nil {
+				return nil, err
+			}
+			if err := conn.Ping(ctx); err != nil {
+				closeFailed(conn)
+				return nil, err
+			}
+			var key string
+			if form.StoreKey {
+				key = form.Key
+			}
+			if err := config.SaveProfile(store, keyring, saved, key); err != nil {
+				closeFailed(conn)
+				return nil, err
+			}
+			return conn, nil
+		},
+	}
+}
+
+func connect(ctx context.Context, name string, settings map[string]string) (adapter.Connection, error) {
+	factory, err := adapter.Get(name)
+	if err != nil {
+		return nil, err
+	}
+	return factory().Connect(ctx, settings)
+}
+
+// closeFailed releases a connection whose attempt is being reported as an
+// error; a close failure would add nothing to it.
+func closeFailed(conn adapter.Connection) {
+	_ = conn.Close()
+}
+
+// connectError restates a credential failure as the fix: --adapter cosmos
+// with no profile lands here, and the adapter can only name the setting keys
+// it was handed.
 func connectError(err error) error {
 	if !errors.Is(err, cosmos.ErrMissingCredentials) {
 		return err
 	}
-	return fmt.Errorf(
-		"pass --connection-string, or --endpoint with --key, or --adapter mock to browse fixture data: %w",
-		cosmos.ErrMissingCredentials)
-}
-
-func (s sessionFlags) settings() map[string]string {
-	return map[string]string{
-		"endpoint":             s.endpoint,
-		"key":                  s.key,
-		"connection_string":    s.connectionString,
-		"insecure_skip_verify": fmt.Sprint(s.insecureSkipVerify),
-	}
+	return fmt.Errorf("%s needs a profile: run alchemist to set one up, or pass --adapter %s to browse fixture data: %w",
+		cosmos.Name, mock.Name, cosmos.ErrMissingCredentials)
 }
 
 func (s sessionFlags) icons() theme.IconSet {

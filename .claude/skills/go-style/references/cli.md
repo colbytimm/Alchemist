@@ -8,22 +8,23 @@ Source: https://cobra.dev/docs/. Repo uses `spf13/cobra` v1.10.2.
 
 ```go
 func main() {
-    if err := cmd.NewRootCmd().Execute(); err != nil {
+    if err := cmd.NewRootCmd(config.SystemKeyring()).Execute(); err != nil {
         fmt.Fprintln(os.Stderr, "alchemist:", err)
         os.Exit(1)
     }
 }
 ```
 
-`cmd.NewRootCmd()` is a **constructor, not a package global**. Cobra's docs suggest
-registering subcommands in `init()`; **this repo does not** — `init()` cannot return an
-error, runs in an order you do not control, and makes the command graph impossible to
-build twice in a test. Wire subcommands inside `NewRootCmd`:
+`cmd.NewRootCmd` is a **constructor, not a package global**, and its parameters are
+the process-wide dependencies a test needs to swap (the keyring today). Cobra's docs
+suggest registering subcommands in `init()`; **this repo does not** — `init()` cannot
+return an error, runs in an order you do not control, and makes the command graph
+impossible to build twice in a test. Wire subcommands inside `NewRootCmd`:
 
 ```go
-func NewRootCmd() *cobra.Command {
+func NewRootCmd(keyring config.Keyring) *cobra.Command {
     root := &cobra.Command{ ... }
-    root.AddCommand(newQueryCmd(), newProfileCmd())
+    root.AddCommand(newProfileCmd(keyring))
     return root
 }
 ```
@@ -141,7 +142,7 @@ values from `RunE`, not to stderr inside the command.
 Build a fresh command per test — this is the payoff for not using `init()`:
 
 ```go
-root := cmd.NewRootCmd()
+root := cmd.NewRootCmd(newFakeKeyring())
 var out bytes.Buffer
 root.SetOut(&out)
 root.SetArgs([]string{"--version"})
@@ -151,9 +152,10 @@ assert.Contains(t, out.String(), app.Version)
 ```
 
 `SetArgs` on a shared command leaks between tests; a constructor makes that impossible.
-`cmd/test/root_test.go` is the working example. Note that `registerAdapters` is guarded
-by `sync.Once` precisely so repeated `NewRootCmd()` calls stay idempotent — preserve
-that if you add more global registration.
+`cmd/test/root_test.go` is the working example: its `harness` builds a fresh root per
+run against a temp `XDG_CONFIG_HOME` and an in-memory keyring, and feeds prompts
+through `SetIn`. `RegisterAdapters` returns `adapter.ErrDuplicateName` on a repeat
+call, which the tests tolerate so they stay order-independent.
 
 ## Version and help
 

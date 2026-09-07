@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -78,27 +79,52 @@ func (s runState) running() bool { return s == runRunning || s == runFetching }
 
 func (s runState) loaded() bool { return s == runLoaded || s == runFetching }
 
-// Options configures a TUI session. Icons and Connection are required; a nil
-// Logger discards output.
+// Options configures a TUI session. Icons are required. With a Connection
+// the session opens on the catalog; without one it opens on the connect
+// screen, seeded from Form, and calls Connect with what the screen submits.
+// A nil Logger discards output. Database, when set, is expanded in the
+// catalog as soon as the root arrives.
 type Options struct {
 	Icons      theme.IconSet
 	Connection adapter.Connection
+	Connect    Connector
+	Form       panes.ConnectForm
 	Logger     *log.Logger
 	Profile    string
+	Database   string
 }
+
+// Connector opens the connection the connect screen asked for. It is called
+// off the main goroutine, once per attempt, never with an incomplete form.
+type Connector func(ctx context.Context, form panes.ConnectForm) (adapter.Connection, error)
+
+// screen is the top-level view a session is on.
+type screen int
+
+const (
+	screenConnect screen = iota
+	screenMain
+)
 
 type Model struct {
 	keys       KeyMap
 	connection adapter.Connection
 	catalog    adapter.Catalog
+	connect    Connector
 	logger     *log.Logger
 
+	connectPane panes.Connect
 	catalogPane panes.Catalog
 	editor      panes.Editor
 	results     panes.Results
 	detail      panes.Detail
 	statusBar   panes.StatusBar
 	help        panes.Help
+
+	// ownsConnection marks a connection the connect screen opened, which the
+	// session closes itself; one it was handed is closed by whoever made it.
+	ownsConnection  bool
+	defaultDatabase string
 
 	scope      []string
 	state      runState
@@ -107,6 +133,7 @@ type Model struct {
 	cancel     context.CancelFunc
 	stats      adapter.Stats
 
+	screen        screen
 	focus         focus
 	previousFocus focus
 	overlay       overlay
@@ -123,14 +150,22 @@ func New(opts Options) Model {
 	m := Model{
 		keys:        keys,
 		connection:  opts.Connection,
-		catalog:     opts.Connection.Catalog(),
+		connect:     opts.Connect,
 		logger:      logger,
+		connectPane: panes.NewConnect(opts.Icons, opts.Form),
 		catalogPane: panes.NewCatalog(opts.Icons),
 		editor:      panes.NewEditor(),
 		results:     panes.NewResults(),
 		detail:      panes.NewDetail(),
 		statusBar:   panes.NewStatusBar(opts.Icons, opts.Profile),
 		help:        panes.NewHelp(keys),
+
+		defaultDatabase: opts.Database,
+		screen:          screenConnect,
+	}
+	if opts.Connection != nil {
+		m.catalog = opts.Connection.Catalog()
+		m.screen = screenMain
 	}
 	// The tick is discarded because Init, which bubbletea always calls next,
 	// starts the animation; a constructor cannot hand back a command.
@@ -138,7 +173,16 @@ func New(opts Options) Model {
 	return m.setFocus(focusCatalog)
 }
 
+// Init starts loading the catalog. A session still to connect needs nothing
+// until its form is submitted.
 func (m Model) Init() tea.Cmd {
+	if m.screen == screenConnect {
+		return nil
+	}
+	return m.startCatalog()
+}
+
+func (m Model) startCatalog() tea.Cmd {
 	return tea.Batch(m.catalogPane.SpinnerTick(), m.loadRoot())
 }
 
@@ -150,6 +194,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	case CatalogLoadedMsg:
 		m.catalogPane = m.catalogPane.SetChildren(msg.Parent, msg.Nodes)
+		if len(msg.Parent) == 0 && m.defaultDatabase != "" {
+			return m.openDefaultDatabase(msg.Nodes)
+		}
 		return m.prefetch()
 	case ScopeChangedMsg:
 		m.scope = msg.Scope
@@ -165,6 +212,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.failPage(msg)
 	case ErrMsg:
 		return m.handleErr(msg), nil
+	case ConnectedMsg:
+		return m.enterSession(msg)
+	case ConnectFailedMsg:
+		m.connectPane = m.connectPane.Fail(msg.Err)
+		return m, nil
 	}
 	return m.animate(msg)
 }
@@ -180,10 +232,12 @@ func (m Model) View() string {
 }
 
 func (m Model) layout() string {
-	switch m.overlay {
-	case overlayHelp:
+	switch {
+	case m.screen == screenConnect:
+		return m.connectPane.View()
+	case m.overlay == overlayHelp:
 		return m.help.View()
-	case overlayDetail:
+	case m.overlay == overlayDetail:
 		return m.detail.View()
 	}
 	right := lipgloss.JoinVertical(lipgloss.Left, m.editor.View(), m.results.View())
@@ -191,13 +245,14 @@ func (m Model) layout() string {
 	return lipgloss.JoinVertical(lipgloss.Left, body, m.statusBar.View())
 }
 
-// animate forwards a message no pane owns outright to the two that run
+// animate forwards a message no pane owns outright to the ones that run
 // timers of their own.
 func (m Model) animate(msg tea.Msg) (Model, tea.Cmd) {
-	var catalogCmd, statusCmd tea.Cmd
+	var connectCmd, catalogCmd, statusCmd tea.Cmd
+	m.connectPane, connectCmd = m.connectPane.Update(msg)
 	m.catalogPane, catalogCmd = m.catalogPane.Update(msg)
 	m.statusBar, statusCmd = m.statusBar.Update(msg)
-	return m, tea.Batch(catalogCmd, statusCmd)
+	return m, tea.Batch(connectCmd, catalogCmd, statusCmd)
 }
 
 func (m Model) handleErr(msg ErrMsg) Model {
@@ -210,6 +265,9 @@ func (m Model) handleErr(msg ErrMsg) Model {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if m.screen == screenConnect {
+		return m.handleConnectKey(msg)
+	}
 	if m.overlay != overlayNone {
 		return m.handleOverlayKey(msg)
 	}
@@ -218,7 +276,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
-		return m.endRun(), tea.Quit
+		return m.quit()
 	case key.Matches(msg, m.keys.Help):
 		m.overlay = overlayHelp
 		return m, nil
@@ -256,7 +314,7 @@ func (m Model) handleFocusedKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Quit):
-		return m.endRun(), tea.Quit
+		return m.quit()
 	case key.Matches(msg, m.keys.Close):
 		m.overlay = overlayNone
 	case m.overlay == overlayHelp && key.Matches(msg, m.keys.Help):
@@ -267,6 +325,73 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.detail = m.detail.ScrollDown()
 	}
 	return m, nil
+}
+
+// handleConnectKey drives the form. Typed characters go to the form itself,
+// which is why q cannot quit here: a profile may be called anything.
+func (m Model) handleConnectKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if typesIntoBuffer(msg) {
+		return m.connectUpdate(msg)
+	}
+	switch {
+	case key.Matches(msg, m.keys.Quit), key.Matches(msg, m.keys.Close):
+		return m, tea.Quit
+	case key.Matches(msg, m.keys.Connect):
+		return m.submitConnect()
+	case key.Matches(msg, m.keys.NextPane), key.Matches(msg, m.keys.Down):
+		m.connectPane = m.connectPane.NextField()
+		return m, nil
+	case key.Matches(msg, m.keys.PrevPane), key.Matches(msg, m.keys.Up):
+		m.connectPane = m.connectPane.PrevField()
+		return m, nil
+	}
+	return m.connectUpdate(msg)
+}
+
+func (m Model) connectUpdate(msg tea.KeyMsg) (Model, tea.Cmd) {
+	var cmd tea.Cmd
+	m.connectPane, cmd = m.connectPane.Update(msg)
+	return m, cmd
+}
+
+// submitConnect hands the form to the connector, or shows what it still
+// lacks. Enter while an attempt is in flight does nothing.
+func (m Model) submitConnect() (Model, tea.Cmd) {
+	if m.connectPane.Connecting() {
+		return m, nil
+	}
+	form, err := m.connectPane.Form()
+	if err != nil {
+		m.connectPane = m.connectPane.Fail(err)
+		return m, nil
+	}
+	pane, tick := m.connectPane.StartConnecting()
+	m.connectPane = pane
+	return m, tea.Batch(tick, m.openConnection(form))
+}
+
+// enterSession leaves the connect screen for the catalog, on the connection
+// the screen just opened.
+func (m Model) enterSession(msg ConnectedMsg) (Model, tea.Cmd) {
+	m.connection = msg.Connection
+	m.catalog = msg.Connection.Catalog()
+	m.ownsConnection = true
+	m.statusBar = m.statusBar.SetProfile(msg.Profile)
+	m.screen = screenMain
+	m.logger.Info("connected", "profile", msg.Profile)
+	return m, m.startCatalog()
+}
+
+// quit ends the run in progress and closes a connection the session opened
+// itself.
+func (m Model) quit() (Model, tea.Cmd) {
+	m = m.endRun()
+	if m.ownsConnection {
+		if err := m.connection.Close(); err != nil {
+			m.logger.Error("close connection", "error", err)
+		}
+	}
+	return m, tea.Quit
 }
 
 func (m Model) handleCatalogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -510,6 +635,23 @@ func (m Model) selectNode() (Model, tea.Cmd) {
 	return m, tea.Batch(append(cmds, chevrons)...)
 }
 
+// openDefaultDatabase expands the database the profile names, so its
+// containers are on screen from the first frame. It runs once: a reload later
+// leaves the tree as the user arranged it.
+func (m Model) openDefaultDatabase(roots []adapter.Node) (Model, tea.Cmd) {
+	name := m.defaultDatabase
+	m.defaultDatabase = ""
+	row := slices.IndexFunc(roots, func(n adapter.Node) bool { return n.Name == name })
+	if row < 0 {
+		m.logger.Warn("default database is not in the catalog", "database", name)
+		return m.prefetch()
+	}
+	for range row {
+		m.catalogPane = m.catalogPane.CursorDown()
+	}
+	return m.selectNode()
+}
+
 // prefetch loads the children of the rows a response just put on screen, so
 // their chevrons stop guessing. It runs behind the tree rather than ahead of
 // it: the catalog paints as soon as the root arrives, and each answer settles
@@ -570,6 +712,7 @@ func (m Model) resize(width, height int) Model {
 	bodyHeight := max(height-statusBarHeight, minPaneHeight)
 	editorHeight := max(bodyHeight/editorHeightDivisor, minPaneHeight)
 
+	m.connectPane = m.connectPane.SetSize(width, height)
 	m.catalogPane = m.catalogPane.SetSize(catalogWidth, bodyHeight)
 	m.editor = m.editor.SetSize(width-catalogWidth, editorHeight)
 	m.results = m.results.SetSize(width-catalogWidth, bodyHeight-editorHeight)

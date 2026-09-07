@@ -75,6 +75,11 @@ func (s StatusBar) SetWidth(width int) StatusBar {
 	return s
 }
 
+func (s StatusBar) SetProfile(profile string) StatusBar {
+	s.profile = profile
+	return s
+}
+
 func (s StatusBar) SetScope(scope []string) StatusBar {
 	s.scope = scope
 	return s
