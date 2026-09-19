@@ -175,8 +175,31 @@ is registered in `cmd/root.go`; nothing under `internal/tui` may import it, and
 ## Development
 
 ```sh
-make all          # fmt-check, lint, spell, test, build
-make help         # list all targets
+make all               # fmt-check, lint, spell, test, build
+make security          # gosec, govulncheck, gitleaks
+make release-snapshot  # every release archive into dist/, nothing published
+make help              # list all targets
+```
+
+Every tool runs at a version pinned in the `Makefile`, and CI calls the same targets,
+so a green `make all` locally means a green quality job.
+
+### CI and releases
+
+| Workflow | Runs on | Does |
+|---|---|---|
+| `pr.yml` | pull requests to `main` | quality, security, and emulator integration gates; `goreleaser check` and `actionlint` |
+| `main.yml` | pushes to `main` | the same gates, then snapshot archives uploaded as build artifacts |
+| `release.yml` | tags matching `v*` | the same gates, then a GitHub Release with archives, checksums, and changelog |
+
+`main` is expected to be a protected branch that requires the `pr.yml` checks
+(`gates / quality`, `gates / security`, `gates / integration`, `release-check`) to pass
+before a merge.
+
+Cutting a release is one step:
+
+```sh
+git tag v0.1.0 && git push --tags
 ```
 
 Design notes, architecture, and the iteration-by-iteration plan live in

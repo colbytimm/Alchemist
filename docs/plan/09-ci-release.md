@@ -35,6 +35,22 @@ main, and a tag-driven release workflow ships cross-platform binaries.
   `actionlint` target; `install-tools` grows pinned goreleaser + actionlint.
 - Branch protection expectation documented in README (PR checks required to merge).
 
+**Decided:**
+
+- The quality, security, and integration jobs live once in a reusable
+  `.github/workflows/gates.yml` that `pr.yml`, `main.yml`, and `release.yml` call,
+  instead of three copies. Checks appear as `gates / quality` and so on.
+- No `install-tools` target: goreleaser, actionlint, and gitleaks run through pinned
+  `go run pkg@version` like every other tool in the `Makefile`, so workflows call
+  `make` targets and the version lives in one place. gitleaks is no longer skipped
+  when absent. `release-check` and `release` targets joined `release-snapshot`.
+- CI starts the emulator from the same `docker-compose.yml` as `make emulator-up`
+  (vnext-preview, HTTP), then `make emulator-wait` polls port 8081.
+- `go.mod` moved to Go 1.26.8: govulncheck fails on the standard-library
+  vulnerabilities in 1.26.4. goreleaser is pinned at v2.17.1, the last release that
+  builds with Go 1.26.
+- `LICENSE` (MIT) added so archives can carry it.
+
 ## Out of scope
 
 - Homebrew tap / package managers, container images, signing/notarization, SBOMs —
@@ -53,7 +69,7 @@ main, and a tag-driven release workflow ships cross-platform binaries.
 ## Testing
 
 **Local/static:**
-- `actionlint` clean on all three workflow files.
+- `actionlint` clean on all four workflow files.
 - `goreleaser check` and `make release-snapshot` succeed locally; snapshot binaries for
   darwin/arm64 and linux/amd64 run `--version` correctly (version stamped, not `dev`).
 

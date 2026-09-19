@@ -56,7 +56,7 @@ in this repo's `adapter.Query`; convert deliberately.
 `go vet` catches most, not all.
 
 **Loop variables** are per-iteration since Go 1.22, so capturing them in a closure is
-safe here (`go 1.26.4`). The old `v := v` shadow is no longer needed — do not add it,
+safe here (`go 1.26.8`). The old `v := v` shadow is no longer needed — do not add it,
 and delete it if you see it.
 
 ## Performance — only after you have a reason

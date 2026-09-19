@@ -1,6 +1,6 @@
 # Repo conventions and tooling
 
-Module `github.com/colbytimm/alchemist`, Go 1.26.4. A terminal IDE for Azure Cosmos DB.
+Module `github.com/colbytimm/alchemist`, Go 1.26.8. A terminal IDE for Azure Cosmos DB.
 
 ## Layout
 

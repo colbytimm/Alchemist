@@ -1,8 +1,7 @@
 # Cosmos DB emulator for integration tests (make emulator-up / test-integration).
 #
-# The vnext-preview image runs on Apple Silicon and serves HTTP on 8081 by
-# default; CI on linux/amd64 may substitute the stable image (HTTPS with a
-# self-signed certificate — the adapter's insecure_skip_verify covers it).
+# The vnext-preview image runs on Apple Silicon and linux/amd64 alike and serves
+# HTTP on 8081 by default; CI uses this same file.
 services:
   cosmos-emulator:
     image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview

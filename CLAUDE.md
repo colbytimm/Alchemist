@@ -1,6 +1,6 @@
 # Alchemist
 
-A terminal IDE for Azure Cosmos DB. Go 1.26.4, module `github.com/colbytimm/alchemist`.
+A terminal IDE for Azure Cosmos DB. Go 1.26.8, module `github.com/colbytimm/alchemist`.
 
 ## Clean Code
 
