@@ -1,59 +1,45 @@
 package cosmos
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
+
+	"github.com/colbytimm/alchemist/internal/adapter"
 )
 
-// requestError restates a failed request without the request URL the SDK
-// prints, so neither the screen nor the history file names the account; the
-// SDK's error stays in the chain for errors.As.
-type requestError struct {
+// refusalError restates a request the service refused without the request
+// URL the SDK prints, so neither the screen nor the history file names the
+// account; the SDK's error stays in the chain for errors.As.
+type refusalError struct {
 	op      string
 	message string
 	cause   error
 }
 
-func (e *requestError) Error() string { return "cosmos: " + e.op + ": " + e.message }
+func (e *refusalError) Error() string { return "cosmos: " + e.op + ": " + e.message }
 
-func (e *requestError) Unwrap() error { return e.cause }
+func (e *refusalError) Unwrap() error { return e.cause }
 
+// wrap reports err under op. A refusal and a request that never reached
+// the service are the two whose SDK text carries the request URL; the
+// second is restated for every adapter alike, since the TUI offers a retry
+// for it.
 func wrap(op string, err error) error {
-	message, ok := describe(err)
-	if !ok {
-		return fmt.Errorf("cosmos: %s: %w", op, err)
-	}
-	return &requestError{op: op, message: message, cause: err}
-}
-
-// describe restates the failures whose SDK text carries the request URL: a
-// refusal from the service, a connection that never reached it, and a
-// context that ended mid-request — which the SDK reports with the last
-// transport error, URL and all, printed beside it.
-func describe(err error) (string, bool) {
 	var respErr *azcore.ResponseError
-	var urlErr *url.Error
-	switch {
-	case errors.As(err, &respErr):
-		return refusal(respErr), true
-	case errors.As(err, &urlErr):
-		return transportFailure(urlErr), true
-	case errors.Is(err, context.DeadlineExceeded):
-		return context.DeadlineExceeded.Error(), true
-	case errors.Is(err, context.Canceled):
-		return context.Canceled.Error(), true
+	if errors.As(err, &respErr) {
+		return &refusalError{op: op, message: refusal(respErr), cause: err}
 	}
-	return "", false
+	if unreachable, ok := adapter.Unreachable(err); ok {
+		return unreachable
+	}
+	return fmt.Errorf("cosmos: %s: %w", op, err)
 }
 
 func refusal(respErr *azcore.ResponseError) string {
@@ -122,18 +108,4 @@ func errorText(raw json.RawMessage) string {
 func firstLine(message string) string {
 	line, _, _ := strings.Cut(message, "\n")
 	return strings.TrimRight(line, "\r")
-}
-
-// transportFailure is the leaf of a connection that never reached the
-// service; every wrapper above it repeats the URL or the host.
-func transportFailure(urlErr *url.Error) string {
-	var dnsErr *net.DNSError
-	if errors.As(urlErr, &dnsErr) {
-		return "lookup: " + dnsErr.Err
-	}
-	var opErr *net.OpError
-	if errors.As(urlErr, &opErr) {
-		return opErr.Op + ": " + opErr.Err.Error()
-	}
-	return urlErr.Err.Error()
 }

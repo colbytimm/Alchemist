@@ -74,7 +74,7 @@ func (c *recordingConnection) Root(ctx context.Context) ([]adapter.Node, error) 
 	c.calls[""]++
 	if c.failRoot > 0 {
 		c.failRoot--
-		return nil, errors.New("catalog unreachable")
+		return nil, &adapter.UnreachableError{Reason: "connection refused"}
 	}
 	return c.inner.Catalog().Root(ctx)
 }

@@ -174,10 +174,10 @@ func TestEveryRequestPathShapesARefusal(t *testing.T) {
 	}
 }
 
-// TestADeadEndpointIsReportedWithoutItsAddress waits out the SDK, which
-// retries a connection it cannot open for some ten seconds before giving
-// up — once: it remembers, so the later requests fail at once.
-func TestADeadEndpointIsReportedWithoutItsAddress(t *testing.T) {
+// TestADeadEndpointIsUnreachable waits out the SDK, which retries a
+// connection it cannot open for some ten seconds before giving up — once:
+// it remembers, so the later requests fail at once.
+func TestADeadEndpointIsUnreachable(t *testing.T) {
 	closed := httptest.NewTLSServer(http.NotFoundHandler())
 	endpoint := closed.URL
 	closed.Close()
@@ -187,14 +187,15 @@ func TestADeadEndpointIsReportedWithoutItsAddress(t *testing.T) {
 		t.Run(request.name, func(t *testing.T) {
 			err := request.call(context.Background(), conn)
 
-			require.Error(t, err)
-			assert.Equal(t, "cosmos: "+request.name+": dial: connect: connection refused", err.Error())
+			var unreachable *adapter.UnreachableError
+			require.ErrorAs(t, err, &unreachable)
+			assert.Equal(t, "account unreachable: connection refused", err.Error())
 			assert.NotContains(t, err.Error(), host)
 		})
 	}
 }
 
-func TestARequestTheCallerGaveUpOnIsReportedWithoutItsAddress(t *testing.T) {
+func TestARequestTheCallerGaveUpOnIsUnreachable(t *testing.T) {
 	conn, host := account(t, stalling())
 
 	for _, request := range requests {
@@ -205,7 +206,7 @@ func TestARequestTheCallerGaveUpOnIsReportedWithoutItsAddress(t *testing.T) {
 			err := request.call(ctx, conn)
 
 			require.ErrorIs(t, err, context.DeadlineExceeded)
-			assert.Equal(t, "cosmos: "+request.name+": context deadline exceeded", err.Error())
+			assert.Equal(t, "account unreachable: timed out", err.Error())
 			assert.NotContains(t, err.Error(), host)
 		})
 	}

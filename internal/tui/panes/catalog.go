@@ -1,6 +1,7 @@
 package panes
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ const (
 	indent       = "  "
 	spinnerFPS   = time.Second / 8
 	loadingLabel = "loading"
+	retryHint    = "r to retry"
 )
 
 const (
@@ -52,7 +54,7 @@ type Catalog struct {
 	children map[string][]adapter.Node
 	expanded map[string]bool
 	loading  map[string]bool
-	failures map[string]string
+	failures map[string]error
 	cursor   []string
 	spinning bool
 }
@@ -68,7 +70,7 @@ func NewCatalog(icons theme.IconSet) Catalog {
 		children: map[string][]adapter.Node{},
 		expanded: map[string]bool{},
 		loading:  map[string]bool{},
-		failures: map[string]string{},
+		failures: map[string]error{},
 	}
 }
 
@@ -159,7 +161,7 @@ func (c Catalog) Prefetch() (Catalog, []adapter.Node, tea.Cmd) {
 		// A node that already failed is left alone. Retrying it on every
 		// unrelated response would reopen a wound the user has to close with
 		// a refresh anyway.
-		if !node.HasChildren || c.failures[pathKey(node.Path)] != "" {
+		if !node.HasChildren || c.failures[pathKey(node.Path)] != nil {
 			continue
 		}
 		var (
@@ -239,7 +241,7 @@ func (c Catalog) SetChildren(parent []string, nodes []adapter.Node) Catalog {
 func (c Catalog) SetError(path []string, err error) Catalog {
 	key := pathKey(path)
 	delete(c.loading, key)
-	c.failures[key] = err.Error()
+	c.failures[key] = err
 	return c
 }
 
@@ -352,8 +354,8 @@ func (c Catalog) lines() ([]string, int) {
 	if c.loading[rootKey] {
 		lines = append(lines, theme.HintStyle().Render(c.clip(c.spinner.View()+" "+loadingLabel)))
 	}
-	if message := c.failures[rootKey]; message != "" {
-		lines = append(lines, c.errorLines(0, message)...)
+	if err := c.failures[rootKey]; err != nil {
+		lines = append(lines, c.errorLines(0, err)...)
 	}
 	cursorLine := 0
 	for i, row := range rows {
@@ -361,8 +363,8 @@ func (c Catalog) lines() ([]string, int) {
 			cursorLine = len(lines)
 		}
 		lines = append(lines, c.nodeLine(row, i == selected))
-		if message := c.failures[pathKey(row.Path)]; message != "" {
-			lines = append(lines, c.errorLines(depth(row)+1, message)...)
+		if err := c.failures[pathKey(row.Path)]; err != nil {
+			lines = append(lines, c.errorLines(depth(row)+1, err)...)
 		}
 	}
 	return lines, cursorLine
@@ -382,23 +384,38 @@ func (c Catalog) nodeLine(node adapter.Node, selected bool) string {
 	return theme.TextStyle().Render(text)
 }
 
-// errorLines wraps message under its node rather than truncating it: a pane
-// this narrow would otherwise cut off the part that explains the failure.
-func (c Catalog) errorLines(depth int, message string) []string {
+// errorLines renders a failure under its node. An account that could not
+// be reached — the emulator not started, the network down — is laid out as
+// what happened, why, and the key that tries again; a refusal gets no such
+// key, since the same request would only earn it again, and is wrapped
+// rather than truncated so the part that explains it is not cut off.
+func (c Catalog) errorLines(depth int, err error) []string {
 	marker := strings.Repeat(indent, depth) + c.icons.Failure + " "
-	hanging := strings.Repeat(" ", lipgloss.Width(marker))
 	width, _ := c.frame.inner()
-	wrapped := lipgloss.NewStyle().Width(max(width-lipgloss.Width(marker), 1)).Render(message)
+	textWidth := width - lipgloss.Width(marker)
 
-	var lines []string
-	for i, text := range strings.Split(wrapped, "\n") {
+	var unreachable *adapter.UnreachableError
+	if !errors.As(err, &unreachable) {
+		return c.hang(marker, styleAll(theme.ErrorStyle(), wrapText(err.Error(), textWidth)))
+	}
+	lines := []string{theme.ErrorStyle().Bold(true).Render(adapter.UnreachableTitle)}
+	lines = append(lines, styleAll(theme.ErrorStyle(), wrapText(unreachable.Reason, textWidth))...)
+	lines = append(lines, theme.HintStyle().Render(retryHint))
+	return c.hang(marker, lines)
+}
+
+// hang puts marker before the first line and indents the rest under it.
+func (c Catalog) hang(marker string, lines []string) []string {
+	hanging := strings.Repeat(" ", lipgloss.Width(marker))
+	hung := make([]string, 0, len(lines))
+	for i, line := range lines {
 		prefix := hanging
 		if i == 0 {
-			prefix = marker
+			prefix = theme.ErrorStyle().Render(marker)
 		}
-		lines = append(lines, theme.ErrorStyle().Render(c.clip(prefix+strings.TrimRight(text, " "))))
+		hung = append(hung, c.clip(prefix+line))
 	}
-	return lines
+	return hung
 }
 
 func (c Catalog) chevron(node adapter.Node) string {
