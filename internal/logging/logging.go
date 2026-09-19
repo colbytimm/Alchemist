@@ -20,8 +20,8 @@ const (
 	fileMode = 0o600
 )
 
-// Dir returns the state directory holding the log file: $XDG_STATE_HOME
-// when set, otherwise ~/.local/state.
+// Dir returns the state directory: $XDG_STATE_HOME/alchemist when set,
+// otherwise ~/.local/state/alchemist.
 func Dir() (string, error) {
 	if base := os.Getenv("XDG_STATE_HOME"); base != "" {
 		return filepath.Join(base, "alchemist"), nil
@@ -33,13 +33,9 @@ func Dir() (string, error) {
 	return filepath.Join(home, ".local", "state", "alchemist"), nil
 }
 
-// Open creates the state directory and returns a logger appending to its log
-// file, together with the closer for that file.
-func Open(level log.Level) (*log.Logger, io.Closer, error) {
-	dir, err := Dir()
-	if err != nil {
-		return nil, nil, err
-	}
+// Open creates dir and returns a logger appending to the log file inside it,
+// together with the closer for that file.
+func Open(dir string, level log.Level) (*log.Logger, io.Closer, error) {
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return nil, nil, fmt.Errorf("logging: create %s: %w", dir, err)
 	}

@@ -21,6 +21,25 @@ const (
 // borderCells is the width and the height the border itself consumes.
 const borderCells = 2
 
+// wrapText breaks text into lines of at most width cells, so a message
+// wraps rather than being cut off where it stops fitting.
+func wrapText(text string, width int) []string {
+	wrapped := lipgloss.NewStyle().Width(max(width, 1)).Render(text)
+	var lines []string
+	for _, line := range strings.Split(wrapped, "\n") {
+		lines = append(lines, strings.TrimRight(line, " "))
+	}
+	return lines
+}
+
+func styleAll(style lipgloss.Style, lines []string) []string {
+	styled := make([]string, 0, len(lines))
+	for _, line := range lines {
+		styled = append(styled, style.Render(line))
+	}
+	return styled
+}
+
 // frame is the chrome every pane draws: a rounded border occupying exactly
 // width by height cells, with title written into the top edge.
 type frame struct {

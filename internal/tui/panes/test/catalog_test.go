@@ -348,6 +348,23 @@ func TestCatalogRendersFailuresUnderTheirNode(t *testing.T) {
 	assert.Equal(t, node+1, failure, "the failure belongs directly under its node")
 }
 
+func TestCatalogLaysOutAnUnreachableAccountWithARetry(t *testing.T) {
+	unreachable := &adapter.UnreachableError{Reason: "connection refused"}
+
+	view := plain(newTree().SetError(nil, unreachable).View())
+
+	assert.Contains(t, view, "│"+theme.Icons().Failure+" account unreachable")
+	assert.Contains(t, view, "│  connection refused", "the reason on a line of its own")
+	assert.Contains(t, view, "│  r to retry", "and the key that tries again")
+}
+
+func TestCatalogOffersNoRetryForARefusal(t *testing.T) {
+	view := plain(newTree().SetError(nil, errors.New("401 Unauthorized")).View())
+
+	assert.Contains(t, view, "401 Unauthorized")
+	assert.NotContains(t, view, "r to retry", "the same request would only be refused again")
+}
+
 func TestCatalogWrapsLongFailures(t *testing.T) {
 	message := "the catalog request was rejected because the account is unreachable"
 	view := newTree().SetError(database.Path, errors.New(message)).View()

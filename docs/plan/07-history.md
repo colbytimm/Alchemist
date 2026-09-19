@@ -30,7 +30,7 @@ per line:
 
 - `internal/history/history.go` — `Entry` struct, `Store` interface
   (`Append(Entry) error`, `Recent(n int) ([]Entry, error)`), JSONL implementation,
-  no-op implementation (`--no-history` / unwritable state dir).
+  no-op implementation (`--history=false` / unwritable state dir).
 - `internal/tui/panes/history.go` — history overlay (`ctrl+o`):
   - `bubbles/list`-style scrollable entries: relative time, ok/fail glyph
     (✓ Verdigris / ✗ Cinnabar), scope, first line of query, RU.
@@ -52,7 +52,8 @@ per line:
 
 1. Store: write + tail-read + trim + corruption tolerance, fully table-driven tests.
 2. History pane model, fed by `Store.Recent` via `tea.Cmd`.
-3. Wire recording into the query flow and recall into the editor; add `--no-history`.
+3. Wire recording into the query flow and recall into the editor; add `--history`
+   (on by default; `--history=false` turns it off, since flags are named positively).
 
 ## Testing
 
@@ -61,15 +62,16 @@ per line:
 - Corruption: file with garbage line + half-written last line → both skipped, rest load.
 - Trim triggers at threshold and preserves newest entries.
 - Unwritable dir → constructor returns no-op store + warning (TUI unaffected).
-- History model: filter narrows list; `enter` emits `RecallMsg{Entry}` (assert editor
+- History model: filter narrows list; `enter` recalls the entry (assert editor
   receives text + scope); `ctrl+r` additionally triggers the run flow.
 - Recorded entry for a failed query has `ok:false` and no panic on nil stats.
 
-**Manual checklist:**
-- [ ] Run 3 queries (1 failing) against the emulator; `ctrl+o` shows all 3, newest first.
-- [ ] Filter by container name narrows the list.
-- [ ] `enter` recalls into the editor with scope restored; `ctrl+r` re-runs.
-- [ ] `jq . < ~/.local/state/alchemist/history.jsonl` parses every line.
+**Manual checklist** (walked by `TestIntegrationQueryHistory` in
+`test/integration/tui_test.go` under `make emulator-up`, against the emulator):
+- [x] Run 3 queries (1 failing) against the emulator; `ctrl+o` shows all 3, newest first.
+- [x] Filter by container name narrows the list.
+- [x] `enter` recalls into the editor with scope restored; `ctrl+r` re-runs.
+- [x] `jq . < ~/.local/state/alchemist/history.jsonl` parses every line.
 
 ## Acceptance criteria
 

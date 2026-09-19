@@ -179,12 +179,7 @@ func (r Results) failureLines() []string {
 		return nil
 	}
 	width, _ := r.frame.inner()
-	wrapped := lipgloss.NewStyle().Width(max(width, 1)).Render(r.failure)
-	var lines []string
-	for _, line := range strings.Split(wrapped, "\n") {
-		lines = append(lines, theme.ErrorStyle().Render(strings.TrimRight(line, " ")))
-	}
-	return lines
+	return styleAll(theme.ErrorStyle(), wrapText(r.failure, width))
 }
 
 // visibleColumns lists the columns that fit in width, starting at the

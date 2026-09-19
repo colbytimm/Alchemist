@@ -29,12 +29,11 @@ func newCursor(pager *runtime.Pager[azcosmos.QueryItemsResponse]) *cursor {
 	return &cursor{pager: pager, builder: NewPageBuilder()}
 }
 
-// NextPage fetches and shapes the next page of results.
 func (c *cursor) NextPage(ctx context.Context) (adapter.Page, error) {
 	start := time.Now()
 	resp, err := c.pager.NextPage(ctx)
 	if err != nil {
-		return adapter.Page{}, fmt.Errorf("cosmos: query page: %w", err)
+		return adapter.Page{}, wrap("query page", err)
 	}
 	page, err := c.builder.Build(resp.Items)
 	if err != nil {
@@ -60,7 +59,6 @@ type PageBuilder struct {
 	seen    map[string]bool
 }
 
-// NewPageBuilder returns a builder with no columns locked yet.
 func NewPageBuilder() *PageBuilder {
 	return &PageBuilder{seen: map[string]bool{}}
 }

@@ -128,6 +128,7 @@ func TestAFailedRootLoadCanBeRetried(t *testing.T) {
 	conn.failRoot = 1
 	m := newLoadedModel(t, conn)
 	require.Contains(t, m.View(), "unreachable")
+	require.Contains(t, m.View(), "r to retry")
 
 	m = pressAll(t, m, keyRune('r'))
 

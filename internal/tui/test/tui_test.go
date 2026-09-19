@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 	"github.com/stretchr/testify/require"
 
@@ -30,6 +31,13 @@ const (
 func TestMain(m *testing.M) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	os.Exit(m.Run())
+}
+
+// plain drops the styling, so an assertion can match text a renderer split
+// into separately styled runs — a filter prompt and the text typed after it,
+// say.
+func plain(view string) string {
+	return ansi.Strip(view)
 }
 
 // recordingConnection wraps a mock connection, and serves as its own catalog,
@@ -66,7 +74,7 @@ func (c *recordingConnection) Root(ctx context.Context) ([]adapter.Node, error) 
 	c.calls[""]++
 	if c.failRoot > 0 {
 		c.failRoot--
-		return nil, errors.New("catalog unreachable")
+		return nil, &adapter.UnreachableError{Reason: "connection refused"}
 	}
 	return c.inner.Catalog().Root(ctx)
 }
@@ -118,7 +126,16 @@ func (c *recordingCursor) Close() error {
 // newModel builds a model sized to the minimum supported terminal.
 func newModel(t *testing.T, connection adapter.Connection) tea.Model {
 	t.Helper()
-	m := tui.New(tui.Options{Icons: theme.Icons(), Connection: connection, Profile: mock.Name})
+	return newModelWith(t, tui.Options{Connection: connection})
+}
+
+// newModelWith builds a model from opts, with the icons and profile every
+// test shares filled in, sized to the minimum supported terminal.
+func newModelWith(t *testing.T, opts tui.Options) tea.Model {
+	t.Helper()
+	opts.Icons = theme.Icons()
+	opts.Profile = mock.Name
+	m := tui.New(opts)
 	model, _ := m.Update(tea.WindowSizeMsg{Width: testWidth, Height: testHeight})
 	return model
 }

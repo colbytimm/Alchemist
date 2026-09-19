@@ -128,15 +128,6 @@ func TestHelpOpensFromTheEditorAfterEscape(t *testing.T) {
 	assert.NotContains(t, pressAll(t, editor, keyMsg(tea.KeyEscape), keyRune('?')).View(), catalogTitle)
 }
 
-func TestDisabledBindingsDoNothing(t *testing.T) {
-	m := newLoadedModel(t, newConnection(t))
-
-	after, cmd := m.Update(keyMsg(tea.KeyCtrlO))
-
-	assert.Nil(t, cmd, "history is bound but disabled until iteration 7 lands")
-	assert.Equal(t, m.View(), after.View())
-}
-
 func TestViewNeverOutgrowsTheTerminal(t *testing.T) {
 	sizes := []struct {
 		name   string

@@ -1,11 +1,15 @@
 package tui
 
-import "github.com/colbytimm/alchemist/internal/adapter"
+import (
+	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/history"
+)
 
 // Operations named by ErrMsg.Op.
 const (
 	OpCatalogRoot     = "catalog root"
 	OpCatalogChildren = "catalog children"
+	OpHistory         = "history"
 )
 
 // runID identifies one query run. Every page and failure carries the run it
@@ -74,4 +78,9 @@ type ConnectedMsg struct {
 // ConnectFailedMsg reports why the connect screen's attempt did not connect.
 type ConnectFailedMsg struct {
 	Err error
+}
+
+// HistoryLoadedMsg delivers the recorded runs, newest first.
+type HistoryLoadedMsg struct {
+	Entries []history.Entry
 }

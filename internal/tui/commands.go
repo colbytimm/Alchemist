@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/history"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
 
@@ -18,6 +19,9 @@ const (
 	loadTimeout    = 15 * time.Second
 	queryTimeout   = 60 * time.Second
 )
+
+// recentHistory is how much of the log the history overlay lists.
+const recentHistory = 500
 
 // openConnection hands the form to the connector the session was built with.
 func (m Model) openConnection(form panes.ConnectForm) tea.Cmd {
@@ -89,6 +93,30 @@ func (m Model) fetchPage(ctx context.Context, cursor adapter.Cursor) tea.Cmd {
 			return PageFailedMsg{run: run, Err: err}
 		}
 		return PageAppendedMsg{run: run, cursor: cursor, Page: page}
+	}
+}
+
+func (m Model) loadHistory() tea.Cmd {
+	store := m.history
+	return func() tea.Msg {
+		entries, err := store.Recent(recentHistory)
+		if err != nil {
+			return ErrMsg{Op: OpHistory, Err: err}
+		}
+		return HistoryLoadedMsg{Entries: entries}
+	}
+}
+
+// record appends entry off the main goroutine. A log that refuses the
+// write is worth a warning and nothing more: the run it describes is on
+// screen regardless.
+func (m Model) record(entry history.Entry) tea.Cmd {
+	store, logger := m.history, m.logger
+	return func() tea.Msg {
+		if err := store.Append(entry); err != nil {
+			logger.Warn("query not recorded", "error", err)
+		}
+		return nil
 	}
 }
 

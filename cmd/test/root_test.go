@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -19,6 +20,8 @@ import (
 	"github.com/colbytimm/alchemist/internal/adapter/cosmos"
 	"github.com/colbytimm/alchemist/internal/adapter/mock"
 	"github.com/colbytimm/alchemist/internal/config"
+	"github.com/colbytimm/alchemist/internal/history"
+	"github.com/colbytimm/alchemist/internal/logging"
 )
 
 // fakeKeyring is an in-memory config.Keyring.
@@ -139,6 +142,7 @@ func TestSessionFlags(t *testing.T) {
 		"adapter": "",
 		"ascii":   "false",
 		"verbose": "false",
+		"history": "true",
 	}
 	for name, want := range defaults {
 		flag := flags.Lookup(name)
@@ -238,6 +242,39 @@ func TestHelpFlag(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "Cosmos DB")
 	assert.Contains(t, out, "profile", "the help must point at the profile subcommand")
+}
+
+func statePath(name string) string {
+	return filepath.Join(os.Getenv("XDG_STATE_HOME"), "alchemist", name)
+}
+
+func TestALaunchReadiesTheHistoryFile(t *testing.T) {
+	err := newHarness(t).launch("--adapter", mock.Name)
+
+	require.ErrorIs(t, err, tea.ErrProgramKilled)
+	_, statErr := os.Stat(statePath(history.FileName))
+	assert.NoError(t, statErr, "the log is opened, and so its file created, before the first query")
+}
+
+func TestAnUnwritableHistoryStillLaunchesWithAWarning(t *testing.T) {
+	h := newHarness(t)
+	// A directory where the history file should be: nothing can append to it.
+	require.NoError(t, os.MkdirAll(statePath(history.FileName), 0o700))
+
+	err := h.launch("--adapter", mock.Name)
+
+	require.ErrorIs(t, err, tea.ErrProgramKilled, "the session starts regardless")
+	logged, readErr := os.ReadFile(statePath(logging.FileName))
+	require.NoError(t, readErr)
+	assert.Contains(t, string(logged), "query history is off for this session")
+}
+
+func TestHistoryOffLeavesNoHistoryFile(t *testing.T) {
+	err := newHarness(t).launch("--adapter", mock.Name, "--history=false")
+
+	require.ErrorIs(t, err, tea.ErrProgramKilled)
+	_, statErr := os.Stat(statePath(history.FileName))
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
 func TestNoLogDirectoryIsCreatedWhenTheSessionNeverStarts(t *testing.T) {

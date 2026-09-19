@@ -1,0 +1,111 @@
+package tui
+
+import (
+	"time"
+
+	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/history"
+)
+
+func (m Model) newHistoryEntry(scope []string) history.Entry {
+	return history.Entry{
+		Time:    time.Now().UTC(),
+		Profile: m.profile,
+		Scope:   scope,
+		Query:   m.editor.Value(),
+	}
+}
+
+// recordSuccess appends the current run with the statistics of its first
+// page, which is when the run is known to have produced anything.
+func (m Model) recordSuccess(stats adapter.Stats) tea.Cmd {
+	entry := m.historyEntry
+	entry.OK = true
+	entry.Rows = stats.RowCount
+	entry.RequestCharge = stats.RequestCharge
+	entry.ElapsedMillis = stats.Elapsed.Milliseconds()
+	return m.record(entry)
+}
+
+func (m Model) recordFailure(err error) tea.Cmd {
+	entry := m.historyEntry
+	entry.Error = err.Error()
+	return m.record(entry)
+}
+
+// openHistory shows the log as it arrived. The overlay opens on the
+// response rather than on the key press, so it never shows a stale list.
+func (m Model) openHistory(msg HistoryLoadedMsg) Model {
+	m.historyPane = m.historyPane.SetEntries(msg.Entries, time.Now())
+	m.overlay = overlayHistory
+	return m
+}
+
+// handleHistoryKey drives the overlay. While the filter line has the
+// keyboard, typed characters narrow the list — which is why q cannot quit
+// there, and only the arrow keys move the cursor. Everything else works
+// the same with or without a filter.
+func (m Model) handleHistoryKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if m.historyPane.Filtering() && typesIntoBuffer(msg) {
+		return m.filterUpdate(msg)
+	}
+	switch {
+	case key.Matches(msg, m.keys.Quit):
+		return m.quit()
+	case key.Matches(msg, m.keys.Close):
+		return m.closeHistory(), nil
+	case key.Matches(msg, m.keys.History):
+		m.overlay = overlayNone
+	case key.Matches(msg, m.keys.Up):
+		m.historyPane = m.historyPane.CursorUp()
+	case key.Matches(msg, m.keys.Down):
+		m.historyPane = m.historyPane.CursorDown()
+	case key.Matches(msg, m.keys.Filter):
+		m.historyPane = m.historyPane.StartFilter()
+	case key.Matches(msg, m.keys.Recall):
+		model, _ := m.recall()
+		return model, nil
+	case key.Matches(msg, m.keys.Rerun):
+		return m.rerun()
+	case m.historyPane.Filtering():
+		return m.filterUpdate(msg)
+	}
+	return m, nil
+}
+
+func (m Model) closeHistory() Model {
+	if m.historyPane.Filtering() {
+		m.historyPane = m.historyPane.ClearFilter()
+		return m
+	}
+	m.overlay = overlayNone
+	return m
+}
+
+func (m Model) filterUpdate(msg tea.KeyMsg) (Model, tea.Cmd) {
+	var cmd tea.Cmd
+	m.historyPane, cmd = m.historyPane.Update(msg)
+	return m, cmd
+}
+
+func (m Model) recall() (Model, bool) {
+	entry, ok := m.historyPane.Selected()
+	if !ok {
+		return m, false
+	}
+	m.editor = m.editor.SetValue(entry.Query)
+	m = m.setScope(entry.Scope)
+	m.overlay = overlayNone
+	return m.setFocus(focusEditor), true
+}
+
+func (m Model) rerun() (Model, tea.Cmd) {
+	recalled, ok := m.recall()
+	if !ok {
+		return m, nil
+	}
+	return recalled.startRun()
+}

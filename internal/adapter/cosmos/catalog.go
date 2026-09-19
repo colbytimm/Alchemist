@@ -18,14 +18,13 @@ type catalog struct {
 	client *azcosmos.Client
 }
 
-// Root lists the account's databases.
 func (cat *catalog) Root(ctx context.Context) ([]adapter.Node, error) {
 	pager := cat.client.NewQueryDatabasesPager("select * from dbs d", nil)
 	var nodes []adapter.Node
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("cosmos: list databases: %w", err)
+			return nil, wrap("list databases", err)
 		}
 		for _, db := range page.Databases {
 			nodes = append(nodes, adapter.Node{
@@ -52,7 +51,6 @@ func (cat *catalog) Children(ctx context.Context, n adapter.Node) ([]adapter.Nod
 	}
 }
 
-// containers lists one database's containers with partition key metadata.
 func (cat *catalog) containers(ctx context.Context, n adapter.Node) ([]adapter.Node, error) {
 	db, err := cat.client.NewDatabase(n.Name)
 	if err != nil {
@@ -63,7 +61,7 @@ func (cat *catalog) containers(ctx context.Context, n adapter.Node) ([]adapter.N
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("cosmos: list containers of %q: %w", n.Name, err)
+			return nil, wrap(fmt.Sprintf("list containers of %q", n.Name), err)
 		}
 		for _, props := range page.Containers {
 			nodes = append(nodes, adapter.Node{

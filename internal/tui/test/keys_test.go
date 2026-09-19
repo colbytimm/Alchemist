@@ -2,6 +2,7 @@ package tui_test
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,13 +20,13 @@ const (
 	helpHeight = 20
 )
 
-// TestEveryBindingIsGroupedExactlyOnce is the drift guard: FullHelp and
-// ConnectKeys are hand-grouped, and a binding they omit would silently vanish
-// from the overlay while a duplicated one would keep a plain count looking
-// right.
+// TestEveryBindingIsGroupedExactlyOnce is the drift guard: FullHelp,
+// ConnectKeys and HistoryKeys are hand-grouped, and a binding they omit would
+// silently vanish from the overlay while a duplicated one would keep a plain
+// count looking right.
 func TestEveryBindingIsGroupedExactlyOnce(t *testing.T) {
 	keys := tui.DefaultKeyMap()
-	advertised := append(bindings(keys), keys.ConnectKeys()...)
+	advertised := slices.Concat(bindings(keys), keys.ConnectKeys(), keys.HistoryKeys())
 	grouped := map[string]int{}
 	for _, binding := range advertised {
 		grouped[identity(binding)]++
@@ -65,26 +66,13 @@ func TestEveryBindingHasKeysAndHelp(t *testing.T) {
 	}
 }
 
-func TestHelpOverlayListsEveryEnabledBinding(t *testing.T) {
+func TestHelpOverlayListsEveryBinding(t *testing.T) {
 	keys := tui.DefaultKeyMap()
 	view := panes.NewHelp(keys).SetSize(helpWidth, helpHeight).View()
 
 	for _, binding := range bindings(keys) {
-		if !binding.Enabled() {
-			continue
-		}
 		assert.Contains(t, view, binding.Help().Key, "help should list the key")
 		assert.Contains(t, view, binding.Help().Desc, "help should list the description")
-	}
-}
-
-func TestHelpOverlayHidesDisabledBindings(t *testing.T) {
-	keys := tui.DefaultKeyMap()
-	view := panes.NewHelp(keys).SetSize(helpWidth, helpHeight).View()
-
-	for _, binding := range disabled(bindings(keys)) {
-		assert.NotContains(t, view, binding.Help().Desc,
-			"a binding waiting on a later iteration must not be advertised")
 	}
 }
 
@@ -93,9 +81,6 @@ func TestHelpOverlayFitsTheMinimumTerminal(t *testing.T) {
 	view := panes.NewHelp(keys).SetSize(testWidth, testHeight).View()
 
 	for _, binding := range bindings(keys) {
-		if !binding.Enabled() {
-			continue
-		}
 		assert.Contains(t, view, binding.Help().Desc, "column dropped at %d columns", testWidth)
 	}
 }
@@ -108,16 +93,6 @@ func TestShortHelpIsASubsetOfTheKeymap(t *testing.T) {
 	for _, binding := range keys.ShortHelp() {
 		assert.Contains(t, all, binding.Help().Desc)
 	}
-}
-
-func disabled(all []key.Binding) []key.Binding {
-	var out []key.Binding
-	for _, binding := range all {
-		if !binding.Enabled() {
-			out = append(out, binding)
-		}
-	}
-	return out
 }
 
 func describe(all []key.Binding) []string {
