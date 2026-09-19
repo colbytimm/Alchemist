@@ -1,7 +1,7 @@
-// Package query parses editor queries for database/container scope. It
-// detects `FROM <db>.<container>` references, rewrites them to an
-// adapter-native alias, and reports the scope so the caller can route the
-// query to the right container.
+// Package query reads editor queries without executing them. It detects
+// `FROM <db>.<container>` references, rewrites them to an adapter-native
+// alias, and reports the scope so the caller can route the query to the right
+// container; and it marks the spans of a query worth highlighting.
 package query
 
 import (
@@ -58,6 +58,7 @@ const (
 	tokDot
 	tokComma
 	tokString
+	tokNumber
 	tokOther
 )
 
@@ -109,6 +110,10 @@ func lex(s string) []token {
 			}
 			t := s[start:i]
 			toks = append(toks, token{kind: tokIdent, text: t, upper: strings.ToUpper(t), start: start, end: i})
+		case isDigit(c):
+			end := lexNumber(s, i)
+			toks = append(toks, token{kind: tokNumber, start: i, end: end})
+			i = end
 		case c == '.':
 			toks = append(toks, token{kind: tokDot, start: i, end: i + 1})
 			i++
@@ -141,6 +146,37 @@ func lexString(s string, i int) int {
 	return len(s)
 }
 
+// lexNumber returns the byte offset just past the number opening at i. A
+// fraction or an exponent counts only once a digit follows it, so the dot of
+// "1." and the e of "2e" are left for the next token.
+func lexNumber(s string, i int) int {
+	i = skipDigits(s, i)
+	if i+1 < len(s) && s[i] == '.' && isDigit(s[i+1]) {
+		i = skipDigits(s, i+1)
+	}
+	if i < len(s) && (s[i] == 'e' || s[i] == 'E') {
+		exponent := i + 1
+		if exponent < len(s) && (s[exponent] == '+' || s[exponent] == '-') {
+			exponent++
+		}
+		if exponent < len(s) && isDigit(s[exponent]) {
+			i = skipDigits(s, exponent)
+		}
+	}
+	return i
+}
+
+func skipDigits(s string, i int) int {
+	for i < len(s) && isDigit(s[i]) {
+		i++
+	}
+	return i
+}
+
+func isDigit(c byte) bool {
+	return c >= '0' && c <= '9'
+}
+
 // isIdentStart reports whether c can begin an identifier.
 func isIdentStart(c byte) bool {
 	return c == '_' || c == '$' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
@@ -148,7 +184,7 @@ func isIdentStart(c byte) bool {
 
 // isIdentPart reports whether c can continue an identifier.
 func isIdentPart(c byte) bool {
-	return isIdentStart(c) || (c >= '0' && c <= '9')
+	return isIdentStart(c) || isDigit(c)
 }
 
 // parser walks a lexed query for FROM-clause sources. Every parse method takes

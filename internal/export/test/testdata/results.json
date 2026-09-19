@@ -1,0 +1,23 @@
+[
+  {
+    "id": "1",
+    "name": "Zoë, \"the\" alchemist",
+    "tags": [
+      "a",
+      "b"
+    ],
+    "address": {
+      "city": "Paris"
+    },
+    "note": null
+  },
+  {
+    "id": "2",
+    "name": "line one\nline two",
+    "count": 3
+  },
+  {
+    "id": "3",
+    "late": true
+  }
+]

@@ -10,6 +10,7 @@ const (
 	OpCatalogRoot     = "catalog root"
 	OpCatalogChildren = "catalog children"
 	OpHistory         = "history"
+	OpExport          = "export"
 )
 
 // runID identifies one query run. Every page and failure carries the run it
@@ -83,4 +84,10 @@ type ConnectFailedMsg struct {
 // HistoryLoadedMsg delivers the recorded runs, newest first.
 type HistoryLoadedMsg struct {
 	Entries []history.Entry
+}
+
+// ExportedMsg reports the file a result set was written to, as it was typed.
+type ExportedMsg struct {
+	Path string
+	Rows int
 }

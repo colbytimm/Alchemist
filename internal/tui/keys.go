@@ -1,9 +1,13 @@
 package tui
 
-import "github.com/charmbracelet/bubbles/key"
+import (
+	"github.com/charmbracelet/bubbles/key"
+
+	"github.com/colbytimm/alchemist/internal/tui/panes"
+)
 
 // KeyMap is the single source of truth for every binding in the TUI. The help
-// overlay is generated from FullHelp, so a binding added here needs no
+// overlay is generated from HelpSections, so a binding added here needs no
 // separate help entry.
 type KeyMap struct {
 	NextPane    key.Binding
@@ -17,6 +21,9 @@ type KeyMap struct {
 	ScrollLeft  key.Binding
 	ScrollRight key.Binding
 	FetchMore   key.Binding
+	Export      key.Binding
+	Save        key.Binding
+	Format      key.Binding
 	Run         key.Binding
 	Connect     key.Binding
 	History     key.Binding
@@ -76,6 +83,18 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("m"),
 			key.WithHelp("m", "fetch more"),
 		),
+		Export: key.NewBinding(
+			key.WithKeys("ctrl+e"),
+			key.WithHelp("ctrl+e", "export to file"),
+		),
+		Save: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "save"),
+		),
+		Format: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "json/csv"),
+		),
 		// ctrl+enter cannot join this binding: terminals send a bare CR for
 		// it, so bubbletea would never deliver it.
 		Run: key.NewBinding(
@@ -117,10 +136,14 @@ func DefaultKeyMap() KeyMap {
 	}
 }
 
-// FullHelp lays the overlay out as one column of keys that work anywhere,
-// then a column for each pane that adds its own.
-func (k KeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{k.globalKeys(), k.catalogKeys(), k.resultsKeys()}
+// HelpSections lays the overlay out as one column of keys that work
+// anywhere, then a column for each pane that adds its own.
+func (k KeyMap) HelpSections() []panes.HelpSection {
+	return []panes.HelpSection{
+		{Title: "Anywhere", Keys: k.globalKeys()},
+		{Title: "Catalog", Keys: k.catalogKeys()},
+		{Title: "Results", Keys: k.resultsKeys()},
+	}
 }
 
 // ConnectKeys are the bindings only the connect screen answers to. It shows
@@ -136,6 +159,11 @@ func (k KeyMap) HistoryKeys() []key.Binding {
 	return []key.Binding{k.Filter, k.Recall, k.Rerun}
 }
 
+// ExportKeys are the bindings only the export prompt answers to.
+func (k KeyMap) ExportKeys() []key.Binding {
+	return []key.Binding{k.Save, k.Format}
+}
+
 func (k KeyMap) globalKeys() []key.Binding {
 	return []key.Binding{
 		k.NextPane, k.PrevPane, k.FocusEditor, k.Run,
@@ -148,7 +176,7 @@ func (k KeyMap) catalogKeys() []key.Binding {
 }
 
 func (k KeyMap) resultsKeys() []key.Binding {
-	return []key.Binding{k.Detail, k.ScrollLeft, k.ScrollRight, k.FetchMore}
+	return []key.Binding{k.Detail, k.ScrollLeft, k.ScrollRight, k.FetchMore, k.Export}
 }
 
 // ShortHelp names the bindings worth a single-line reminder.

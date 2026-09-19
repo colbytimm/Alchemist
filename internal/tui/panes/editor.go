@@ -12,7 +12,8 @@ import (
 const (
 	editorTitle = "Editor"
 	// editorHint previews the scope syntax the editor accepts.
-	editorHint = "SELECT * FROM db.container AS c ..."
+	editorHint   = "SELECT * FROM db.container AS c ..."
+	editorPrompt = "┃ "
 )
 
 // Editor is the query buffer. Like the textarea it wraps, its value receiver
@@ -25,6 +26,7 @@ type Editor struct {
 func NewEditor() Editor {
 	area := textarea.New()
 	area.Placeholder = editorHint
+	area.Prompt = editorPrompt
 	area.ShowLineNumbers = false
 	area.FocusedStyle, area.BlurredStyle = editorStyles()
 	// A static cursor stays visible without a blink timer waking the program
@@ -81,8 +83,15 @@ func (e Editor) Value() string {
 	return e.area.Value()
 }
 
+// View shows the buffer itself while it has the keyboard, since a textarea
+// cannot style a region of editable text, and the same rows colored once it
+// does not.
 func (e Editor) View() string {
-	return e.frame.render(e.area.View())
+	view := e.area.View()
+	if e.frame.focused {
+		return e.frame.render(view)
+	}
+	return e.frame.render(highlightRows(e.area.Value(), view))
 }
 
 // SetValue replaces the buffer, leaving the cursor at its end.
