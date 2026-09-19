@@ -37,6 +37,7 @@ words:
   - enablecrosspartition
   - partitionkey
   - populatequerymetrics
+  - STARTSWITH
   - upserts
   - vnext
   # Go tooling and linters
