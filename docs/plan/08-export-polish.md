@@ -14,7 +14,8 @@ and bring the README up to reality.
   - Input is `[]adapter.Page` (all pages fetched so far) — export never triggers new
     fetches; the status bar's "+more" tells the user the set is partial.
 - TUI wiring: `ctrl+e` in the results pane → filename prompt (textinput overlay,
-  extension picks format, `tab` switches it, default `results.json` in cwd); success reported in the
+  extension picks format, `tab` switches it, default `results.json` in cwd; a path
+  is accepted, `~/` expanded, missing folders created, and the resolved path shown); success reported in the
   status bar, and a failure in the prompt itself, which stays open so the name can be
   corrected; refuses to overwrite unless the name ends in `!` (`results.json!`).
 - Editor syntax highlighting:

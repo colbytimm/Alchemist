@@ -18,8 +18,10 @@ const (
 	defaultExportName = "results" + export.ExtJSON
 	formatLabel       = "format  "
 	formatGap         = "  "
-	exportHint        = "end the name with ! to replace an existing file"
-	overwriteMark     = "!"
+	destinationLabel  = "saves to "
+	exportHint        = "type a name, or a path such as ~/exports/orders.csv; missing folders are created. " +
+		"End it with ! to replace an existing file."
+	overwriteMark = "!"
 )
 
 var exportFormats = []struct {
@@ -144,11 +146,24 @@ func (p ExportPrompt) Fail(err error) ExportPrompt {
 
 func (p ExportPrompt) View() string {
 	width, height := p.frame.inner()
-	lines := []string{p.input.View(), p.formatLine(), theme.HintStyle().Render(exportHint)}
+	lines := []string{p.input.View()}
+	lines = append(lines, styleAll(theme.TextStyle(), p.destinationLines(width))...)
+	lines = append(lines, p.formatLine(), "")
+	lines = append(lines, styleAll(theme.HintStyle(), wrapText(exportHint, width))...)
 	lines = append(lines, styleAll(theme.ErrorStyle(), p.failureLines(width))...)
 	body := make([]string, max(height-1, len(lines)))
 	copy(body, lines)
 	return p.frame.render(strings.Join(append(body, p.hints.ShortHelpView(p.keys)), "\n"))
+}
+
+// destinationLines spell out where the name as typed resolves to, so a bare
+// name is seen to land in the working directory and a path is seen to work.
+func (p ExportPrompt) destinationLines(width int) []string {
+	path, err := export.ResolvePath(p.Target().Path)
+	if err != nil {
+		return nil
+	}
+	return wrapText(destinationLabel+path, width)
 }
 
 // formatLine marks the format the name as typed will export to, and marks

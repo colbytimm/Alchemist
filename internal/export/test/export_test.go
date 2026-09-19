@@ -157,3 +157,39 @@ func TestOverwriteFileCreatesAMissingFile(t *testing.T) {
 
 	require.Equal(t, golden(t, "results.csv"), exported(t, path))
 }
+
+func TestResolvePath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	tests := []struct {
+		name  string
+		typed string
+		want  string
+	}{
+		{name: "a bare name lands in the working directory", typed: "out.json", want: filepath.Join(dir, "out.json")},
+		{name: "a relative path", typed: "exports/out.json", want: filepath.Join(dir, "exports", "out.json")},
+		{name: "an absolute path is kept", typed: filepath.Join(dir, "deep", "out.csv"), want: filepath.Join(dir, "deep", "out.csv")},
+		{name: "a leading tilde is the home directory", typed: "~/out.json", want: filepath.Join(home, "out.json")},
+		{name: "a tilde inside a name is just a tilde", typed: "a~b.json", want: filepath.Join(dir, "a~b.json")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := export.ResolvePath(tt.typed)
+
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestWriteFileCreatesMissingFolders(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "exports", "2026", "out.json")
+
+	require.NoError(t, export.WriteFile(path, fetchedPages()))
+
+	require.Equal(t, golden(t, "results.json"), exported(t, path))
+}

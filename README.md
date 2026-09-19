@@ -88,8 +88,13 @@ The extension picks the format, and `tab` switches the name between the two:
   objects and arrays as compact JSON in their cell.
 
 Export never fetches. If the status bar says `(+more)`, press `m` until it does not,
-or export the part you have. An existing file is left alone unless the name ends in
-`!`, as in `results.json!`. A leading `~/` is expanded.
+or export the part you have.
+
+A bare name such as `results.json` lands in the directory Alchemist was started from.
+A path works too, relative, absolute, or starting with `~/`, and folders it names that
+do not exist yet are created. The prompt shows the full path it will write to as you
+type. An existing file is left alone unless the name ends in `!`, as in
+`~/exports/orders.csv!`.
 
 ## Profiles
 

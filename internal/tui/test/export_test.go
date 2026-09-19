@@ -212,3 +212,42 @@ func TestEscapeWaitsForAWriteInFlight(t *testing.T) {
 
 	assert.Contains(t, plain(m.View()), exportTitle, "the outcome has to land on the prompt that asked for it")
 }
+
+// wideEnough keeps a temporary directory's long path on one line.
+const wideEnough = 240
+
+func openWideExport(t *testing.T) tea.Model {
+	t.Helper()
+	wide, _ := newResultsModel(t).Update(tea.WindowSizeMsg{Width: wideEnough, Height: testHeight})
+	return openExport(t, wide)
+}
+
+func TestThePromptSaysWhereTheFileWillLand(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	view := plain(openWideExport(t).View())
+
+	assert.Contains(t, view, "saves to "+filepath.Join(dir, "results.json"))
+}
+
+func TestThePromptFollowsAPathAsItIsTyped(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	m := pressAll(t, openWideExport(t), keyMsg(tea.KeyCtrlU), keyText("~/exports/orders.csv!"))
+
+	assert.Contains(t, plain(m.View()), "saves to "+filepath.Join(home, "exports", "orders.csv"))
+}
+
+func TestThePromptSaysAPathIsWelcome(t *testing.T) {
+	assert.Contains(t, plain(openExport(t, newResultsModel(t)).View()), "or a path")
+}
+
+func TestExportingIntoAFolderThatDoesNotExistCreatesIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "exports", "2026", "orders.json")
+
+	exportTo(t, newResultsModel(t), path)
+
+	assert.Len(t, exportedDocuments(t, path), 10)
+}

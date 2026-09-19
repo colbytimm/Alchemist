@@ -29,14 +29,35 @@ const (
 )
 
 const (
+	dirMode    = 0o750
 	fileMode   = 0o600
 	jsonIndent = "  "
 )
 
+const homePrefix = "~" + string(filepath.Separator)
+
+// ResolvePath turns a typed name into the absolute path it will be written
+// to: a leading ~/, which a shell would have expanded, is expanded here, and
+// anything relative lands under the working directory.
+func ResolvePath(typed string) (string, error) {
+	if rest, ok := strings.CutPrefix(typed, homePrefix); ok {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("export: resolve ~: %w", err)
+		}
+		return filepath.Join(home, rest), nil
+	}
+	path, err := filepath.Abs(typed)
+	if err != nil {
+		return "", fmt.Errorf("export: resolve %s: %w", typed, err)
+	}
+	return path, nil
+}
+
 type encoder func(out *bytes.Buffer, pages []adapter.Page) error
 
-// WriteFile exports pages in the format path's extension names, and fails
-// with ErrFileExists rather than replace a file.
+// WriteFile exports pages in the format path's extension names, creating the
+// folders path names, and fails with ErrFileExists rather than replace a file.
 func WriteFile(path string, pages []adapter.Page) error {
 	return writeFile(path, pages, os.O_EXCL)
 }
@@ -55,6 +76,9 @@ func writeFile(path string, pages []adapter.Page, onExisting int) error {
 	var encoded bytes.Buffer
 	if err := encode(&encoded, pages); err != nil {
 		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), dirMode); err != nil {
+		return fmt.Errorf("export: %w", err)
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|onExisting, fileMode) // #nosec G304 -- the path is the one the user typed to export to
 	if errors.Is(err, fs.ErrExist) {

@@ -2,9 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,8 +10,6 @@ import (
 	"github.com/colbytimm/alchemist/internal/export"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
-
-const homePrefix = "~" + string(filepath.Separator)
 
 func (m Model) openExport() Model {
 	if !m.state.loaded() {
@@ -77,7 +72,7 @@ func (m Model) finishExport(msg ExportedMsg) Model {
 
 func exportResults(target panes.ExportTarget, fetched adapter.Page) tea.Cmd {
 	return func() tea.Msg {
-		path, err := expandHome(target.Path)
+		path, err := export.ResolvePath(target.Path)
 		if err != nil {
 			return ErrMsg{Op: OpExport, Err: err}
 		}
@@ -90,18 +85,4 @@ func exportResults(target panes.ExportTarget, fetched adapter.Page) tea.Cmd {
 		}
 		return ExportedMsg{Path: target.Path, Rows: len(fetched.Rows)}
 	}
-}
-
-// expandHome resolves a leading ~/, which a shell would have expanded but a
-// prompt has to expand for itself.
-func expandHome(path string) (string, error) {
-	rest, ok := strings.CutPrefix(path, homePrefix)
-	if !ok {
-		return path, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("export: resolve ~: %w", err)
-	}
-	return filepath.Join(home, rest), nil
 }
