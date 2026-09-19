@@ -31,7 +31,6 @@ var ErrInvalidScope = errors.New("query requires scope [database container]")
 // Adapter implements adapter.Adapter for Azure Cosmos DB.
 type Adapter struct{}
 
-// Name returns the adapter's registry name.
 func (Adapter) Name() string { return Name }
 
 // Connect builds an authenticated gateway-mode client for one Cosmos account.
@@ -80,7 +79,6 @@ type connection struct {
 	pkPaths   map[string]string // "database/container" -> partition key path
 }
 
-// Catalog returns the lazy database/container tree.
 func (c *connection) Catalog() adapter.Catalog { return &catalog{client: c.client} }
 
 // Query runs q against the container named by q.Scope. It fans out across all

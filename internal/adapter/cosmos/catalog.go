@@ -18,7 +18,6 @@ type catalog struct {
 	client *azcosmos.Client
 }
 
-// Root lists the account's databases.
 func (cat *catalog) Root(ctx context.Context) ([]adapter.Node, error) {
 	pager := cat.client.NewQueryDatabasesPager("select * from dbs d", nil)
 	var nodes []adapter.Node
@@ -52,7 +51,6 @@ func (cat *catalog) Children(ctx context.Context, n adapter.Node) ([]adapter.Nod
 	}
 }
 
-// containers lists one database's containers with partition key metadata.
 func (cat *catalog) containers(ctx context.Context, n adapter.Node) ([]adapter.Node, error) {
 	db, err := cat.client.NewDatabase(n.Name)
 	if err != nil {

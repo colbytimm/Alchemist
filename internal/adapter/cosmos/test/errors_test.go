@@ -2,12 +2,12 @@ package cosmos_test
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/stretchr/testify/assert"
@@ -17,33 +17,81 @@ import (
 	"github.com/colbytimm/alchemist/internal/adapter/cosmos"
 )
 
-// refusingAccount is a connection to an account that answers every request
-// with the one refusal given, so the adapter's error shaping can be driven
-// offline. It returns the host the requests go to, which must never appear
-// in an error.
-func refusingAccount(t *testing.T, status int, body string) (adapter.Connection, string) {
-	t.Helper()
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(status)
-		_, _ = io.WriteString(w, body)
-	}))
-	t.Cleanup(server.Close)
-	conn, err := cosmos.Adapter{}.Connect(context.Background(), map[string]string{
-		"endpoint": server.URL, "key": testKey, "insecure_skip_verify": "true",
-	})
-	require.NoError(t, err)
-	address, err := url.Parse(server.URL)
-	require.NoError(t, err)
-	return conn, address.Host
+// stallFor is how long a stalling account holds a request, well past the
+// deadline the test gives it.
+const stallFor = time.Second
+
+// The requests the adapter makes, each named the way its error names it.
+var requests = []struct {
+	name string
+	call func(ctx context.Context, conn adapter.Connection) error
+}{
+	{name: "ping", call: func(ctx context.Context, conn adapter.Connection) error {
+		return conn.Ping(ctx)
+	}},
+	{name: "list databases", call: func(ctx context.Context, conn adapter.Connection) error {
+		_, err := conn.Catalog().Root(ctx)
+		return err
+	}},
+	{name: `list containers of "sales"`, call: func(ctx context.Context, conn adapter.Connection) error {
+		_, err := conn.Catalog().Children(ctx, adapter.Node{Kind: adapter.NodeDatabase, Name: "sales", Path: []string{"sales"}})
+		return err
+	}},
+	{name: "query page", call: queryPage},
 }
 
-func queryPage(conn adapter.Connection, ctx context.Context) error {
+func queryPage(ctx context.Context, conn adapter.Connection) error {
 	cursor, err := conn.Query(ctx, adapter.Query{Text: "SELECT * FROM c", Scope: []string{"sales", "orders"}})
 	if err != nil {
 		return err
 	}
 	_, err = cursor.NextPage(ctx)
 	return err
+}
+
+// account connects the adapter to a server standing in for a Cosmos
+// account, and returns the host its requests go to, which must never appear
+// in an error.
+func account(t *testing.T, handler http.Handler) (adapter.Connection, string) {
+	t.Helper()
+	server := httptest.NewTLSServer(handler)
+	t.Cleanup(server.Close)
+	return connectTo(t, server.URL)
+}
+
+func connectTo(t *testing.T, endpoint string) (adapter.Connection, string) {
+	t.Helper()
+	conn, err := cosmos.Adapter{}.Connect(context.Background(), map[string]string{
+		"endpoint": endpoint, "key": testKey, "insecure_skip_verify": "true",
+	})
+	require.NoError(t, err)
+	address, err := url.Parse(endpoint)
+	require.NoError(t, err)
+	return conn, address.Host
+}
+
+// refusing answers every request with the one refusal given.
+func refusing(status int, body string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
+	})
+}
+
+// stalling answers the account lookup the SDK makes first, and then holds
+// every request until the client gives up on it.
+func stalling() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			_, _ = io.WriteString(w, `{}`)
+			return
+		}
+		select {
+		case <-time.After(stallFor):
+		case <-r.Context().Done():
+		}
+		w.WriteHeader(http.StatusRequestTimeout)
+	})
 }
 
 func TestARefusalSaysWhatTheServiceSaidAndNotWhereItWasSent(t *testing.T) {
@@ -82,12 +130,18 @@ func TestARefusalSaysWhatTheServiceSaidAndNotWhereItWasSent(t *testing.T) {
 			status: http.StatusUnauthorized,
 			want:   "cosmos: query page: 401 Unauthorized",
 		},
+		{
+			name:   "a status the standard library has no text for",
+			status: 449,
+			body:   `{"message":"retry the request"}`,
+			want:   "cosmos: query page: 449: retry the request",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			conn, host := refusingAccount(t, tt.status, tt.body)
+			conn, host := account(t, refusing(tt.status, tt.body))
 
-			err := queryPage(conn, context.Background())
+			err := queryPage(context.Background(), conn)
 
 			require.Error(t, err)
 			assert.Equal(t, tt.want, err.Error())
@@ -96,45 +150,62 @@ func TestARefusalSaysWhatTheServiceSaidAndNotWhereItWasSent(t *testing.T) {
 	}
 }
 
-func TestARefusalKeepsTheStatusAndTheSDKErrorForCallers(t *testing.T) {
-	conn, _ := refusingAccount(t, http.StatusNotFound, `{"Errors":["gone"]}`)
+func TestARefusalKeepsTheSDKErrorInTheChain(t *testing.T) {
+	conn, _ := account(t, refusing(http.StatusNotFound, `{"Errors":["gone"]}`))
 
-	err := queryPage(conn, context.Background())
+	err := queryPage(context.Background(), conn)
 
-	var serviceErr *cosmos.ServiceError
-	require.ErrorAs(t, err, &serviceErr)
-	assert.Equal(t, http.StatusNotFound, serviceErr.StatusCode)
-	assert.Equal(t, "gone", serviceErr.Message)
 	var respErr *azcore.ResponseError
-	assert.True(t, errors.As(err, &respErr), "the SDK's error stays in the chain")
+	require.ErrorAs(t, err, &respErr)
+	assert.Equal(t, http.StatusNotFound, respErr.StatusCode)
 }
 
 func TestEveryRequestPathShapesARefusal(t *testing.T) {
-	database := adapter.Node{Kind: adapter.NodeDatabase, Name: "sales", Path: []string{"sales"}}
-	tests := []struct {
-		name string
-		call func(adapter.Connection, context.Context) error
-		want string
-	}{
-		{name: "ping", call: adapter.Connection.Ping, want: "cosmos: ping: 401 Unauthorized"},
-		{name: "list databases", call: func(conn adapter.Connection, ctx context.Context) error {
-			_, err := conn.Catalog().Root(ctx)
-			return err
-		}, want: "cosmos: list databases: 401 Unauthorized"},
-		{name: "list containers", call: func(conn adapter.Connection, ctx context.Context) error {
-			_, err := conn.Catalog().Children(ctx, database)
-			return err
-		}, want: `cosmos: list containers of "sales": 401 Unauthorized`},
-		{name: "query page", call: queryPage, want: "cosmos: query page: 401 Unauthorized"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			conn, host := refusingAccount(t, http.StatusUnauthorized, "")
+	for _, request := range requests {
+		t.Run(request.name, func(t *testing.T) {
+			conn, host := account(t, refusing(http.StatusUnauthorized, ""))
 
-			err := tt.call(conn, context.Background())
+			err := request.call(context.Background(), conn)
 
 			require.Error(t, err)
-			assert.Equal(t, tt.want, err.Error())
+			assert.Equal(t, "cosmos: "+request.name+": 401 Unauthorized", err.Error())
+			assert.NotContains(t, err.Error(), host)
+		})
+	}
+}
+
+// TestADeadEndpointIsReportedWithoutItsAddress waits out the SDK, which
+// retries a connection it cannot open for some ten seconds before giving
+// up — once: it remembers, so the later requests fail at once.
+func TestADeadEndpointIsReportedWithoutItsAddress(t *testing.T) {
+	closed := httptest.NewTLSServer(http.NotFoundHandler())
+	endpoint := closed.URL
+	closed.Close()
+	conn, host := connectTo(t, endpoint)
+
+	for _, request := range requests {
+		t.Run(request.name, func(t *testing.T) {
+			err := request.call(context.Background(), conn)
+
+			require.Error(t, err)
+			assert.Equal(t, "cosmos: "+request.name+": dial: connect: connection refused", err.Error())
+			assert.NotContains(t, err.Error(), host)
+		})
+	}
+}
+
+func TestARequestTheCallerGaveUpOnIsReportedWithoutItsAddress(t *testing.T) {
+	conn, host := account(t, stalling())
+
+	for _, request := range requests {
+		t.Run(request.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), stallFor/10)
+			t.Cleanup(cancel)
+
+			err := request.call(ctx, conn)
+
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+			assert.Equal(t, "cosmos: "+request.name+": context deadline exceeded", err.Error())
 			assert.NotContains(t, err.Error(), host)
 		})
 	}

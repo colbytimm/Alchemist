@@ -35,8 +35,7 @@ const (
 	fileMode = 0o600
 )
 
-// Entry is one recorded run. ElapsedMillis carries the elapsed time in
-// milliseconds, since JSON has no duration.
+// Entry is one recorded run.
 type Entry struct {
 	Time          time.Time `json:"ts"`
 	Profile       string    `json:"profile"`
