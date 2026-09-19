@@ -1,12 +1,14 @@
 package tui_test
 
 import (
+	"os"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -20,13 +22,13 @@ const (
 	helpHeight = 20
 )
 
-// TestEveryBindingIsGroupedExactlyOnce is the drift guard: FullHelp,
-// ConnectKeys and HistoryKeys are hand-grouped, and a binding they omit would
-// silently vanish from the overlay while a duplicated one would keep a plain
-// count looking right.
+// TestEveryBindingIsGroupedExactlyOnce is the drift guard: HelpSections,
+// ConnectKeys, HistoryKeys and ExportKeys are hand-grouped, and a binding they
+// omit would silently vanish from the overlay while a duplicated one would
+// keep a plain count looking right.
 func TestEveryBindingIsGroupedExactlyOnce(t *testing.T) {
 	keys := tui.DefaultKeyMap()
-	advertised := slices.Concat(bindings(keys), keys.ConnectKeys(), keys.HistoryKeys())
+	advertised := slices.Concat(bindings(keys), keys.ConnectKeys(), keys.HistoryKeys(), keys.ExportKeys())
 	grouped := map[string]int{}
 	for _, binding := range advertised {
 		grouped[identity(binding)]++
@@ -52,8 +54,8 @@ func identity(binding key.Binding) string {
 // bindings flattens the overlay's columns into the bindings it will render.
 func bindings(keys tui.KeyMap) []key.Binding {
 	var all []key.Binding
-	for _, group := range keys.FullHelp() {
-		all = append(all, group...)
+	for _, section := range keys.HelpSections() {
+		all = append(all, section.Keys...)
 	}
 	return all
 }
@@ -68,7 +70,7 @@ func TestEveryBindingHasKeysAndHelp(t *testing.T) {
 
 func TestHelpOverlayListsEveryBinding(t *testing.T) {
 	keys := tui.DefaultKeyMap()
-	view := panes.NewHelp(keys).SetSize(helpWidth, helpHeight).View()
+	view := panes.NewHelp(keys.HelpSections()).SetSize(helpWidth, helpHeight).View()
 
 	for _, binding := range bindings(keys) {
 		assert.Contains(t, view, binding.Help().Key, "help should list the key")
@@ -76,9 +78,42 @@ func TestHelpOverlayListsEveryBinding(t *testing.T) {
 	}
 }
 
+func TestHelpOverlaySaysWhereEachGroupOfKeysWorks(t *testing.T) {
+	keys := tui.DefaultKeyMap()
+	view := plain(panes.NewHelp(keys.HelpSections()).SetSize(testWidth, testHeight).View())
+
+	for _, title := range []string{"Anywhere", "Catalog", "Results"} {
+		assert.Contains(t, view, title)
+	}
+	assert.Equal(t, column(t, view, "Results"), column(t, view, "ctrl+e"),
+		"export is listed under the pane it works in")
+}
+
+// column is how far into its line text starts.
+func column(t *testing.T, view, text string) int {
+	t.Helper()
+	for _, line := range strings.Split(view, "\n") {
+		if before, _, found := strings.Cut(line, text); found {
+			return lipgloss.Width(before)
+		}
+	}
+	require.Fail(t, "not on screen", text)
+	return 0
+}
+
+func TestTheReadmeListsEveryBinding(t *testing.T) {
+	readme, err := os.ReadFile("../../../README.md")
+	require.NoError(t, err)
+
+	for _, binding := range bindings(tui.DefaultKeyMap()) {
+		assert.Contains(t, string(readme), binding.Help().Key)
+		assert.Contains(t, string(readme), binding.Help().Desc)
+	}
+}
+
 func TestHelpOverlayFitsTheMinimumTerminal(t *testing.T) {
 	keys := tui.DefaultKeyMap()
-	view := panes.NewHelp(keys).SetSize(testWidth, testHeight).View()
+	view := panes.NewHelp(keys.HelpSections()).SetSize(testWidth, testHeight).View()
 
 	for _, binding := range bindings(keys) {
 		assert.Contains(t, view, binding.Help().Desc, "column dropped at %d columns", testWidth)

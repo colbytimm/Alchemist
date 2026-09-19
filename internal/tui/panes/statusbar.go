@@ -39,6 +39,7 @@ type StatusBar struct {
 	profile  string
 	scope    []string
 	progress Progress
+	notice   string
 	width    int
 	spinning bool
 }
@@ -96,6 +97,13 @@ func (s StatusBar) SetProgress(progress Progress) (StatusBar, tea.Cmd) {
 	return s, s.spinner.Tick
 }
 
+// SetNotice reports something that went well outside the run itself; an
+// empty notice clears it.
+func (s StatusBar) SetNotice(notice string) StatusBar {
+	s.notice = notice
+	return s
+}
+
 func (s StatusBar) View() string {
 	if s.width <= 0 {
 		return ""
@@ -119,6 +127,9 @@ func (s StatusBar) fields() []string {
 	}
 	if s.progress.Running {
 		fields = append(fields, s.spinner.View())
+	}
+	if s.notice != "" {
+		fields = append(fields, theme.SuccessStyle().Render(s.notice))
 	}
 	return fields
 }

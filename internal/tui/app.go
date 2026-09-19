@@ -64,6 +64,7 @@ const (
 	overlayHelp
 	overlayDetail
 	overlayHistory
+	overlayExport
 )
 
 // runState is how far the current query has got.
@@ -118,14 +119,15 @@ type Model struct {
 	logger     *log.Logger
 	history    history.Store
 
-	connectPane panes.Connect
-	catalogPane panes.Catalog
-	editor      panes.Editor
-	results     panes.Results
-	detail      panes.Detail
-	historyPane panes.History
-	statusBar   panes.StatusBar
-	help        panes.Help
+	connectPane  panes.Connect
+	catalogPane  panes.Catalog
+	editor       panes.Editor
+	results      panes.Results
+	detail       panes.Detail
+	historyPane  panes.History
+	exportPrompt panes.ExportPrompt
+	statusBar    panes.StatusBar
+	help         panes.Help
 
 	// ownsConnection marks a connection the connect screen opened, which the
 	// session closes itself; one it was handed is closed by whoever made it.
@@ -162,19 +164,20 @@ func New(opts Options) Model {
 	}
 	keys := DefaultKeyMap()
 	m := Model{
-		keys:        keys,
-		connection:  opts.Connection,
-		connect:     opts.Connect,
-		logger:      logger,
-		history:     store,
-		connectPane: panes.NewConnect(opts.Icons, opts.Form),
-		catalogPane: panes.NewCatalog(opts.Icons),
-		editor:      panes.NewEditor(),
-		results:     panes.NewResults(),
-		detail:      panes.NewDetail(),
-		historyPane: panes.NewHistory(opts.Icons, keys.HistoryKeys()),
-		statusBar:   panes.NewStatusBar(opts.Icons, opts.Profile),
-		help:        panes.NewHelp(keys),
+		keys:         keys,
+		connection:   opts.Connection,
+		connect:      opts.Connect,
+		logger:       logger,
+		history:      store,
+		connectPane:  panes.NewConnect(opts.Icons, opts.Form),
+		catalogPane:  panes.NewCatalog(opts.Icons),
+		editor:       panes.NewEditor(),
+		results:      panes.NewResults(),
+		detail:       panes.NewDetail(),
+		historyPane:  panes.NewHistory(opts.Icons, keys.HistoryKeys()),
+		exportPrompt: panes.NewExportPrompt(append(keys.ExportKeys(), keys.Close)),
+		statusBar:    panes.NewStatusBar(opts.Icons, opts.Profile),
+		help:         panes.NewHelp(keys.HelpSections()),
 
 		defaultDatabase: opts.Database,
 		profile:         opts.Profile,
@@ -234,6 +237,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case HistoryLoadedMsg:
 		return m.openHistory(msg), nil
+	case ExportedMsg:
+		return m.finishExport(msg), nil
 	}
 	return m.animate(msg)
 }
@@ -258,6 +263,8 @@ func (m Model) layout() string {
 		return m.detail.View()
 	case m.overlay == overlayHistory:
 		return m.historyPane.View()
+	case m.overlay == overlayExport:
+		return m.exportPrompt.View()
 	}
 	right := lipgloss.JoinVertical(lipgloss.Left, m.editor.View(), m.results.View())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, m.catalogPane.View(), right)
@@ -282,6 +289,8 @@ func (m Model) handleErr(msg ErrMsg) Model {
 	case OpHistory:
 		m.historyPane = m.historyPane.Fail(msg.Err)
 		m.overlay = overlayHistory
+	case OpExport:
+		m.exportPrompt = m.exportPrompt.Fail(msg.Err)
 	}
 	return m
 }
@@ -336,8 +345,11 @@ func (m Model) handleFocusedKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	if m.overlay == overlayHistory {
+	switch m.overlay {
+	case overlayHistory:
 		return m.handleHistoryKey(msg)
+	case overlayExport:
+		return m.handleExportKey(msg)
 	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
@@ -457,6 +469,8 @@ func (m Model) handleResultsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.fetchMore()
 	case key.Matches(msg, m.keys.Detail):
 		return m.openDetail(), nil
+	case key.Matches(msg, m.keys.Export):
+		return m.openExport(), nil
 	}
 	return m, nil
 }
@@ -630,8 +644,11 @@ func (m Model) setScope(scope []string) Model {
 	return m
 }
 
+// syncStatusBar also drops the notice: every caller has just changed the run
+// the notice was about.
 func (m Model) syncStatusBar() (Model, tea.Cmd) {
 	var cmd tea.Cmd
+	m.statusBar = m.statusBar.SetNotice("")
 	m.statusBar, cmd = m.statusBar.SetProgress(panes.Progress{
 		Stats:   m.stats,
 		More:    m.hasMore(),
@@ -757,6 +774,7 @@ func (m Model) resize(width, height int) Model {
 	m.help = m.help.SetSize(width, height)
 	m.detail = m.detail.SetSize(width, height)
 	m.historyPane = m.historyPane.SetSize(width, height)
+	m.exportPrompt = m.exportPrompt.SetSize(width, height)
 	return m
 }
 

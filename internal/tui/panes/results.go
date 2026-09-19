@@ -124,6 +124,10 @@ func (r Results) SelectedDocument() (json.RawMessage, bool) {
 	return r.raw[r.cursor], true
 }
 
+func (r Results) Fetched() adapter.Page {
+	return adapter.Page{Columns: r.columns, Rows: r.rows, Raw: r.raw}
+}
+
 func (r Results) View() string {
 	return r.frame.render(r.content())
 }
