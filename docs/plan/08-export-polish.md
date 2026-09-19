@@ -14,8 +14,9 @@ and bring the README up to reality.
   - Input is `[]adapter.Page` (all pages fetched so far) — export never triggers new
     fetches; the status bar's "+more" tells the user the set is partial.
 - TUI wiring: `ctrl+e` in the results pane → filename prompt (textinput overlay,
-  extension picks format, default `results.json` in cwd); success/failure reported in
-  the status bar; refuses to overwrite without an explicit `!` confirm.
+  extension picks format, `tab` switches it, default `results.json` in cwd); success reported in the
+  status bar, and a failure in the prompt itself, which stays open so the name can be
+  corrected; refuses to overwrite unless the name ends in `!` (`results.json!`).
 - Editor syntax highlighting:
   - `bubbles/textarea` cannot style regions of editable text, so: keyword highlighting
     on a **render-styled preview** — the editor buffer stays plain while focused;
@@ -23,10 +24,14 @@ and bring the README up to reality.
     Amethyst, strings in Verdigris, numbers in Copper) using a small keyword styler
     (evaluate `alecthomas/chroma` SQL lexer vs a ~40-keyword hand list; pick the
     lighter one that handles Cosmos SQL keywords like `VALUE`, `IN`, `JOIN`, `TOP`).
+    **Decided:** the hand list. `internal/query` already lexes Cosmos SQL and holds
+    its keyword list for scope parsing, so `query.Spans` reuses both; chroma would
+    be a new dependency whose SQL lexer knows none of the Cosmos keywords.
 - README rewrite: accurate feature list, install, quickstart against the emulator,
   profile setup, keybinding table (generated from `keys.go` content), screenshot or
   VHS-generated GIF, adapter-authoring section pointing at `internal/adapter`.
-- Doc-comment pass across all packages (`godot` clean), `docs/plan` statuses updated.
+- Comment pass on the code this iteration touches, to the rule in `CLAUDE.md`: a
+  comment stays only where the code cannot say it. `docs/plan` statuses updated.
 
 ## Out of scope
 
