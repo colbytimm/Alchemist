@@ -60,6 +60,7 @@ words:
   - ineffassign
   - ldflags
   - nilnil
+  - nolint
   - nosec
   - godoc
   - gofmt
