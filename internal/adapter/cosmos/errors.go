@@ -16,7 +16,7 @@ import (
 
 // refusalError restates a request the service refused without the request
 // URL the SDK prints, so neither the screen nor the history file names the
-// account; the SDK's error stays in the chain for errors.As.
+// account.
 type refusalError struct {
 	op      string
 	message string

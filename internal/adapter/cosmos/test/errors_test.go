@@ -21,7 +21,7 @@ import (
 // deadline the test gives it.
 const stallFor = time.Second
 
-// The requests the adapter makes, each named the way its error names it.
+// requests are the adapter's request paths, each named as its error names it.
 var requests = []struct {
 	name string
 	call func(ctx context.Context, conn adapter.Connection) error
@@ -59,7 +59,7 @@ func account(t *testing.T, handler http.Handler) (adapter.Connection, string) {
 	return connectTo(t, server.URL)
 }
 
-func connectTo(t *testing.T, endpoint string) (adapter.Connection, string) {
+func connectTo(t *testing.T, endpoint string) (conn adapter.Connection, host string) {
 	t.Helper()
 	conn, err := cosmos.Adapter{}.Connect(context.Background(), map[string]string{
 		"endpoint": endpoint, "key": testKey, "insecure_skip_verify": "true",
@@ -70,7 +70,6 @@ func connectTo(t *testing.T, endpoint string) (adapter.Connection, string) {
 	return conn, address.Host
 }
 
-// refusing answers every request with the one refusal given.
 func refusing(status int, body string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(status)
@@ -176,7 +175,9 @@ func TestEveryRequestPathShapesARefusal(t *testing.T) {
 
 // TestADeadEndpointIsUnreachable waits out the SDK, which retries a
 // connection it cannot open for some ten seconds before giving up — once:
-// it remembers, so the later requests fail at once.
+// it remembers, so the later requests fail at once. A refused connection
+// stands for every kind of transport failure here; the adapter package
+// tests each leaf on its own, off the network.
 func TestADeadEndpointIsUnreachable(t *testing.T) {
 	closed := httptest.NewTLSServer(http.NotFoundHandler())
 	endpoint := closed.URL
@@ -189,7 +190,8 @@ func TestADeadEndpointIsUnreachable(t *testing.T) {
 
 			var unreachable *adapter.UnreachableError
 			require.ErrorAs(t, err, &unreachable)
-			assert.Equal(t, "account unreachable: connection refused", err.Error())
+			assert.Contains(t, unreachable.Reason, "refused", "in the words of this platform's network stack")
+			assert.Equal(t, adapter.UnreachableTitle+": "+unreachable.Reason, err.Error())
 			assert.NotContains(t, err.Error(), host)
 		})
 	}

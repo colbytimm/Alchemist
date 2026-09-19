@@ -18,8 +18,11 @@ import (
 	"github.com/colbytimm/alchemist/internal/adapter"
 )
 
-// The address every fixture names, which no reason may carry.
-const address = "https://myaccount.documents.azure.com:443"
+// The account every fixture names, which no reason may carry.
+const (
+	host    = "example.documents.azure.com"
+	address = "https://" + host + ":443"
+)
 
 func requestFailed(leaf error) error {
 	return &url.Error{Op: "Get", URL: address, Err: leaf}
@@ -42,7 +45,7 @@ func TestUnreachableNamesTheReasonWithoutTheAddress(t *testing.T) {
 		},
 		{
 			name: "no such host",
-			err:  dialFailed(&net.DNSError{Err: "no such host", Name: "myaccount.documents.azure.com", IsNotFound: true}),
+			err:  dialFailed(&net.DNSError{Err: "no such host", Name: host, IsNotFound: true}),
 			want: "no such host",
 		},
 		{
@@ -56,13 +59,19 @@ func TestUnreachableNamesTheReasonWithoutTheAddress(t *testing.T) {
 			want: "tls: failed to verify certificate: x509: certificate signed by unknown authority",
 		},
 		{
+			name: "certificate for another host",
+			err:  requestFailed(&tls.CertificateVerificationError{Err: x509.HostnameError{Host: host}}),
+			want: "certificate is not for this host",
+		},
+		{
 			name: "wrapped by the SDK",
 			err:  fmt.Errorf("failed to retrieve account properties: %w", dialFailed(syscall.ECONNRESET)),
 			want: "connection reset by peer",
 		},
 		{
 			name: "deadline passed mid-retry, transport error printed beside it",
-			err:  fmt.Errorf("%w: underlying transport error: %v", context.DeadlineExceeded, dialFailed(syscall.ECONNREFUSED)),
+			// %v is the point: the SDK prints the transport error as text.
+			err:  fmt.Errorf("%w: underlying transport error: %v", context.DeadlineExceeded, dialFailed(syscall.ECONNREFUSED)), //nolint:errorlint
 			want: "timed out",
 		},
 		{
@@ -78,7 +87,7 @@ func TestUnreachableNamesTheReasonWithoutTheAddress(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, tt.want, unreachable.Reason)
 			assert.Equal(t, "account unreachable: "+tt.want, unreachable.Error())
-			assert.NotContains(t, unreachable.Error(), "myaccount")
+			assert.NotContains(t, unreachable.Error(), host)
 			assert.ErrorIs(t, unreachable, tt.err, "the original stays in the chain")
 		})
 	}

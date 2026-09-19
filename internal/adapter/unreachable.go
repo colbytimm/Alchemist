@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"net"
 	"net/url"
@@ -40,10 +41,13 @@ func Unreachable(err error) (*UnreachableError, bool) {
 	return nil, false
 }
 
+// transportReason is the leaf of the net error. A certificate for the wrong
+// name is the one leaf whose own text names the host, so it is restated.
 func transportReason(urlErr *url.Error) string {
 	var dnsErr *net.DNSError
 	var sysErr *os.SyscallError
 	var opErr *net.OpError
+	var hostErr x509.HostnameError
 	switch {
 	case errors.As(urlErr, &dnsErr):
 		return dnsErr.Err
@@ -51,6 +55,8 @@ func transportReason(urlErr *url.Error) string {
 		return sysErr.Err.Error()
 	case errors.As(urlErr, &opErr):
 		return opErr.Err.Error()
+	case errors.As(urlErr, &hostErr):
+		return "certificate is not for this host"
 	}
 	return urlErr.Err.Error()
 }
