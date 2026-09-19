@@ -32,6 +32,7 @@ can be added without touching the TUI.
 | Profiles / config | TOML profiles + OS keychain secrets | 6 |
 | Help overlay | Keybinding help (`?`) | 4 |
 | — | Info overlay: resource metadata (`i`) | 12 |
+| Editor autocomplete | Keywords, functions, databases, containers, observed fields | 13 |
 
 The alchemy identity lives in the **theme only** — the color palette and icon glyphs
 defined in `internal/theme` (see [01-scaffold.md](01-scaffold.md)). Components, panes,
@@ -147,6 +148,7 @@ The TUI converts errors into messages rendered in the Assay pane.
 | 10 | [10-cross-container.md](10-cross-container.md) | Client-side cross-container queries (union scan, simulated join) | 5 |
 | 11 | [11-catalog-management.md](11-catalog-management.md) | Create/delete databases and containers, throughput editing | 3, 4 |
 | 12 | [12-info-view.md](12-info-view.md) | Info overlay: per-resource metadata for a database or container | 3, 4 |
+| 13 | [13-autocomplete.md](13-autocomplete.md) | Editor autocomplete: keywords, functions, catalog names, observed and sampled fields | 5 |
 
 Iterations 3 and 4 are parallelizable — both depend only on the interfaces from 2.
 
