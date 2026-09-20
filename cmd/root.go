@@ -116,14 +116,15 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 	logger.Info("session started", "profile", launch.profile)
 	program := tea.NewProgram(
 		tui.New(tui.Options{
-			Icons:      s.icons(),
-			Connection: launch.connection,
-			Connect:    launch.connect,
-			Form:       launch.form,
-			Logger:     logger,
-			History:    s.historyStore(logger, stateDir),
-			Profile:    launch.profile,
-			Database:   launch.database,
+			Icons:       s.icons(),
+			Connection:  launch.connection,
+			Connect:     launch.connect,
+			Form:        launch.form,
+			Logger:      logger,
+			History:     s.historyStore(logger, stateDir),
+			Profile:     launch.profile,
+			Database:    launch.database,
+			MaxJoinRows: launch.maxJoinRows,
 		}),
 		tea.WithAltScreen(),
 		tea.WithContext(cmd.Context()),
@@ -137,11 +138,12 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 // launch is what a session starts with: a live connection, or the connect
 // screen that opens one.
 type launch struct {
-	profile    string
-	database   string
-	connection adapter.Connection
-	connect    tui.Connector
-	form       panes.ConnectForm
+	profile     string
+	database    string
+	maxJoinRows int
+	connection  adapter.Connection
+	connect     tui.Connector
+	form        panes.ConnectForm
 }
 
 // resolveLaunch picks the connection: --adapter names an adapter to run with
@@ -189,7 +191,12 @@ func profileLaunch(ctx context.Context, name string, keyring config.Keyring) (la
 	if err != nil {
 		return launch{}, err
 	}
-	return launch{profile: profile.Name, database: profile.Database, connection: conn}, nil
+	return launch{
+		profile:     profile.Name,
+		database:    profile.Database,
+		maxJoinRows: profile.MaxJoinRows,
+		connection:  conn,
+	}, nil
 }
 
 // setupLaunch opens the connect screen for profile, which may be no more than
@@ -197,7 +204,8 @@ func profileLaunch(ctx context.Context, name string, keyring config.Keyring) (la
 // saved, so an attempt that did not connect leaves nothing behind.
 func setupLaunch(store config.Store, keyring config.Keyring, profile config.Profile) launch {
 	return launch{
-		database: profile.Database,
+		database:    profile.Database,
+		maxJoinRows: profile.MaxJoinRows,
 		form: panes.ConnectForm{
 			Profile:    profile.Name,
 			Endpoint:   profile.Endpoint,

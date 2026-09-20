@@ -19,7 +19,7 @@ CSPELL_FLAGS := lint --no-progress --dot --gitignore "**"
 COVER_PKGS := ./app/...,./cmd/...,./internal/...
 EMULATOR_URL ?= http://localhost:8081
 
-.PHONY: all build test test-coverage emulator-up emulator-wait emulator-down test-integration coverage-html fmt fmt-check vet lint spell security gosec govulncheck gitleaks actionlint release-check release-snapshot release clean help
+.PHONY: all build test test-coverage emulator-up emulator-wait emulator-seed emulator-down test-integration coverage-html fmt fmt-check vet lint spell security gosec govulncheck gitleaks actionlint release-check release-snapshot release clean help
 
 ## all: fmt-check, lint, spell, test, build
 all: fmt-check lint spell test build
@@ -43,6 +43,10 @@ emulator-wait:
 		sleep 5; \
 	done; \
 	echo "emulator did not answer on $(EMULATOR_URL)"; exit 1
+
+## emulator-seed: replace the sales, telemetry and hr databases in the emulator with sample data
+emulator-seed:
+	go run ./test/seed
 
 ## emulator-down: stop the Cosmos DB emulator container
 emulator-down:

@@ -147,14 +147,15 @@ func TestAQueryWithNoScopeAtAllIsNeverSent(t *testing.T) {
 	assert.Empty(t, conn.queries, "a query with nowhere to run must not reach the adapter")
 }
 
-func TestAQueryAcrossTwoContainersIsRejected(t *testing.T) {
+func TestAShapeThatCannotBeSimulatedIsRefusedBeforeItReachesTheAdapter(t *testing.T) {
 	conn := newConnection(t)
 
 	m := runQuery(t, selectContainer(t, newLoadedModel(t, conn)),
-		"SELECT * FROM sales.orders o, sales.customers c")
+		"SELECT * FROM sales.orders o LEFT JOIN sales.customers cu ON o.pk = cu.pk")
 
-	assert.Contains(t, m.View(), "one container per query")
+	assert.Contains(t, plain(m.View()), "LEFT JOIN: not supported across containers")
 	assert.Empty(t, conn.queries)
+	assert.NotContains(t, m.View(), simulatedBadge, "nothing was simulated")
 }
 
 func TestRunningAnEmptyBufferSaysThereIsNothingToRun(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/adapter/cosmos"
 	"github.com/colbytimm/alchemist/internal/config"
+	"github.com/colbytimm/alchemist/internal/query"
 )
 
 // noKey is what the profile table shows when no source resolves a key.
@@ -118,6 +119,8 @@ func (a *addFlags) bind(flags *pflag.FlagSet) {
 		"skip TLS verification (for the Cosmos emulator's self-signed certificate)")
 	flags.StringVar(&a.profile.Database, "database", "", "database to open in the catalog on start")
 	flags.IntVar(&a.profile.PageSize, "page-size", 0, "rows per result page (the adapter's default when 0)")
+	flags.IntVar(&a.profile.MaxJoinRows, "max-join-rows", 0,
+		fmt.Sprintf("rows a cross-container join may hold in memory (%d when 0)", query.DefaultMaxJoinRows))
 	flags.BoolVar(&a.makeDefault, "default", false, "make this the default profile")
 }
 

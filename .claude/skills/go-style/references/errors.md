@@ -50,7 +50,7 @@ if err := c.client.Ping(ctx); err != nil {
 Never `==` and never string matching. `errorlint` is on and will flag both.
 
 ```go
-if errors.Is(err, query.ErrMultiContainer) { ... }
+if errors.Is(err, query.ErrUnsupported) { ... }
 
 var respErr *azcore.ResponseError
 if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound { ... }

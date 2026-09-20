@@ -1,56 +1,11 @@
-// Package query reads editor queries without executing them. It detects
-// `FROM <db>.<container>` references, rewrites them to an adapter-native
-// alias, and reports the scope so the caller can route the query to the right
-// container; and it marks the spans of a query worth highlighting.
+// Package query plans and executes editor queries above the adapter
+// interfaces. A `FROM <db>.<container>` source is rewritten to an
+// adapter-native alias and routed to its container; a query naming several
+// containers is simulated client-side, as per-container queries merged
+// locally. It also marks the spans of a query worth highlighting.
 package query
 
-import (
-	"errors"
-	"strings"
-)
-
-// ErrMultiContainer is returned when a query references more than one
-// db.container source; cross-container execution arrives in iteration 10.
-var ErrMultiContainer = errors.New("query: one container per query until iteration 10")
-
-// Result is the outcome of parsing one editor query.
-type Result struct {
-	Rewritten string   // query text with any db.container source replaced by its alias
-	Scope     []string // [database, container] when Explicit, else empty
-	Explicit  bool     // true when the text named a db.container source
-}
-
-// ParseScope scans text for FROM-clause sources of the form db.container,
-// rewrites the single source to its alias (or "c"), and returns the scope.
-// Queries without such a source are returned unchanged. It never panics on
-// arbitrary input.
-func ParseScope(text string) (Result, error) {
-	p := parser{toks: lex(text), aliases: map[string]bool{}}
-	p.run()
-	var cands []source
-	for _, s := range p.sources {
-		if len(s.path) == 2 && !p.aliases[s.path[0].text] {
-			cands = append(cands, s)
-		}
-	}
-	switch len(cands) {
-	case 0:
-		return Result{Rewritten: text}, nil
-	case 1:
-		c := cands[0]
-		alias := c.alias
-		if alias == "" {
-			alias = "c"
-		}
-		return Result{
-			Rewritten: text[:c.start] + alias + text[c.end:],
-			Scope:     []string{c.path[0].text, c.path[1].text},
-			Explicit:  true,
-		}, nil
-	default:
-		return Result{}, ErrMultiContainer
-	}
-}
+import "strings"
 
 // Token kinds produced by the lexer.
 const (
@@ -65,7 +20,7 @@ const (
 // token is one lexed unit with its byte span in the input.
 type token struct {
 	kind  int
-	text  string // original ident text
+	text  string // original text of an ident or a tokOther symbol
 	upper string // uppercased ident text, for keyword checks
 	start int
 	end   int
@@ -82,12 +37,24 @@ var keywords = map[string]bool{
 	"WHEN": true, "WHERE": true,
 }
 
+// joinModifiers are the idents that may precede JOIN, and so can never be a
+// bare source alias either.
+var joinModifiers = map[string]bool{
+	"CROSS": true, "FULL": true, "INNER": true, "LEFT": true, "OUTER": true, "RIGHT": true,
+}
+
 // source is one FROM-clause source: a dotted path plus an optional alias.
 type source struct {
-	path  []token
-	alias string
-	start int // byte offset of the first path token
-	end   int // byte offset just past the last consumed token
+	path     []token
+	alias    string
+	start    int // byte offset of the first path token
+	end      int // byte offset just past the last consumed token
+	firstTok int
+	nextTok  int    // index just past the last consumed token
+	clause   int    // 1 for the first FROM clause of the query
+	depth    int    // parentheses open around that FROM clause
+	joined   bool   // introduced by JOIN rather than listed after FROM
+	modifier string // what preceded that JOIN, e.g. "LEFT OUTER"
 }
 
 // lex splits s into tokens, treating single- and double-quoted regions as
@@ -121,7 +88,7 @@ func lex(s string) []token {
 			toks = append(toks, token{kind: tokComma, start: i, end: i + 1})
 			i++
 		default:
-			toks = append(toks, token{kind: tokOther, start: i, end: i + 1})
+			toks = append(toks, token{kind: tokOther, text: s[i : i+1], start: i, end: i + 1})
 			i++
 		}
 	}
@@ -193,29 +160,34 @@ type parser struct {
 	toks    []token
 	sources []source
 	aliases map[string]bool
+	clauses int
+	depth   int
 }
 
 func (p *parser) run() {
 	for i := 0; i < len(p.toks); {
-		if p.isKeyword(i, "FROM") {
+		switch {
+		case p.isKeyword(i, "FROM"):
 			i = p.parseFromClause(i + 1)
 			continue
+		case isSymbol(p.toks[i], "("):
+			p.depth++
+		case isSymbol(p.toks[i], ")"):
+			p.depth--
 		}
 		i++
 	}
 }
 
 func (p *parser) parseFromClause(i int) int {
+	p.clauses++
 	for {
 		src, j, ok := p.parseSource(i)
 		if !ok {
 			return j
 		}
 		p.record(src)
-		i = j
-		for p.isKeyword(i, "JOIN") {
-			i = p.parseJoinClause(i + 1)
-		}
+		i = p.parseJoins(j)
 		if !p.isComma(i) {
 			return i
 		}
@@ -223,15 +195,35 @@ func (p *parser) parseFromClause(i int) int {
 	}
 }
 
+func (p *parser) parseJoins(i int) int {
+	for {
+		modifier, j := p.parseJoinModifier(i)
+		if !p.isKeyword(j, "JOIN") {
+			return i
+		}
+		i = p.parseJoinClause(j+1, modifier)
+	}
+}
+
+func (p *parser) parseJoinModifier(i int) (string, int) {
+	var words []string
+	for i < len(p.toks) && p.toks[i].kind == tokIdent && joinModifiers[p.toks[i].upper] {
+		words = append(words, p.toks[i].upper)
+		i++
+	}
+	return strings.Join(words, " "), i
+}
+
 // parseJoinClause binds the alias of `JOIN alias IN collection` and skips its
 // path; a bare `JOIN path` is recorded as a source so cross-container
 // references are detected.
-func (p *parser) parseJoinClause(i int) int {
+func (p *parser) parseJoinClause(i int, modifier string) int {
 	src, j, ok := p.parseSource(i)
 	if !ok {
 		return j
 	}
 	if !p.isKeyword(j, "IN") {
+		src.joined, src.modifier = true, modifier
 		p.record(src)
 		return j
 	}
@@ -250,7 +242,7 @@ func (p *parser) parseSource(i int) (source, int, bool) {
 	if i >= len(p.toks) || p.toks[i].kind != tokIdent || keywords[p.toks[i].upper] {
 		return source{}, i, false
 	}
-	src := source{path: []token{p.toks[i]}, start: p.toks[i].start, end: p.toks[i].end}
+	src := source{path: []token{p.toks[i]}, start: p.toks[i].start, end: p.toks[i].end, firstTok: i}
 	i++
 	for i+1 < len(p.toks) && p.toks[i].kind == tokDot && p.toks[i+1].kind == tokIdent {
 		src.path = append(src.path, p.toks[i+1])
@@ -262,15 +254,24 @@ func (p *parser) parseSource(i int) (source, int, bool) {
 		src.alias = p.toks[i+1].text
 		src.end = p.toks[i+1].end
 		i += 2
-	case i < len(p.toks) && p.toks[i].kind == tokIdent && !keywords[p.toks[i].upper]:
+	case p.isBareAlias(i):
 		src.alias = p.toks[i].text
 		src.end = p.toks[i].end
 		i++
 	}
+	src.nextTok = i
 	return src, i, true
 }
 
+func (p *parser) isBareAlias(i int) bool {
+	if i >= len(p.toks) || p.toks[i].kind != tokIdent {
+		return false
+	}
+	return !keywords[p.toks[i].upper] && !joinModifiers[p.toks[i].upper]
+}
+
 func (p *parser) record(src source) {
+	src.clause, src.depth = p.clauses, p.depth
 	p.sources = append(p.sources, src)
 	if src.alias != "" {
 		p.aliases[src.alias] = true
@@ -278,7 +279,7 @@ func (p *parser) record(src source) {
 }
 
 func (p *parser) isKeyword(i int, kw string) bool {
-	return i < len(p.toks) && p.toks[i].kind == tokIdent && p.toks[i].upper == kw
+	return keywordAt(p.toks, i, kw)
 }
 
 func (p *parser) isComma(i int) bool {
