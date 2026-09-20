@@ -590,8 +590,9 @@ and the interface stays live between pages.
 - **A capture survives account switches, on iteration 18's pattern.** It holds its
   `adapter.Connection` and its account name from `Begin` and never asks which account
   is active; an account the session leaves stays connected (iteration 14). While the
-  overlay is closed the status bar carries one field, through `StatusBar.SetCapture`,
-  that belongs to the job and not to an account — `snapshot prod/sales.orders 41% (v)`
+  overlay is closed the status bar carries one field, through the shared
+  `StatusBar.SetJob(label)` (see the one-job rule below), that belongs to the job and
+  not to an account — `snapshot prod/sales.orders 41% (v)`
   — and `setActive` never touches it. `v` anywhere in the catalog, on any account,
   reopens the running capture's overlay rather than the list for the cursor's node.
   When a hidden capture ends the field reads `snapshot done (v)` or
@@ -599,13 +600,26 @@ and the interface stays live between pages.
 - **Refused while a capture runs:** `x` in the switcher on the capture's account, with
   `a snapshot is using prod: cancel it first (v in the catalog)` under that row, as
   18 refuses it for a clone's accounts.
-- **One background job per session.** Iteration 18 allows one clone because two jobs
-  compete for one throughput; a capture is the same kind of scan, so the rule is
-  shared: while a clone runs `s` is refused with `a clone is running: snapshots wait
-  for it (y)`, and while a capture runs `y` is refused with the mirror notice. `v`,
-  diffs, exports and deletes of *other* stores read the disk only and stay available.
-  Iteration 17 blocks keys while a batch is committing; a capture page that arrives
-  then is processed as usual, since it writes nothing to the account.
+- **One background job per session, one mechanism.** Cloning (18), capture (this
+  plan) and update and delete by query (21, 22) all scan or write at volume against
+  one throughput, so they share a single `job` slot on the root model, with a kind
+  (`clone`, `capture`, `update`, `delete`), one status bar field
+  (`StatusBar.SetJob`), one quit guard and one switcher guard. Whichever of the four
+  lands first introduces the slot; the others register a kind. There is no
+  per-feature "is a clone running" check. Reopening stays per feature: `v` here, `y`
+  for a clone, `w` for an update or delete.
+
+  | While a capture runs | |
+  |---|---|
+  | `y` (clone) | refused: `a snapshot is running: clones wait for it (v)` |
+  | `ctrl+r` on an `UPDATE` or `DELETE` statement | refused before its dry run: `a snapshot is running: updates wait for it (v)` |
+  | a second `s` | refused with the same notice |
+  | `SELECT`s, iteration 17's batches, browsing, history, exports | available |
+  | `v`, diffs, exports and deletes of stores on disk | available; they read the disk only |
+
+  The mirror holds: while any other job runs, `s` is refused with that job's notice
+  and reopening key. Iteration 17 blocks keys while a batch is committing; a capture
+  page that arrives then is processed as usual, since it writes nothing to the account.
 - **Quitting mid-capture** follows 18: the first `q` or `ctrl+c` opens the overlay with
   `A snapshot is running. Quit again to cancel it and quit; nothing will be kept.`
 - A page refused for rate arrives as iteration 18's `*adapter.ThrottledError`. The
@@ -708,6 +722,14 @@ names. `ScanIdentity` items keep their shape — a nested key path stays nested,
 Cosmos as an object literal in the projection — so `PartitionKeyValues` reads a swept
 item exactly as it reads a whole one, and a path the item lacks is simply absent.
 
+Iteration 21 adds a third field by the same rule, `Filter ScanFilter{Alias,
+Predicate}` — a `WHERE` evaluated by the backend — and uses it *with* `ScanIdentity`
+to select the targets of an `UPDATE` or `DELETE`. The identity shape carries what it
+needs and no more: `id`, the partition key path values in their nested shape, and the
+system fields, `_etag` among them, which is its optimistic-concurrency version. Its
+`UNSET` dry run reads whole items instead, since it must see the field it removes.
+Captures leave `Filter` zero.
+
 Why not leave the sweep and the fetch as ordinary `Connection.Query` calls, whose
 `Page.Raw` would carry the same bytes: `adapter.Query.Text` is adapter-native SQL, so
 `internal/snapshot` would have to write Cosmos SQL and the bracket syntax for key
@@ -728,6 +750,15 @@ type ItemMeta struct {
 func SplitSystemFields(item json.RawMessage) (body json.RawMessage, meta ItemMeta, err error)
 ```
 
+```go
+// IsSystemField reports whether name is a top-level field the backend owns.
+func IsSystemField(name string) bool
+```
+
+`IsSystemField` sits beside it over the same list, so the five names are spelled in
+exactly one place; iteration 21's `CheckMutation` uses it to refuse `SET` and `UNSET`
+on a system field.
+
 Iteration 18 plans `clone.StripSystemFields` for the same five names. Two lists of
 them would drift, and `snapshot` must not import `clone`, so the list lives once, in
 `adapter`, and `clone.StripSystemFields` becomes the body half of this call.
@@ -746,6 +777,7 @@ them would drift, and `snapshot` must not import `clone`, so the list lives once
   - `capture.go` — `Begin`, `Capture.Next`, `Abort`; full and incremental.
   - `diff.go`, `fields.go` — change lists; structural and line diffs.
   - `retain.go`, `verify.go`, `usage.go`, `export.go`.
+  - `Newest`, the read-only lookup iterations 21 and 22 call (in `record.go`).
   - Sentinels: `ErrUnknownFormat`, `ErrLocked`, `ErrCorrupt`, `ErrNoSnapshot`,
     `ErrTooManyItems`, each wrapped with the store and the file.
 - `internal/adapter` — `ScanRequest.Since`, `ScanRequest.Projection`, `ScanProjection`,
@@ -770,8 +802,11 @@ them would drift, and `snapshot` must not import `clone`, so the list lives once
     each carrying account and container path, per iteration 14.
   - `KeyMap`: `TakeSnapshot`, `Snapshots` in the Catalog section; `SnapshotKeys()` and
     `DiffKeys()` hint-line groups like `HistoryKeys()`. Drift-guard tests cover them.
-- `internal/tui/panes` — `Snapshots`, `Diff`, `ItemDiff`; `StatusBar.SetCapture`.
+- `internal/tui/panes` — `Snapshots`, `Diff`, `ItemDiff`; `StatusBar.SetJob`, and in
+  `internal/tui` the `job` slot, if no other plan has introduced them.
 - `internal/config` — `snapshot_dir` on `Config`; `snapshot_max_items` on `Profile`.
+  The `writers` profile key (18's `clone_writers`, renamed by 21) is not used: a
+  capture is a sequential read.
 - `cmd` — `snapshot.go`; `root.go` builds the root directory and passes it in;
   `profile.go` reports and purges snapshots on `remove`.
 - `README.md` — a "Snapshots" section: what a snapshot guarantees and does not, where
@@ -830,8 +865,23 @@ them would drift, and `snapshot` must not import `clone`, so the list lives once
   `ScanRequest.Since` and `ScanRequest.Projection`, the type `ScanProjection` with
   `ScanWholeItems` and `ScanIdentity`, and `adapter.SplitSystemFields` with
   `ItemMeta`, which `clone.StripSystemFields` should call rather than keep a second
-  list. `ScanPosition` is ignored here: a capture that stops is abandoned, not
-  resumed. `internal/snapshot` does not import `internal/clone`, nor the reverse.
+  list, and `adapter.IsSystemField`. The `job` slot and `StatusBar.SetJob` are shared
+  as "Long-running work" sets out; `SetClone` in 18 is that field under its first name.
+  `ScanPosition` is ignored here: a capture that stops is abandoned, not resumed.
+  `internal/snapshot` does not import `internal/clone`, nor the reverse.
+- **21, update by query, and 22, delete by query.** Soft, in both directions. They use
+  `ScanIdentity`, `SplitSystemFields` and `IsSystemField` as they stand, add
+  `ScanRequest.Filter`, and share the one-job slot. Their review overlay shows the age
+  of the newest snapshot of the target container, or that there is none, when this
+  plan has landed (`Options.Snapshots` is set). The call behind that line is
+  `snapshot.Newest(root, account, database, container) (Record, error)`: it resolves
+  the store directory, reads the newest file in `records/`, and returns
+  `ErrNoSnapshot` when there is none. It opens no pack, no manifest and no lock, so it
+  is safe to call from a `tea.Cmd` on every review. The pairing is the undo story
+  those plans do not have: `s` before the run, then after it a snapshot-to-snapshot
+  diff, or `snapshot diff --live` from a shell, shows exactly which items and fields
+  the statement changed. Their preview rows have the shape of this plan's structural
+  diff (`{op, path, before, after}`) and are drawn by the same renderer.
 
 ## Steps
 
@@ -897,6 +947,11 @@ was captured; and an incremental capture publishes the same manifest a full one 
 **Unit — `adapter.SplitSystemFields`:** the five fields leave and nothing else does; a
 nested field of the same name stays; an item with none is returned unchanged with a
 zero `ItemMeta`; `_ts` becomes UTC seconds; not-an-object is an error.
+`IsSystemField` is true for exactly the names `SplitSystemFields` removes.
+
+**Unit — `snapshot.Newest`:** the newest of several records; `ErrNoSnapshot` for an
+empty or missing store; a record without a pack directory still answers; a held `lock`
+does not block it.
 
 **Unit — diff:** added, removed, modified, a no-op replace is not a change, a changed
 partition key is remove plus add, composing three change sets equals diffing the ends;
@@ -919,8 +974,9 @@ A benchmark reports bytes per item and per changed item, so a regression is a nu
 - Snapshot, `PutItem`/`DeleteItem`, snapshot, `enter`: the diff lists exactly those
   items with the right signs; `enter` on a modified one shows `-`/`+` lines.
 - `x` mid-capture: nothing is listed, the lock is released, a new `s` works.
-- A second `s` while a capture runs is refused with a notice, and so is `s` while a
-  clone runs (when iteration 18 is in); the first `q` mid-capture opens the overlay
+- A second `s` while a capture runs is refused with a notice, and so is `s` while any
+  other kind holds the `job` slot; with a capture running, `y` and `ctrl+r` on an
+  `UPDATE` are refused and a `SELECT` runs; the first `q` mid-capture opens the overlay
   with the warning, the second quits, and nothing is published.
 - With a capture running and the overlay closed, the status bar shows the snapshot
   field; after a switch to another account it is unchanged, `v` reopens the running

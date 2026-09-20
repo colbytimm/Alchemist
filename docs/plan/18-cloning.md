@@ -112,8 +112,9 @@ describe the container in progress:
 ```
 
 While the view is hidden the status bar carries one extra field,
-`clone prod/sales.orders → emulator 41% (y)`, through a new
-`StatusBar.SetClone(label)`. It belongs to the job, not to an account, so it stays
+`clone prod/sales.orders → emulator 41% (y)`, through `StatusBar.SetJob(label)`, the
+one field every background job shares (see "One background job per session"). It
+belongs to the job, not to an account, so it stays
 where it is through every switch and always names both ends; `setActive` never touches
 it. When a hidden job ends it reads `clone done (y)`, `clone stopped (y)` or
 `clone failed (y)` until the view has been opened and closed once. It is text only; the
@@ -393,6 +394,25 @@ type ItemPage struct {
 }
 ```
 
+`ScanRequest` is the extension point, and three fields have been added by later
+iterations. Each one's zero value is the behavior above, so cloning sets none of them
+and is unaffected. The whole struct, in one place:
+
+```go
+type ScanRequest struct {
+    Container []string
+    From      ScanPosition
+    PageSize  int32
+
+    Since      time.Time      // 19: only items modified at or after it
+    Projection ScanProjection // 19: ScanWholeItems (zero) or ScanIdentity
+    Filter     ScanFilter     // 21: {Alias, Predicate}; zero keeps everything
+}
+```
+
+Their definitions and their reasons live in plans 19 and 21. A `ScanPosition` is valid
+only for the request that issued it, fields included.
+
 Decisions:
 
 - **A plain cross-partition `SELECT * FROM c`, not a query per partition range.**
@@ -406,7 +426,10 @@ Decisions:
   point here. `ItemScan` has the same three-method shape on purpose, so whoever holds
   one follows the ownership rule `fetchPage` documents.
 - **Items arrive unmodified.** Stripping system fields is the clone's business
-  (`clone.StripSystemFields`). Another consumer may want `_ts` and `_etag`.
+  (`clone.StripSystemFields`). Another consumer may want `_ts` and `_etag`. Which
+  fields are system fields is decided in one place, iteration 19's
+  `adapter.SplitSystemFields`; `StripSystemFields` is that call with the metadata
+  dropped, and keeps no list of its own.
 - **"Ordered" means stable, not sorted.** The guarantee is that resuming from `Next`
   yields exactly the items that would have followed, so no item is read twice or
   missed because of the pause itself. Writes to the source in the meantime are a
@@ -544,22 +567,65 @@ Reading stays sequential, with no pipeline: one page in memory, the next read on
 the last is written. That is the backpressure, and the source is never asked for data
 faster than the target takes it.
 
+The same argument holds for every client-side write job, and iterations 21 (update by
+query) and 22 (delete by query) are two more. So the pool and its throttle policy are
+not `internal/clone`'s: they are a small pure package, `internal/writers`, which
+imports `internal/adapter` for `ThrottledError` and nothing else of ours. Whichever of
+18 and 21 lands first writes it; the other imports it.
+
+```go
+package writers
+
+const (
+    DefaultSize  = 4
+    MaxSize      = 16
+    MaxThrottles = 10 // consecutive, on one item, before the step fails
+)
+
+// Write performs one item's write and reports what it cost.
+type Write func(ctx context.Context) (requestCharge float64, err error)
+
+// Pool runs the writes of one step through a bounded number of goroutines.
+// Its size only ever steps down, and it carries that from step to step.
+type Pool struct{ /* size, clock */ }
+
+func NewPool(size int) *Pool // clamped to 1..MaxSize
+func (p *Pool) Size() int
+
+// Run returns when every write has an outcome, in the order given. A write
+// that fails with anything but a throttle ends the step: writes not yet
+// started get ErrNotStarted.
+func (p *Pool) Run(ctx context.Context, writes []Write) []Outcome
+
+type Outcome struct {
+    RequestCharge float64
+    Throttles     int
+    Err           error
+}
+```
+
 Kept small on purpose:
 
-- The pool lives and dies inside one `CopyPage` call: a `sync.WaitGroup` and a
-  buffered channel as the semaphore. No goroutine outlives the step and no state is
-  shared beyond the page's counters, which the step owns and merges after `Wait`.
-- `Writers` is configuration: `clone_writers` on the **target** profile, default 4,
-  clamped to 1–16, delivered as `Account.CloneWriters`. Every engine test runs at 1
-  and at 8, under `-race`.
+- The goroutines live and die inside one `Run` call: a `sync.WaitGroup` and a buffered
+  channel as the semaphore. None outlives the step, and no state is shared beyond the
+  gate and the outcome slice, where each writer owns its own index. `CopyPage` builds
+  one `Write` per item over `ItemSink.Upsert`, calls `Run`, and folds the outcomes into
+  its counters; an outcome the target refused for the item's own sake is a skip.
+- The size is configuration: `writers` on a profile (`Profile.Writers`, default 4,
+  clamped to 1–16), delivered as `Account.Writers`. It is one key for every write job,
+  not one per feature; a clone reads the **target** account's. Nothing has shipped
+  under another name, so there is no legacy key to read. The pool's tests, and every
+  engine test on top of it, run at 1 and at 8 under `-race`.
 - On a `ThrottledError` all writers pause at a shared gate for `RetryAfter` (one
-  second when zero), the item is retried, and the writer count for the rest of the
-  container steps down by one, never below 1 and never back up. `clone.MaxThrottles`
-  (10) consecutive throttles on one item end the step with the error, and the job is
+  second when zero), the item is retried, and the pool's size steps down by one, never
+  below 1 and never back up. A clone makes one pool per container, so the next
+  container starts from the configured size again. `writers.MaxThrottles` (10)
+  consecutive throttles on one item end the step with the error, and the job is
   resumable. The step-down is the whole policy: a target at 400 RU/s settles at one
   writer within a few pages instead of burning retries for the rest of the run.
-- A `ThrottledError` on the read side waits the same way and retries the page. The
-  source is never hit with parallel reads.
+- The clock is injected, so the gate is tested on a fake one.
+- A `ThrottledError` on the read side waits the same way, in `CopyPage`, and retries
+  the page. The source is never hit with parallel reads.
 - Cancelling `ctx` stops new writes; writes in flight finish or fail on their own.
 
 ## Long-running job model
@@ -589,9 +655,8 @@ y → prepareClone ─ ClonePreparedMsg → form ─ enter → review ─ enter 
   Rate is a moving average over the last ten pages. Time left and projected RU scale
   what has been measured by `SizeEstimate.Items`. With `Known` false the view shows
   counts and rate only, with no percentage and no guess.
-- **One clone at a time per session**, not per account. `y` during a clone reopens the
-  progress view. Two jobs would compete for the same throughput, and the status bar
-  has one field.
+- **One background job per session**, not per account and not per feature; the
+  section below has the rule. `y` during a clone reopens the progress view.
 - **The rest of the UI stays usable, switching accounts included.** Queries run, the
   tree browses, other overlays open, `ctrl+g` moves the session anywhere. The job
   holds its two `adapter.Connection`s and the two account names from the moment it
@@ -624,6 +689,51 @@ y → prepareClone ─ ClonePreparedMsg → form ─ enter → review ─ enter 
   `cloned 30,112 items to emulator/sales.orders (194,310.52 RU)`. The active account
   and every account's scope stay as they are. Clones are not query runs and are not
   written to `history.jsonl`; the log file has them.
+
+### One background job per session
+
+A clone, a snapshot capture (19), an update by query (21) and a delete by query (22)
+are the same kind of thing: minutes of request units against an account, behind a view
+that can be hidden. Two at once would compete for one throughput, and the status bar
+has room for one. Four features holding that rule separately would be four checks to
+keep in step, so it has one owner in the root model:
+
+```go
+type jobKind int // jobClone | jobCapture | jobUpdate | jobDelete
+
+type job struct {
+    kind     jobKind
+    id       jobID    // what cloneID is an instance of
+    accounts []string // the switcher refuses x on these
+    cancel   context.CancelFunc
+}
+```
+
+- `Model.job` is the single slot. Starting any job checks it and nothing else;
+  `StatusBar.SetJob(label)` is the single field; the quit guard and the switcher's `x`
+  guard read `job.accounts` and the kind's wording. Whichever of 18, 19, 21 and 22
+  lands first introduces the slot and the field, and the others register a kind. There
+  is no `SetClone`, and no per-feature "is something else running" test.
+- The slot is held from the review's confirmation until the ended view is closed, so
+  a clone that stopped short and can still be resumed keeps other jobs out.
+
+Refused while a clone holds the slot, each with a status bar notice:
+
+| Refused | With |
+|---|---|
+| `y` on a row | nothing to refuse: it reopens the clone's view |
+| 19's `s`, take snapshot | `a clone is running: snapshots wait for it (y)` |
+| `ctrl+r` on an `UPDATE` or `DELETE` statement (21, 22) | `a clone is running: updates wait for it (y)`, before their dry run spends anything |
+
+And `y` is refused while another kind holds it, with the mirror notice naming that
+job's key. Everything that is not a job stays available: `SELECT` runs, catalog
+browsing and management, history, export, the info view, and reading snapshots already
+on disk (19's `v`, its diffs). Whether a transactional batch may run beside a job is
+iteration 17's rule to state, not this plan's.
+
+Reopening stays per feature, because each view is its own overlay and its key is the
+one the user pressed to start it: `y` here, `v` for a capture, `w` for an update or a
+delete. Only one of them has anything to show at a time.
 
 ### Cost and safety, in one place
 
@@ -690,11 +800,17 @@ one job and one confirmation.
   `WithWriteErrorAt(k)`, `WithUnknownSize()`, and `OpDefinition`, `OpScan`, `OpUpsert`
   for `WithError`. A recording hook reports the highest number of concurrent `Upsert`
   calls, so the writer bound is asserted rather than assumed.
+- `internal/writers` (new, pure; here or in 21, whichever is first) — `Pool`,
+  `NewPool`, `Write`, `Outcome`, `ErrNotStarted`, `DefaultSize`, `MaxSize`,
+  `MaxThrottles`, the gate and the injected clock.
 - `internal/clone` (new, pure) — `Job`, `Plan`, `Copy`, `Progress`,
-  `StripSystemFields`, `MinimumRUs`, `MaxSkipped`, `MaxThrottles`, `ErrTargetExists`.
+  `StripSystemFields`, `MinimumRUs`, `MaxSkipped`, `ErrTargetExists`. Imports
+  `internal/adapter` and `internal/writers`.
 - `internal/tui`
-  - `clone.go` — `openClone`, overlay key handling, the five commands, the quit guard,
-    the disconnect and delete guards.
+  - `job.go` — the `job` slot, `jobKind`, `jobID`, the quit guard and the switcher
+    guard, if no other iteration has brought them.
+  - `clone.go` — `openClone`, overlay key handling, the five commands, registering
+    `jobClone`, the delete guard on the target.
   - `messages.go` — `ClonePreparedMsg`, `CloneTargetCreatedMsg`, `ClonePageCopiedMsg`,
     `CloneFinishedMsg`, `CloneFailedMsg`, each with `cloneID`; `OpClone`.
   - `keys.go` — `Clone` in the Catalog section; `CloneKeys()` for the progress view's
@@ -702,7 +818,7 @@ one job and one confirmation.
   - `app.go` — `overlayClone`, `overlayCloneProgress`; per-account capability
     assertions beside iteration 11's; `Clone` enabled per the active account in
     `setActive`.
-  - `accounts.go` — `Account.CloneWriters`; the prompt's background connect, which
+  - `accounts.go` — `Account.Writers`; the prompt's background connect, which
     reuses `openAccount` with a ping and does not set the account the switcher waits
     for; the switcher's `x` guard. `Account.ReadOnly` is iteration 17's.
 - `internal/tui/panes`
@@ -711,13 +827,14 @@ one job and one confirmation.
     `[]CloneTarget{Name, State AccountState}` plus the read-only names left out, so the
     pane draws states with iteration 14's `AccountState` and learns nothing else about
     accounts.
-  - `progress.go` — `CloneProgress`; `StatusBar.SetClone`.
+  - `progress.go` — `CloneProgress`. `statusbar.go` — `StatusBar.SetJob`.
 - `internal/theme` — `IconSet.BarFull`, `IconSet.BarEmpty`.
-- `internal/config` — `clone_writers` on `Profile` (`omitzero`, validated 1–16).
-- `cmd/root.go` — passes `clone_writers` through. No new wiring otherwise: the
+- `internal/config` — `writers` on `Profile` (`Profile.Writers`, `omitzero`,
+  validated 1–16).
+- `cmd/root.go` — passes `writers` through. No new wiring otherwise: the
   capabilities are interfaces on the connections `Opener` already returns.
 - `README.md` — a "Cloning" section: what is copied, what it costs, the snapshot
-  caveat, the TTL restart; the key table; `clone_writers`.
+  caveat, the TTL restart; the key table; `writers`.
 
 ## Out of scope
 
@@ -781,11 +898,27 @@ one job and one confirmation.
   consume `ItemScanner` and `DefinitionReader` rather than define a second scan or a
   second definition read. If it needs more, such as a consistent cut or a time bound,
   that belongs in `ScanRequest` as a new field whose zero value is today's behavior,
-  not in a parallel interface. Iteration 19 does exactly that (`Since`, `Projection`)
-  and puts the list of system fields in one place, `adapter.SplitSystemFields`;
-  `clone.StripSystemFields` calls it rather than keeping a second list, whichever of
-  the two lands first. The two share the one-background-job-per-session rule: `y` is
-  refused while a capture runs, and 19's `s` while a clone does.
+  not in a parallel interface. Iteration 19 does exactly that (`Since`, `Projection`,
+  both listed under "The scan primitive") and puts the list of system fields in one
+  place, `adapter.SplitSystemFields`; `clone.StripSystemFields` calls it rather than
+  keeping a second list, and whichever of the two lands first writes the helper. A
+  capture is a kind in the shared `job` slot: `y` is refused while one runs, and 19's
+  `s` while a clone does. `v` on snapshots already on disk works during a clone.
+- **20, CTEs and join types.** No interaction.
+- **21, update by query.** It depends on this plan, not the other way round, and three
+  things here are shaped for it. The writer pool and throttle policy live in
+  `internal/writers`, not in `internal/clone`, written by whichever lands first. The
+  pool-size key is `writers`, one knob for every write job. The job slot, the
+  `StatusBar.SetJob` field and the two guards are one mechanism that an update
+  registers a kind in. It also consumes `ItemScanner`, `ThrottledError` and
+  `PartitionKeyValues` as they stand, adds `ScanRequest.Filter`, and does not use
+  `ItemSink`, since an upsert of a whole item is the wrong write for a patch. Its
+  `adapter.IsSystemField` sits beside 19's `SplitSystemFields`, over the same list.
+  An `UPDATE` is refused while a clone runs, before its dry run, and `y` while an
+  update runs. Its view reopens with `w`.
+- **22, delete by query.** As 21: the same pool, key, slot and refusals, under the
+  kind `jobDelete` and the same `w`. A clone taken first is a cheap "before" copy of
+  what a delete is about to remove, and 22 says so; nothing here changes for it.
 
 ## Steps
 
@@ -796,21 +929,24 @@ Each step ships and leaves `make all` green.
    first, since they are the contract the Cosmos side has to meet.
 2. `internal/clone`: `Prepare`, `CreateNext`, `StripSystemFields`, definition-only jobs
    for one container, all against the mock.
-3. `clone.CopyPage` with `Writers` fixed at 1: paging, skips, resume from a position.
-   Then the pool, the throttle gate and the step-down, under `-race`.
+3. `clone.CopyPage` with one writer: paging, skips, resume from a position. Then
+   `internal/writers` (or, if 21 has landed, its import): the pool, the throttle gate
+   and the step-down, with their own tests at sizes 1 and 8 under `-race`.
 4. Cosmos: `ContainerDefinition` and create-from-policies, with integration tests.
    Ships nothing visible.
 5. TUI, definition only, same account: `y`, `NewCloneForm`, the review step,
    `createTarget`, the reload. **Ships: clone a container's definition.**
 6. Cosmos `ScanItems` and `OpenItemSink` with integration tests, including a
    two-path hierarchical key.
-7. TUI items: `CloneProgress`, the step chain, `x`, `r`, `d`, the status bar field,
-   the quit guard. **Ships: full container clone within an account.**
+7. TUI items: `CloneProgress`, the step chain, `x`, `r`, `d`, and the shared `job`
+   slot with `StatusBar.SetJob` and the quit guard, or `jobClone` registered in it
+   when 19, 21 or 22 brought it first. **Ships: full container clone within an
+   account.**
 8. Database clone: sequencing, shared throughput, the summary.
 9. Cross-account: the Target account field over every known account, the background
    connect from the prompt, the switcher's `x` guard, `CatalogChangedMsg` into a
    background pane, `y` reopening from any account, `portable` as the default,
-   `clone_writers`, the read-only rule. **Ships: prod → emulator.**
+   `writers`, the read-only rule. **Ships: prod → emulator.**
 10. README, help sections, plan statuses.
 
 ## Testing
@@ -821,6 +957,18 @@ Each step ships and leaves `make all` green.
 - A missing path and an object at the path both return `ErrNoPartitionKey` naming the
   path.
 - A number keeps its digits, since the value stays `json.RawMessage`.
+
+**Unit — `writers`** (no adapter; every case at sizes 1 and 8, `-race`; here unless 21
+landed first):
+- Outcomes come back in the order the writes were given, with their charges.
+- The highest number of writes in flight never exceeds the size; `NewPool` clamps 0 and
+  40 to 1 and 16.
+- A `ThrottledError` pauses every writer for `RetryAfter` on the fake clock (one second
+  when zero), the write is retried, `Size()` drops by one and stays there for the next
+  `Run`, and never goes below 1.
+- `MaxThrottles` in a row on one write ends the step with that error; writes not yet
+  started report `ErrNotStarted`, and none of them was called.
+- A cancelled context returns promptly, starts no new write, and leaks no goroutine.
 
 **Unit — `clone`** (mock adapter, every case at `Writers` 1 and 8, `-race`):
 - A definition-only job creates the target with the source's key paths and
@@ -878,6 +1026,11 @@ Each step ships and leaves `make all` green.
   made at switch time, and the source tree's cursor never moved.
 - `x` cancels the job context; the ended view names the partial target; `r` continues
   to the right total; `d` opens `Confirm` for the target path and nothing else.
+- The job slot: with a clone running, 19's `s` and `ctrl+r` on an `UPDATE` or a
+  `DELETE` statement are refused with the notice and reach no connection (each
+  asserted once that iteration exists); a `SELECT` runs; `y` while another kind holds
+  the slot is refused with the mirror notice and opens no prompt. A clone that ended
+  short still holds the slot until its view is closed with `esc`.
 - `q` during a clone does not quit. A second `q` cancels the job and quits, and both
   accounts are closed exactly once.
 - `x` in the switcher on the source or the target account mid-clone closes nothing and
@@ -968,7 +1121,7 @@ every created resource removed in `t.Cleanup`):
   dropped silently.
 - `Update` never blocks. During a clone every pane, query runs, and `ctrl+c` keep
   working, and at most one clone runs per session.
-- Writes never exceed `clone_writers` in flight. A throttled target slows the clone
+- Writes never exceed `writers` in flight. A throttled target slows the clone
   down, and only repeated throttling with no progress fails it.
 - A stopped, failed or abandoned clone says exactly what it left behind, can be
   resumed within the session without duplicating items, and can be deleted only

@@ -25,6 +25,7 @@ What was verified, and where:
 | Write results carry no body unless `EnableContentResponseOnWrite` is set, and the SDK sets it for the whole request as soon as one operation is a read | `ExecuteTransactionalBatch` |
 | Hierarchical keys are built with `NewPartitionKeyString/Number/Bool` then `AppendString/Number/Bool/Null` | `partition_key.go` |
 | Patch is built only through `AppendAdd/Set/Replace/Remove/Increment` and `SetCondition`; there is no `move`, and `AppendIncrement` takes an `int64` | `cosmos_patch_operations.go` |
+| A patch value is an `any` field tagged to be left out of the JSON when empty, so a nil value is dropped: `AppendSet(path, nil)` sends a `set` with no value. A `json.RawMessage("null")` is a non-nil interface and is sent as `null` | `patchOperation` in `cosmos_patch_operations.go`; found by iteration 21, re-read here |
 | The SDK writes an operation's `id` and a patch condition into the payload with `%s`, unescaped | `batchOperationDelete.MarshalJSON` and siblings; `PatchOperations.MarshalJSON` |
 | The Cosmos retry policy never replays a write whose request may have been sent, and never retries a write on 408 or 5xx | `clientRetryPolicy.attemptRetryOnNetworkError`, `attemptRetryOnRequestTimeout`, `attemptRetryOnServerError` |
 | The generic azcore retry policy is still in the pipeline and *does* replay on 408, 429, 500, 502, 503, 504, three times by default; `policy.WithRetryOptions(ctx, policy.RetryOptions{MaxRetries: -1})` turns it off for one call | `azcosmos.newClient`, azcore v1.23.1 `runtime/policy_retry.go` (`setDefaults` maps a negative count to zero) |
@@ -191,6 +192,7 @@ Batch refused, nothing was sent:
 | a `REPLACE` body's `id` equals the statement's | `replaces "o004" with a body whose id is "o005"` |
 | every body holds the batch's key value at each key path | the `customerId` message above |
 | a `PATCH` array is non-empty, each entry has a known `op` and a `path`, and no path is `/id` or a key path | `cannot patch the partition key /customerId` |
+| every `PATCH` entry but `remove` has a `value` key (`null` is a value) | `set /status has no value` |
 | no two `CREATE`s share an `id` | `operations 2 and 6 both create "o900"` |
 
 The size is an estimate (bodies, ids, ETags and a fixed allowance per operation) and
@@ -317,6 +319,31 @@ is made), and `q` and `ctrl+g` are ignored with the same notice. `ctrl+c` always
 The wait is bounded by `batchTimeout` (30 s; the service's own limit is 5 s of
 execution).
 
+### Beside a background job
+
+Iterations 18, 19, 21 and 22 run long work in one root-model `job` slot (`jobClone`,
+`jobCapture`, `jobMutation`) shown through `StatusBar.SetJob`. A batch is not a job and
+takes no slot: it holds the keyboard for seconds, not the throughput for minutes. So
+`committing…` is a run state, the job label keeps its own field, and job messages
+that arrive while a batch commits are processed as usual.
+
+`ctrl+r` on a batch while a job runs is **allowed, with one exception**: it is refused
+when the batch's target is the container the job is *writing* — a clone's target, an
+update's or a delete's container — on the same account:
+
+```
+an update is writing sales.orders: the batch waits for it (w)
+```
+
+The job's review described those items to the user; a batch rewriting them mid-job
+would make that description stale, and the job's conditional writes would then skip
+items for a reason the user caused by accident. Every other container, the job's
+*source*, and any container during a capture (which writes nothing) are fair game.
+The check is one comparison against the slot (`job.writes() (account string,
+container []string, ok bool)`), made in `startBatch` before validation, and the
+refusal is recorded like any other. Before any of those iterations lands there is no
+slot and no check.
+
 ### Which account
 
 A batch belongs to the account that was active when `ctrl+r` was pressed.
@@ -352,12 +379,14 @@ happens where `AccountConnectedMsg` lands and is kept per account; before it, in
 type Batcher interface {
     // ExecuteBatch returns a BatchResult whenever the backend answered,
     // whether it committed or rolled back. An error means no answer: it wraps
-    // ErrBatchOutcomeUnknown when the batch may have been applied, and
+    // ErrWriteOutcomeUnknown when the batch may have been applied, and
     // otherwise guarantees that it was not. An implementation never retries.
     ExecuteBatch(ctx context.Context, b Batch) (BatchResult, error)
 }
 
-var ErrBatchOutcomeUnknown = errors.New("batch outcome unknown")
+// ErrWriteOutcomeUnknown covers any write with no answer: a batch here, a
+// single item in iterations 21 and 22.
+var ErrWriteOutcomeUnknown = errors.New("write outcome unknown")
 
 type Batch struct {
     Scope        []string     // ["sales", "orders"]
@@ -435,10 +464,14 @@ type ItemDrafter interface {
 
 - `NewContainer(Scope[0], Scope[1])`, then a `PartitionKey` folded from the components
   with `NewPartitionKeyString/Number/Bool` and `Append*`; a leading `null` starts from
-  `NewPartitionKey().AppendNull()`.
+  `NewPartitionKey().AppendNull()`. The fold is `partitionKey(adapter.PartitionKey)
+  (azcosmos.PartitionKey, error)` in `write.go` (below), not a private of this file.
 - Each `Operation` maps to its `TransactionalBatch` method. `IfMatch` becomes
   `TransactionalBatchItemOptions.IfMatchETag`.
-- A patch array maps entry by entry to `AppendAdd/Set/Replace/Remove/Increment`. `move`
+- A patch array maps entry by entry to `AppendAdd/Set/Replace/Remove/Increment`.
+  **Values are passed as `json.RawMessage`, never decoded.** A decoded JSON `null` is
+  a nil `any`, which the SDK's struct tag drops, turning `{"op": "set", "path": "/x",
+  "value": null}` into a malformed `set`; raw bytes also keep a number's digits. `move`
   and a non-integer `incr` have no SDK call and are refused before anything is sent,
   naming the SDK as the reason. `Condition` goes to `SetCondition`.
 - **Escaping.** The SDK formats `id` and the patch condition into the payload with
@@ -457,12 +490,20 @@ type ItemDrafter interface {
   → `OperationFailed`; the rest `OperationApplied`. `Status` is the code and
   `http.StatusText`. `Stats.RequestCharge` is the response's `RequestCharge`.
 - **Errors.** An `*azcore.ResponseError` with 408 or ≥ 500 wraps
-  `ErrBatchOutcomeUnknown`; any other `ResponseError` goes through `wrap`'s refusal
+  `ErrWriteOutcomeUnknown`; any other `ResponseError` goes through `wrap`'s refusal
   path as today. With no response at all, a dial or DNS failure (`*net.OpError` with
   `Op == "dial"`, `*net.DNSError`) means not sent; everything else, a passed deadline
-  included, wraps `ErrBatchOutcomeUnknown`. This path must not reuse `wrap`'s
+  included, wraps `ErrWriteOutcomeUnknown`. This path must not reuse `wrap`'s
   `adapter.Unreachable` branch, which calls a timeout "never reached the account" —
   true enough for a read, false for a write.
+- **Shared with single-item writes.** Three unexported helpers live in
+  `internal/adapter/cosmos/write.go`, because iteration 21's `edit.go` (and 22 through
+  it) needs exactly them: `partitionKey`, the fold above; `withoutRetries(ctx)
+  context.Context`, the azcore override; and `writeError(op string, err error) error`,
+  the classification in the previous bullet — sent and unanswered wraps
+  `adapter.ErrWriteOutcomeUnknown`, everything else is guaranteed not applied.
+  Whichever of 17 and 21 lands first writes the file with its tests; the other calls
+  it. There is one definition of "unknown" in the adapter, not one per write path.
 - `DraftReplace` drops `_rid`, `_self`, `_etag`, `_attachments`, `_ts` and `_lsn` and
   moves `_etag` to `IfMatch`.
 
@@ -485,7 +526,7 @@ type ItemDrafter interface {
   is all the tests need; a nested path is an error that says so.
 - `WithBatchFailure(k int, status string)` fails operation *k* whatever the store says.
   `WithError(OpBatch)` fails the call as not applied, and
-  `WithError(OpBatchUnknown)` as `ErrBatchOutcomeUnknown`, after applying the batch to
+  `WithError(OpBatchUnknown)` as `ErrWriteOutcomeUnknown`, after applying the batch to
   the store, so a test can prove the UI makes no claim either way.
 - `WithLatency` applies, for the in-flight tests.
 - `DraftReplace` strips `_etag` into `IfMatch`, over the same fixtures.
@@ -496,6 +537,8 @@ type ItemDrafter interface {
   `PartitionKeyValues`/`ErrNoPartitionKey` if iteration 18 has not brought them.
 - `internal/adapter/cosmos/batch.go` — as above; compile-time checks
   `_ adapter.Batcher = (*connection)(nil)` and the `ItemDrafter` one.
+- `internal/adapter/cosmos/write.go` — `partitionKey`, `withoutRetries`, `writeError`,
+  if iteration 21 has not brought them.
 - `internal/adapter/mock/mock.go`, `mock/items.go` — the store and the options above.
 - `internal/query`
   - `batch.go` — `IsBatch(text string) bool`; `ParseBatch(text string) (adapter.Batch,
@@ -528,7 +571,11 @@ type ItemDrafter interface {
     `draftReplace`, and the refusals `errReadOnly`, `errNoBatchSupport` ("this adapter
     has no transactions"), `errBatchInFlight`. `Model.batcher()` is the single place a
     `Batcher` is handed out, and it is where read-only is enforced.
-  - `app.go` — `startRun` branches on `query.IsBatch` before `resolvePlan`;
+  - `app.go` — `startRun` branches on `query.IsBatch` before `resolvePlan`. The order
+    in `startRun` is fixed: `IsBatch`, then iteration 21's `query.IsMutation`, then
+    `BuildPlan`. The three cannot overlap, since `BEGIN`, `UPDATE`/`DELETE` and
+    `SELECT`/`WITH` are different first tokens; the order is stated so each plan adds
+    one branch rather than rearranging the others;
     `overlayBatchReview`; a `runCommitting` run state.
   - `commands.go` — `executeBatch` with `batchTimeout`; its context is never canceled
     by the model.
@@ -651,8 +698,26 @@ deliberate switch and a fresh `ctrl+r`, and that account's review names it and i
   to `internal/query`, `ParseBatch` is written on it rather than on a second
   hand-rolled token walk; the grammar above is small enough to move either way, and
   this plan does not depend on 20.
-- **16, 19.** No dependency. This plan reserves `ctrl+b` and leaves `ctrl+t`, `p`, `s`
-  and `v` alone.
+- **19, snapshots.** Nothing beyond `read_only`: a capture reads and writes only to
+  the local store, so `s` and `snapshot take` work on a read-only account, and a
+  capture never blocks a batch. A snapshot taken before a risky batch is the undo this
+  plan does not have; the README says so.
+- **21, update by query, and 22, delete by query.** Both depend on this plan and add
+  no second safety model. They reuse: the statement-in-the-editor model and `ctrl+r`;
+  the review overlay family and its typed-container-name rule (the same widget);
+  `read_only` through the one gate, `Model.batcher()`, which grows to hand out their
+  `ItemEditor` too; `runAccount`; the unknown-outcome rule, `ErrWriteOutcomeUnknown`
+  and `write.go`'s classification; retries off; `Operation`, `OperationResult` and
+  `PartitionKey` as the unit of a single write; the escaping and raw-value fixes; the
+  mock's item store and patch code; the report as a synthetic `adapter.Page`; and
+  `Entry.Kind`, which gains their values beside `batch`. They deliberately do **not**
+  use `Batcher`. A batch is all-or-nothing, so one item that changed since the dry run
+  would roll back up to 99 innocent ones, and skipping exactly that item while the
+  rest proceed is their feature; a throttled batch is also refused whole where a
+  single write can wait and retry. Atomic and resumable are different promises, and
+  each plan keeps one. `startRun` checks `IsBatch` first, then `IsMutation`.
+- **16.** No dependency. This plan reserves `ctrl+b` and leaves `ctrl+t` and `p` alone;
+  `s`, `v` and `w` belong to 19 and 21.
 
 ## Steps
 
@@ -702,8 +767,12 @@ adapters from `New` share nothing; both injected call failures.
 containing `"` and `\`; patch entry mapping, with `move` and fractional `incr` refused
 before any request; every `PartitionKey` shape; status → outcome mapping from a canned
 207 body; 408, 503, a mid-body connection reset and a passed deadline all wrap
-`ErrBatchOutcomeUnknown`; a dial failure, 400, 413 and 429 do not; a counting
-transport sees exactly one request when the first answer is 503.
+`ErrWriteOutcomeUnknown`; a dial failure, 400, 413 and 429 do not; a counting
+transport sees exactly one request when the first answer is 503. A patch entry
+`{"op": "set", "path": "/x", "value": null}` is captured on the wire with
+`"value":null` present, and `"value": 1e400` and `12345678901234567890` arrive digit
+for digit. `writeError` and `partitionKey` have their own table tests in
+`write_test.go`, which is what 21 relies on.
 
 **Unit — `config`:** the four rows of the read-only table; `[::1]:8081` and
 `localhost:8081` count as local; `--read-only` cannot loosen.
@@ -739,6 +808,10 @@ transport sees exactly one request when the first answer is 503.
 - The same buffer run on a second, read-only account is refused there, and the first
   account can still write.
 - With no active account `ctrl+r` on a batch shows `errNoAccount` and opens no review.
+- With a job slot present (a fake job registered by the test): a batch on another
+  container opens its review while the job runs; a batch on the container the job
+  writes is refused, reaches no adapter, and is recorded; a job message delivered while
+  `committing…` still updates the job label.
 - History: `Kind` is `batch`; `ctrl+r` on a batch entry closes the overlay and opens
   the review with zero `ExecuteBatch` calls, and `esc` there leaves the recalled text in
   the editor and the store untouched; `enter` on a batch entry does not move the scope;

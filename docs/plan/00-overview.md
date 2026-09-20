@@ -156,6 +156,8 @@ The TUI converts errors into messages rendered in the Assay pane.
 | 18 | [18-cloning.md](18-cloning.md) | Clone a container or a whole database (definition, optionally items) within an account or into another connected one: client-side copy with progress, stop, resume | 11, 14 |
 | 19 | [19-snapshots-diff.md](19-snapshots-diff.md) | Container and database snapshots in a deduplicated, compressed local store; incremental capture; item, field-level and definition diffs; snapshots overlay and `alchemist snapshot` CLI | 8, 11, 14, 18 |
 | 20 | [20-cte-join-types.md](20-cte-join-types.md) | Client-side LEFT/RIGHT/FULL OUTER and CROSS joins, CROSS/OUTER APPLY over item arrays, and CTEs (`WITH`) pushed down per container, materialized once, composable; plan becomes a small operator tree | 10, 16 |
+| 21 | [21-update-by-query.md](21-update-by-query.md) | Bulk update by query: `UPDATE db.container a SET … [UNSET …] WHERE …` simulated client-side — read-only dry run, review with typed confirmation, background job of per-item conditional patches, per-item report; introduces the shared select-then-write engine | 14, 17, 18 |
+| 22 | [22-delete-by-query.md](22-delete-by-query.md) | Delete by query: `DELETE FROM db.container a WHERE …` on 21's engine, each delete conditional on the item's ETag, confirmed by container name plus item count | 21 |
 
 Iterations 3 and 4 are parallelizable — both depend only on the interfaces from 2.
 
