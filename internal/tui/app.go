@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 
@@ -87,16 +88,18 @@ func (s runState) loaded() bool { return s == runLoaded || s == runFetching }
 // screen, seeded from Form, and calls Connect with what the screen submits.
 // A nil Logger discards output, and a nil History records nothing.
 // Database, when set, is expanded in the catalog as soon as the root
-// arrives.
+// arrives. MaxJoinRows caps the in-memory side of a cross-container join; zero
+// means query.DefaultMaxJoinRows.
 type Options struct {
-	Icons      theme.IconSet
-	Connection adapter.Connection
-	Connect    Connector
-	Form       panes.ConnectForm
-	Logger     *log.Logger
-	History    history.Store
-	Profile    string
-	Database   string
+	Icons       theme.IconSet
+	Connection  adapter.Connection
+	Connect     Connector
+	Form        panes.ConnectForm
+	Logger      *log.Logger
+	History     history.Store
+	Profile     string
+	Database    string
+	MaxJoinRows int
 }
 
 // Connector opens the connection the connect screen asked for. It is called
@@ -134,6 +137,7 @@ type Model struct {
 	ownsConnection  bool
 	defaultDatabase string
 	profile         string
+	maxJoinRows     int
 
 	scope      []string
 	state      runState
@@ -141,6 +145,8 @@ type Model struct {
 	pageCursor adapter.Cursor
 	cancel     context.CancelFunc
 	stats      adapter.Stats
+	// simulated marks a run merged client-side from several containers.
+	simulated bool
 	// historyEntry is the record of the current run, appended to the log
 	// once the run has settled one way or the other.
 	historyEntry history.Entry
@@ -181,6 +187,7 @@ func New(opts Options) Model {
 
 		defaultDatabase: opts.Database,
 		profile:         opts.Profile,
+		maxJoinRows:     opts.MaxJoinRows,
 		screen:          screenConnect,
 	}
 	if opts.Connection != nil {
@@ -505,18 +512,32 @@ func (m Model) startRun() (Model, tea.Cmd) {
 	m = m.endRun()
 	m.run++
 	m.stats = adapter.Stats{}
+	m.simulated = false
 	m.results = m.results.Clear()
 
-	q, err := m.resolveQuery()
+	plan, err := m.resolvePlan()
 	if err != nil {
-		return m.showFailure(err, runFailed)
+		return m.refuseRun(err)
 	}
-	m.historyEntry = m.newHistoryEntry(q.Scope)
+	m.simulated = plan.Simulated()
+	m.historyEntry = m.newHistoryEntry(plan.Scope())
 	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 	m.cancel = cancel
 	m.state = runRunning
 	model, cmd := m.syncStatusBar()
-	return model, tea.Batch(cmd, model.runQuery(ctx, q))
+	return model, tea.Batch(cmd, model.runPlan(ctx, plan))
+}
+
+// refuseRun reports a run that never reached the adapter. It is recorded like
+// any other failure, so a query worth fixing can be recalled; an empty buffer
+// leaves nothing to recall.
+func (m Model) refuseRun(err error) (Model, tea.Cmd) {
+	model, cmd := m.showFailure(err, runFailed)
+	if errors.Is(err, errNoQuery) {
+		return model, cmd
+	}
+	model.historyEntry = model.newHistoryEntry(model.scope)
+	return model, tea.Batch(cmd, model.recordFailure(err))
 }
 
 // fetchMore asks the open cursor for another page, handing it to the command
@@ -534,25 +555,22 @@ func (m Model) fetchMore() (Model, tea.Cmd) {
 	return model, tea.Batch(cmd, model.fetchPage(ctx, cursor))
 }
 
-// resolveQuery decides what to run and where: a db.container source written
+// resolvePlan decides what to run and where: a db.container source written
 // in the query wins over the container selected in the catalog.
-func (m Model) resolveQuery() (adapter.Query, error) {
+func (m Model) resolvePlan() (query.Plan, error) {
 	text := m.editor.Value()
 	if strings.TrimSpace(text) == "" {
-		return adapter.Query{}, errNoQuery
+		return query.Plan{}, errNoQuery
 	}
-	parsed, err := query.ParseScope(text)
+	plan, err := query.BuildPlan(text)
 	if err != nil {
-		return adapter.Query{}, err
+		return query.Plan{}, err
 	}
-	scope := parsed.Scope
-	if !parsed.Explicit {
-		scope = m.scope
+	plan = plan.WithDefaultScope(m.scope)
+	if len(plan.Scope()) == 0 {
+		return query.Plan{}, errNoScope
 	}
-	if len(scope) == 0 {
-		return adapter.Query{}, errNoScope
-	}
-	return adapter.Query{Text: parsed.Rewritten, Scope: scope}, nil
+	return plan, nil
 }
 
 func (m Model) loadPage(msg PageLoadedMsg) (Model, tea.Cmd) {
@@ -650,10 +668,11 @@ func (m Model) syncStatusBar() (Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.statusBar = m.statusBar.SetNotice("")
 	m.statusBar, cmd = m.statusBar.SetProgress(panes.Progress{
-		Stats:   m.stats,
-		More:    m.hasMore(),
-		Running: m.state.running(),
-		Loaded:  m.state.loaded(),
+		Stats:     m.stats,
+		More:      m.hasMore(),
+		Running:   m.state.running(),
+		Loaded:    m.state.loaded(),
+		Simulated: m.simulated,
 	})
 	return m, cmd
 }
@@ -665,7 +684,19 @@ func totalStats(total, page adapter.Stats) adapter.Stats {
 		RequestCharge: total.RequestCharge + page.RequestCharge,
 		Elapsed:       total.Elapsed + page.Elapsed,
 		RowCount:      total.RowCount + page.RowCount,
+		LeafCharges:   totalLeafCharges(total.LeafCharges, page.LeafCharges),
 	}
+}
+
+func totalLeafCharges(total, page map[string]float64) map[string]float64 {
+	if len(page) == 0 {
+		return total
+	}
+	sum := maps.Clone(page)
+	for leaf, charge := range total {
+		sum[leaf] += charge
+	}
+	return sum
 }
 
 // selectNode also republishes the scope when the selected node is a

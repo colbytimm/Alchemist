@@ -106,26 +106,11 @@ func waitForEmulator(t *testing.T, conn adapter.Connection) {
 // container with more rows than one page holds.
 func freshFixture(t *testing.T) {
 	t.Helper()
-	parsed, err := cosmos.ParseSettings(settings())
-	require.NoError(t, err)
-	cred, err := azcosmos.NewKeyCredential(parsed.Key)
-	require.NoError(t, err)
-	opts := &azcosmos.ClientOptions{}
-	opts.Transport = &http.Client{Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // self-signed emulator cert only
-	}}
-	client, err := azcosmos.NewClientWithKey(parsed.Endpoint, cred, opts)
-	require.NoError(t, err)
+	client := seedClient(t)
+	db := freshDatabase(t, client, fixtureDatabase)
 
 	ctx := context.Background()
-	db, err := client.NewDatabase(fixtureDatabase)
-	require.NoError(t, err)
-	_, _ = db.Delete(ctx, nil)
-	_, err = client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: fixtureDatabase}, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = db.Delete(context.Background(), nil) })
-
-	_, err = db.CreateContainer(ctx, azcosmos.ContainerProperties{
+	_, err := db.CreateContainer(ctx, azcosmos.ContainerProperties{
 		ID:                     fixtureContainer,
 		PartitionKeyDefinition: azcosmos.PartitionKeyDefinition{Paths: []string{"/pk"}},
 	}, nil)
@@ -143,6 +128,37 @@ func freshFixture(t *testing.T) {
 		_, err = container.CreateItem(ctx, azcosmos.NewPartitionKeyString(pk), item, nil)
 		require.NoError(t, err)
 	}
+}
+
+// seedClient talks to the emulator directly, for the writes the adapter has
+// no business offering.
+func seedClient(t *testing.T) *azcosmos.Client {
+	t.Helper()
+	parsed, err := cosmos.ParseSettings(settings())
+	require.NoError(t, err)
+	cred, err := azcosmos.NewKeyCredential(parsed.Key)
+	require.NoError(t, err)
+	opts := &azcosmos.ClientOptions{}
+	opts.Transport = &http.Client{Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // self-signed emulator cert only
+	}}
+	client, err := azcosmos.NewClientWithKey(parsed.Endpoint, cred, opts)
+	require.NoError(t, err)
+	return client
+}
+
+// freshDatabase drops whatever an earlier run left behind under name, and
+// drops it again when the test ends.
+func freshDatabase(t *testing.T, client *azcosmos.Client, name string) *azcosmos.DatabaseClient {
+	t.Helper()
+	ctx := context.Background()
+	db, err := client.NewDatabase(name)
+	require.NoError(t, err)
+	_, _ = db.Delete(ctx, nil)
+	_, err = client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: name}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = db.Delete(context.Background(), nil) })
+	return db
 }
 
 func newModel(t *testing.T, conn adapter.Connection) tea.Model {

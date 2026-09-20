@@ -48,7 +48,11 @@ line.
 |---|---|---|
 | at the start of a statement or after a complete clause | clause keywords valid next | `SEL` → `SELECT`; after `FROM c ` → `WHERE`, `JOIN`, `ORDER BY`, `GROUP BY`, `OFFSET` |
 | after `FROM` or `JOIN … IN`'s source position | databases, then the alias-less container shortcut | `FROM sa` → `sales` |
+| after a `,` in a `FROM` container list (iteration 10 union) | databases, as after `FROM` | `FROM sales.orders, sa` → `sales` |
+| after `JOIN` | databases, for a cross-container join; nothing for the alias a `JOIN … IN` is about to declare | `JOIN sa` → `sales` |
 | after `<database>.` in a source position | that database's containers | `FROM sales.or` → `orders` |
+| after `JOIN <db>.<container> [alias] ` | `ON` | |
+| after `ON ` or `ON <alias>.<field> = ` of a cross-container join | the two side aliases, then their fields | `ON o.cu` → `customerId` |
 | after `<alias>.` anywhere else | fields observed at that path | `c.cu` → `customerId`, `currency` |
 | after `<alias>.<path>.` | fields observed under that path | `c.customer.` → `name`, `tier` |
 | in an expression position | fields of the root alias, functions, `TRUE`/`FALSE`/`NULL`/`UNDEFINED` | `WHERE STARTS` → `STARTSWITH(` |
@@ -59,6 +63,24 @@ Aliases resolve through the parser `internal/query` already has: `FROM sales.ord
 makes `o` the root alias, a bare `FROM c` makes it `c` against the catalog's scope, and
 `JOIN t IN c.tags` makes `t` the element type of the array at `c.tags`. When no alias
 can be resolved the field list falls back to the scope container's root fields.
+
+Iteration 10 made aliases plural, and completion follows the planner's reading of
+them rather than inventing its own:
+
+- **Join.** `FROM sales.orders o JOIN sales.customers cu ON …` has two root aliases,
+  each bound to its own container; `o.` lists fields of `orders` and `cu.` those of
+  `customers`. A side with no alias is known by its container name, exactly as
+  `query.BuildPlan` has it (`orders.customerId`).
+- **Union.** `FROM sales.orders, sales.archive AS c` binds one alias to several
+  containers; `c.` lists the union of their fields, each field's `Detail` naming the
+  containers it was seen in when it was not seen in all of them.
+- A cross-container join projects top-level fields only, so after `SELECT` in such a
+  query `o.` offers top-level fields and stops; `ON` and `WHERE` positions still walk
+  nested paths.
+
+Completion never offers a shape the planner refuses: no `LEFT`/`OUTER`/`CROSS` before
+`JOIN`, no `ORDER BY`/`GROUP BY`/`OFFSET` once a cross-container `JOIN` is in the
+query, and no third `JOIN <db>.` source.
 
 Matching is case-insensitive prefix first, then case-insensitive substring, in that
 order, so `cid` does not outrank `cu` → `currency`. Keywords are inserted in the case
@@ -100,13 +122,31 @@ user did not want does not reopen on the next character of the same word.
 | Functions | a static table of Cosmos system functions with their signatures | none | static; pinned to a documented date |
 | Databases | catalog root nodes the tree has loaded | none | follows the tree, including `r` refresh |
 | Containers | catalog children of that database | one `Children` call if the tree has not loaded it yet | follows the tree |
-| Fields, observed | columns and raw documents of every page this session fetched for that container | none | grows as the user queries |
+| Fields, observed | raw documents of every page this session fetched for that container, including the leaves of a simulated run (see below) | none | grows as the user queries |
 | Fields, partition key | `Node.Meta[MetaPartitionKey]` | none | follows the tree |
 | Fields, sampled | `SELECT TOP 20 * FROM c` through the optional adapter interface below | one query per container per session, a few RU | taken once, on the first field completion for that container |
+
+Pages of a simulated run (iteration 10) are synthetic, and the index must take them
+apart rather than file them as they look. Their `Columns` are not fields: a union
+leads with `_container` and a join prefixes every column with its alias (`o.total`).
+Their `Raw` items say where each document came from, and that is what the index reads:
+
+- a union item carries `"_container": "db.container"`: strip it and file the rest
+  under the container it names;
+- a join item nests each side under its alias (`{"o": {…}, "cu": {…}}`): file each
+  half under the container `query.Plan.Leaves` gives for that alias. With a projected
+  `SELECT` list the halves hold the projected fields only, which is still true of the
+  container, just not complete.
+
+The root model keeps the `query.Plan` of the current run beside its `runID` for this.
 
 Containers of a database the tree has not expanded are fetched through the same
 `loadChildren` command the tree uses and land in the tree's cache, so completion and
 the catalog never disagree and the work is not done twice.
+
+A query over several containers samples each of them, once each, the first time a
+field of that container's alias is completed; a union alias samples every container
+it covers.
 
 Sampling spends request units the user did not ask to spend, so it is visible and
 switchable: the list's hint line reads `sampling orders…` while it runs, the log
@@ -152,15 +192,23 @@ sampled fields (from the adapter) must flatten identically.
   - `Context(text string, cursor int) Completion` — the token under the cursor, the
     byte range a suggestion replaces, and what kind of thing belongs there (keyword,
     database, container of *db*, field under *alias*+*path*, expression). Built on the
-    existing lexer and `parser`, which already track sources and aliases.
+    existing lexer and `parser`, which already track sources and aliases; since
+    iteration 10 each `source` also records its `FROM` clause, whether a `JOIN`
+    introduced it, and its token range. A field context names every container the
+    alias is bound to (one for a join side, several for a union), resolved by the
+    same rules as `query.BuildPlan` so the two cannot disagree.
   - Teach the lexer `--` comments. It does not know them today, which already
     colors a query wrongly with an apostrophe in a comment (noted in the iteration 8 PR);
-    completion inside comments makes it worth fixing here, and scope parsing gets the
-    fix for free.
+    completion inside comments makes it worth fixing here, and the planner
+    (`query.BuildPlan`, which replaced `ParseScope` in iteration 10) gets the fix for
+    free.
   - Extend the keyword list with the clause words completion needs and the scope
     parser does not (`GROUP`, `BY`, `OFFSET`, `LIMIT` are present; add `UNDEFINED`,
     `ARRAY`, `ESCAPE`, `UDF`). Check each addition against the rule that list exists
-    for: a keyword can never be a bare source alias.
+    for: a keyword can never be a bare source alias. Iteration 10 added a second list
+    under the same rule, `joinModifiers` (`LEFT`, `INNER`, `OUTER`, …); it stays out
+    of highlighting because `LEFT` and `RIGHT` are also functions, and of those words
+    completion offers only `INNER`.
 - `internal/complete` (new, pure, no TUI imports)
   - `Index`: databases, containers per database, fields per container, fed by plain
     method calls; `Suggest(ctx query.Completion) []Suggestion` ranks and caps.
@@ -180,8 +228,9 @@ sampled fields (from the adapter) must flatten identically.
   - `Suggestions` — the docked list: rows, selection, hint line, the one-line form.
 - `internal/tui`
   - The root model owns the `complete.Index`, feeds it from `CatalogLoadedMsg`,
-    `PageLoadedMsg`, and `PageAppendedMsg`, and recomputes suggestions after every
-    editor update. Suggesting is synchronous and in-memory; only the container fetch
+    `PageLoadedMsg`, and `PageAppendedMsg` (through the current run's `query.Plan`
+    when the run was simulated), and recomputes suggestions after every editor
+    update. Suggesting is synchronous and in-memory; only the container fetch
     and the sample are commands.
   - `FieldsSampledMsg` and an `OpSampleFields` failure through `ErrMsg`, each carrying
     the container path so a late answer for another container cannot land on this one.
@@ -207,10 +256,13 @@ sampled fields (from the adapter) must flatten identically.
 
 ## Relationship to other iterations
 
-- **10, cross-container.** Several `db.container` sources in one query each get their
-  own alias and their own field list; `Context` already returns the alias, so nothing
-  here assumes a single container. Until 10 lands the scope parser still rejects such
-  a query at run time, and completion does not try to get ahead of that.
+- **10, cross-container.** Landed. `query.BuildPlan` accepts a container list (union,
+  one shared alias) and a two-container `JOIN … ON` (one alias per side), and refuses
+  every other multi-container shape with `query.ErrUnsupported`. Completion is built
+  for both from the start: plural aliases, source positions after `,` and `JOIN`,
+  `ON`, and an index fed from the synthetic pages those runs produce. It offers
+  nothing the planner would refuse. The sample databases from `make emulator-seed`
+  (`sales`, `telemetry`, `hr`) are the manual test bed.
 - **11, catalog management.** A container created or deleted through the tree changes
   what completes, with no extra work, because the index is fed from the same messages.
   Deleting a container drops its fields from the index.
@@ -241,7 +293,11 @@ spent; step 7 is separable if sampling needs more thought.
 **Unit — `query.Context`:** every row of the context table; cursor mid-word (the range
 covers the whole word, not just the part before the cursor); cursor in a string, in a
 comment, at offset 0, at the end; aliases from `AS`, bare, and `JOIN … IN`; an
-unterminated string; multi-byte text before the cursor.
+unterminated string; multi-byte text before the cursor. For iteration 10's shapes: a
+source position after a list comma and after `JOIN`; `ON` after a joined container;
+each join alias resolving to its own container, including a side with no alias; a
+union alias resolving to every listed container; a `SELECT`-list field context in a
+cross-container join marked top-level only.
 
 **Unit — `complete`:** prefix outranks substring; ties keep source order; the cap;
 keyword case follows the typed case; a field needing brackets gets them; a deleted
@@ -255,6 +311,12 @@ of scalars, a field whose kind varies across documents, `null`, empty document.
 - `FROM ` then `s` lists the mock's databases; `sales.` lists its containers, fetching
   them when the tree had not.
 - `c.` lists fields after a query has returned a page, before any sample.
+- After a join has run, `o.` and `cu.` list their own container's fields, and neither
+  lists `_container`, `o.total`, or any other synthetic column; after a union, `c.`
+  lists fields seen in either container and never `_container`.
+- In a join, completing `o.` then `cu.` issues one sample per container, two in all.
+- After a cross-container `JOIN`, the clause keywords offered exclude `ORDER BY`,
+  `GROUP BY`, and `OFFSET`.
 - The first field completion for a container issues exactly one sample; a second
   container issues its own; `sample_fields = false` issues none.
 - A sample that fails is logged, not retried, and does not disturb typing.
@@ -272,6 +334,8 @@ nested paths of the seed documents and a non-zero request charge.
 **Manual checklist:**
 - [ ] Against the emulator: complete a database, a container, and a nested field in one
       query, then run it.
+- [ ] Against the seeded `sales` database: write the iteration 10 join example using
+      completion for both containers, both aliases' fields, and `ON`; run it.
 - [ ] Typing at speed in a 200-line buffer stays responsive with the list open.
 - [ ] `ctrl+space` behavior noted for Terminal.app, iTerm2, and one Linux terminal.
 - [ ] With `sample_fields = false` the log shows no sampling query.
@@ -280,6 +344,9 @@ nested paths of the seed documents and a non-zero request charge.
 
 - Keywords, functions, databases, containers, and fields complete in the positions the
   context table names, and nowhere inside strings or comments.
+- In a cross-container query every alias completes the fields of its own container or
+  containers, synthetic columns of simulated results never appear as fields, and
+  nothing is offered that `query.BuildPlan` would refuse.
 - Accepting replaces exactly the token under the cursor, in multi-line buffers and
   after multi-byte text, and leaves the cursor after the inserted text.
 - No request is made for keyword, function, or database completion; container

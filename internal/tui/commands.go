@@ -9,6 +9,7 @@ import (
 
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/history"
+	"github.com/colbytimm/alchemist/internal/query"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
 
@@ -63,12 +64,13 @@ func (m Model) loadChildren(node adapter.Node) tea.Cmd {
 	}
 }
 
-// runQuery opens a cursor and fetches its first page. ctx belongs to the
+// runPlan opens a cursor and fetches its first page. ctx belongs to the
 // model, which cancels it when a newer run supersedes this one.
-func (m Model) runQuery(ctx context.Context, q adapter.Query) tea.Cmd {
-	run, connection, logger := m.run, m.connection, m.logger
+func (m Model) runPlan(ctx context.Context, plan query.Plan) tea.Cmd {
+	run, logger := m.run, m.logger
+	engine := query.Engine{Connection: m.connection, MaxJoinRows: m.maxJoinRows}
 	return func() tea.Msg {
-		cursor, err := connection.Query(ctx, q)
+		cursor, err := engine.Execute(ctx, plan)
 		if err != nil {
 			return QueryFailedMsg{run: run, Err: err}
 		}

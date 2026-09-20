@@ -40,20 +40,20 @@ inverts every failure message in the file.
 Default shape for anything with more than two cases.
 
 ```go
-func TestParseScope(t *testing.T) {
+func TestBuildPlan(t *testing.T) {
     tests := []struct {
         name    string
         input   string
-        want    query.Scope
+        want    query.Plan
         wantErr error
     }{
-        {name: "database and container", input: "use db.orders", want: ...},
-        {name: "two containers", input: "...", wantErr: query.ErrMultiContainer},
+        {name: "database and container", input: "SELECT * FROM db.orders", want: ...},
+        {name: "left join", input: "...", wantErr: query.ErrUnsupported},
     }
 
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
-            got, err := query.ParseScope(tt.input)
+            got, err := query.BuildPlan(tt.input)
             if tt.wantErr != nil {
                 require.ErrorIs(t, err, tt.wantErr)
                 return
@@ -80,11 +80,11 @@ The failure must be diagnosable without opening the test. testify prints want/go
 you; when you add a message, say what the input was:
 
 ```go
-require.Equal(t, tt.want, got, "ParseScope(%q)", tt.input)
+require.Equal(t, tt.want, got, "BuildPlan(%q)", tt.input)
 ```
 
 Without testify the canonical form is actual-before-expected:
-`t.Errorf("ParseScope(%q) = %v, want %v", tt.input, got, tt.want)`.
+`t.Errorf("BuildPlan(%q) = %v, want %v", tt.input, got, tt.want)`.
 
 ## Helpers and cleanup
 
@@ -139,7 +139,7 @@ Each integration test creates and cleans up its own database or container via
 ```
 make test                                  # go test ./...
 go test -race ./...                        # any change touching goroutines
-go test -run TestParseScope ./internal/query/test/
+go test -run Plan ./internal/query/test/
 make coverage-html                         # ./app ./cmd ./internal
 ```
 

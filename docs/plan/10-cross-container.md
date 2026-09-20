@@ -72,6 +72,41 @@ Executed as a client-side hash join:
   join-cap messages.
 - Config: `max_join_rows` per profile (iteration 6 schema gains the key).
 
+## As built
+
+Decisions the sections above left open, recorded once the code settled them:
+
+- **`JOIN ... ON` stays the syntax.** Cosmos's own join is always `JOIN alias IN path`
+  (or a subquery) and has no `ON`, so the two never collide: a `JOIN` whose source is a
+  `db.container` path is cross-container, everything else passes through untouched.
+- **One entry point.** `query.BuildPlan` replaced `ParseScope` and `ErrMultiContainer`;
+  `query.Engine.Execute` returns an ordinary `adapter.Cursor`, which is why the results
+  pane, export, and history needed no changes.
+- **Union grammar.** The container list must be the whole first `FROM` clause and share
+  one alias (default `c`). Leaves run one after another, so a page never mixes
+  containers and one leaf cursor is open at a time. Raw items gain `_container` too.
+- **Join grammar.** `SELECT` list is `*` or top-level `alias.field [AS name]` items; `ON` fields
+  may be nested. Leaves run `SELECT * FROM alias` plus the pushed-down `WHERE`.
+- **WHERE pushdown.** The clause is cut at top-level `AND`s and each conjunct goes to
+  the side it reads; an `OR` or `BETWEEN` at top level keeps the clause whole. A
+  conjunct reading both sides is refused: evaluating it would need a client-side
+  expression engine.
+- **Build side.** The side with a pushed-down filter when only one has it, otherwise
+  the joined (right) container. Sizes are unknown before the queries run.
+- **Key equality** follows the service: strict on type, `1`, `1.0` and `1e0` equal,
+  integers past 2^53 compared digit for digit, a missing field equal to nothing.
+- **Probe pages with no match are skipped**, not served empty; their RU still counts.
+- **Per-leaf RU lives in `adapter.Stats.LeafCharges`**, a typed map rather than the
+  string-keyed `Meta` sketched above. A terminal has no tooltip, so the status bar prints
+  the breakdown beside the total: `10.00 RU (sales.customers 7.50 + sales.orders 2.50)`.
+- **Errors.** `query.ErrUnsupported` and `query.ErrJoinTooLarge`, both sentinels,
+  wrapped with the shape or the container that tripped them.
+- **History records refused runs too.** A query the planner or the TUI turns away (no
+  scope, unsupported shape) is logged as a failure so it can be recalled and fixed,
+  reversing iteration 7's "never reached the adapter, never recorded". Only an empty
+  buffer records nothing.
+- `make emulator-seed` (`test/seed`) loads sample databases for the manual checklist.
+
 ## Out of scope
 
 - OUTER/LEFT joins, multi-way joins, cross-scope aggregation pushdown, cross-account

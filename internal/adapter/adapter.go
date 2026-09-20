@@ -120,4 +120,7 @@ type Stats struct {
 	RequestCharge float64 // RU; 0 where the backend has no such concept
 	Elapsed       time.Duration
 	RowCount      int
+	// LeafCharges splits RequestCharge by db.container when the page was
+	// merged client-side from several containers; nil otherwise.
+	LeafCharges map[string]float64
 }

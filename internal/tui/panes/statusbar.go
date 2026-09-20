@@ -2,6 +2,8 @@ package panes
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,6 +20,9 @@ const (
 	helpHint = "? help"
 	noScope  = "no scope"
 	moreHint = " (+more)"
+	// simulatedBadge marks a result merged client-side, so its summed charge
+	// is never mistaken for one server-side query.
+	simulatedBadge = "simulated (client-side)"
 	// pending stands in for a statistic no run has produced yet.
 	pending = "—"
 )
@@ -29,6 +34,8 @@ type Progress struct {
 	More    bool // another page is available
 	Running bool // a fetch is in flight
 	Loaded  bool // a page has arrived, so Stats are worth showing
+	// Simulated marks a run merged client-side from several containers.
+	Simulated bool
 }
 
 // StatusBar is the one-line footer: profile, active scope, and the statistics
@@ -121,10 +128,15 @@ func (s StatusBar) fields() []string {
 	fields := []string{
 		theme.TextStyle().Render(s.profile),
 		theme.TextStyle().Render(s.scopeLabel()),
+	}
+	if s.progress.Simulated {
+		fields = append(fields, theme.HintStyle().Render(simulatedBadge))
+	}
+	fields = append(fields,
 		theme.TextStyle().Render(s.rowsLabel()),
 		chargeStyle().Render(s.chargeLabel()),
 		theme.TextStyle().Render(s.elapsedLabel()),
-	}
+	)
 	if s.progress.Running {
 		fields = append(fields, s.spinner.View())
 	}
@@ -156,7 +168,19 @@ func (s StatusBar) chargeLabel() string {
 	if !s.progress.Loaded {
 		return pending + " RU"
 	}
-	return fmt.Sprintf("%.2f RU", s.progress.Stats.RequestCharge)
+	return fmt.Sprintf("%.2f RU", s.progress.Stats.RequestCharge) + leafChargesLabel(s.progress.Stats.LeafCharges)
+}
+
+// leafChargesLabel breaks a summed charge down by container.
+func leafChargesLabel(charges map[string]float64) string {
+	if len(charges) < 2 {
+		return ""
+	}
+	var parts []string
+	for _, leaf := range slices.Sorted(maps.Keys(charges)) {
+		parts = append(parts, fmt.Sprintf("%s %.2f", leaf, charges[leaf]))
+	}
+	return " (" + strings.Join(parts, " + ") + ")"
 }
 
 func (s StatusBar) elapsedLabel() string {

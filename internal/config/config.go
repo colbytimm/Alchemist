@@ -40,6 +40,8 @@ type Profile struct {
 	InsecureSkipVerify bool   `toml:"insecure_skip_verify,omitempty"`
 	Database           string `toml:"database,omitempty"`
 	PageSize           int    `toml:"page_size,omitzero"`
+	// MaxJoinRows caps the side of a cross-container join held in memory.
+	MaxJoinRows int `toml:"max_join_rows,omitzero"`
 }
 
 // Profile returns the profile called name, or the default profile when name
@@ -147,6 +149,8 @@ func (p Profile) validate() error {
 		return fmt.Errorf("profile %q: endpoint is required: %w", p.Name, ErrInvalidConfig)
 	case p.PageSize < 0:
 		return fmt.Errorf("profile %q: page_size must be positive: %w", p.Name, ErrInvalidConfig)
+	case p.MaxJoinRows < 0:
+		return fmt.Errorf("profile %q: max_join_rows must be positive: %w", p.Name, ErrInvalidConfig)
 	}
 	return nil
 }

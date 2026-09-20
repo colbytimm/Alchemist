@@ -26,6 +26,7 @@ func TestSaveThenLoadRoundTrips(t *testing.T) {
 	prod := prodProfile()
 	prod.Database = "sales"
 	prod.PageSize = 50
+	prod.MaxJoinRows = 2000
 	want, err := config.Config{}.Add(emulatorProfile())
 	require.NoError(t, err)
 	want, err = want.Add(prod)
@@ -48,7 +49,7 @@ func TestSaveOmitsUnsetOptionalFields(t *testing.T) {
 
 	text, err := os.ReadFile(store.Path)
 	require.NoError(t, err)
-	for _, unset := range []string{"page_size", "database", "insecure_skip_verify"} {
+	for _, unset := range []string{"page_size", "max_join_rows", "database", "insecure_skip_verify"} {
 		assert.NotContains(t, string(text), unset)
 	}
 }
@@ -81,6 +82,7 @@ endpoint = "https://localhost:8081"
 insecure_skip_verify = true      # emulator self-signed cert only
 database = "sales"               # optional default scope
 page_size = 100
+max_join_rows = 5000
 
 [profiles.prod]
 adapter = "cosmos"
@@ -99,6 +101,7 @@ endpoint = "https://myaccount.documents.azure.com:443/"
 		InsecureSkipVerify: true,
 		Database:           "sales",
 		PageSize:           100,
+		MaxJoinRows:        5000,
 	}, profile)
 	assert.Equal(t, []string{"emulator", "prod"}, cfg.Names())
 }

@@ -80,7 +80,7 @@ Single-method interfaces take the method name plus `-er`: `Reader`, `Writer`, `C
 
 ## Errors
 
-- Sentinel values: `ErrFoo` exported, `errFoo` unexported. This repo: `query.ErrMultiContainer`.
+- Sentinel values: `ErrFoo` exported, `errFoo` unexported. This repo: `query.ErrUnsupported`.
 - Custom error types: suffix `Error` — `type ParseError struct{}`. `errname` enforces both.
 - The *message* is lowercase with no trailing period; only the *identifier* is capitalized.
 

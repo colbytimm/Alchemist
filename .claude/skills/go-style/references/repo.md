@@ -11,12 +11,12 @@ cmd/                     cobra wiring; concrete adapters constructed and injecte
 internal/adapter/        the backend-agnostic contract (Adapter, Connection, Catalog, Cursor)
 internal/adapter/mock/   in-memory adapter used by tests and demos
 internal/adapter/cosmos/ azcosmos implementation, split by concept
-internal/query/          scope parsing
+internal/query/          query planner and client-side cross-container engine
 internal/theme/          lipgloss styles, logo, colour profile
 internal/tui/            bubbletea models; interfaces only, no concrete adapter
 internal/<pkg>/test/     external test packages (package <pkg>_test)
 test/integration/        docker-compose for the Cosmos emulator
-docs/plan/               iteration plans, 00–10
+docs/plan/               iteration plans, 00–13
 ```
 
 **The architectural invariant, enforced by `depguard`:** `internal/tui` may import
@@ -75,7 +75,7 @@ All tool versions are pinned via `go run tool@version`. Never introduce `@latest
 - Compile-time interface checks in a `// Compile-time contract checks.` var block.
 - Bare receivers when unused: `func (Adapter) Name() string { return Name }`.
 - Exported `const Name = "cosmos"` as an adapter's registry key.
-- Sentinel errors at package level: `var ErrMultiContainer = errors.New("query: ...")`.
+- Sentinel errors at package level: `var ErrUnsupported = errors.New("query: ...")`.
 - Package doc comments that state the invariant, not the file list.
 - `sync.RWMutex` declared directly above the map it guards.
 

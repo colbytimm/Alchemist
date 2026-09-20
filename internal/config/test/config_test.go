@@ -101,6 +101,11 @@ func TestAddRejectsWhatCannotBeLaunched(t *testing.T) {
 			profile: config.Profile{Name: "x", Adapter: "cosmos", Endpoint: "https://x", PageSize: -1},
 			wantErr: config.ErrInvalidConfig,
 		},
+		{
+			name:    "negative max join rows",
+			profile: config.Profile{Name: "x", Adapter: "cosmos", Endpoint: "https://x", MaxJoinRows: -1},
+			wantErr: config.ErrInvalidConfig,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

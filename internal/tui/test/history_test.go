@@ -133,12 +133,41 @@ func TestASupersededRunIsNotRecorded(t *testing.T) {
 	assert.Len(t, store.entries, 1, "only the run whose page was shown is recorded")
 }
 
-func TestAQueryThatNeverReachesTheAdapterIsNotRecorded(t *testing.T) {
+func TestAQueryRefusedBeforeItReachesTheAdapterIsStillRecorded(t *testing.T) {
+	tests := []struct {
+		name      string
+		query     string
+		wantError string
+	}{
+		{name: "no scope", query: "SELECT * FROM c", wantError: "no container in scope"},
+		{
+			name:      "unsupported shape",
+			query:     "SELECT * FROM sales.orders o LEFT JOIN sales.customers cu ON o.pk = cu.pk",
+			wantError: "LEFT JOIN",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &recordingStore{}
+			conn := newConnection(t)
+
+			runQuery(t, newHistoryModel(t, conn, store), tt.query)
+
+			require.Len(t, store.entries, 1)
+			assert.False(t, store.entries[0].OK)
+			assert.Equal(t, tt.query, store.entries[0].Query)
+			assert.Contains(t, store.entries[0].Error, tt.wantError)
+			assert.Empty(t, conn.queries)
+		})
+	}
+}
+
+func TestRunningAnEmptyBufferRecordsNothing(t *testing.T) {
 	store := &recordingStore{}
 
-	runQuery(t, newHistoryModel(t, newConnection(t), store), "SELECT * FROM c")
+	pressAll(t, newHistoryModel(t, newConnection(t), store), keyMsg(tea.KeyCtrlR))
 
-	assert.Empty(t, store.entries, "a query with no scope never ran")
+	assert.Empty(t, store.entries)
 }
 
 func TestTheRecordedQueryIsWhatWasTypedNotWhatWasSent(t *testing.T) {

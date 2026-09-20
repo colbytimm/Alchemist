@@ -84,7 +84,7 @@ func TestProfileAddDefaultFlagMovesTheDefault(t *testing.T) {
 
 func TestProfileAddKeepsTheOptionalFields(t *testing.T) {
 	h := newHarness(t)
-	h.addProfile(t, "emulator", "--database", "sales", "--page-size", "25")
+	h.addProfile(t, "emulator", "--database", "sales", "--page-size", "25", "--max-join-rows", "500")
 
 	store, err := config.DefaultStore()
 	require.NoError(t, err)
@@ -93,6 +93,7 @@ func TestProfileAddKeepsTheOptionalFields(t *testing.T) {
 
 	assert.Equal(t, "sales", cfg.Profiles["emulator"].Database)
 	assert.Equal(t, 25, cfg.Profiles["emulator"].PageSize)
+	assert.Equal(t, 500, cfg.Profiles["emulator"].MaxJoinRows)
 }
 
 func TestProfileSetKeyReplacesTheKey(t *testing.T) {

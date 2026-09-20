@@ -9,9 +9,11 @@ write SQL, and page through results without leaving the terminal.
 It shows the request charge (RU) of every query, runs cross-partition queries by
 default, and pages with continuation tokens rather than loading a whole result set.
 Result sets export to JSON or CSV, and every query is kept in a searchable history.
+It also queries across containers, which the service cannot: unions and two-container
+joins are [simulated client-side](#querying-across-containers).
 
-> **Status: early development.** Browsing, querying, profiles, history, and export
-> work today. Cross-container queries, catalog management, and release builds are
+> **Status: early development.** Browsing, querying, cross-container queries,
+> profiles, history, and export work today. Catalog management and release builds are
 > still to come; the [implementation plan](docs/plan/00-overview.md) tracks them.
 
 ## Getting started
@@ -77,6 +79,52 @@ While the editor has the keyboard, plain letters are text; `ctrl+c` always quits
 Once the editor loses focus it shows the query with keywords, strings, and numbers
 colored.
 
+## Querying across containers
+
+Cosmos DB SQL reads exactly one container per query. Alchemist accepts two shapes
+that name more, runs them as one query per container, and merges the pages itself.
+The status bar marks such a result `simulated (client-side)`, and its RU figure is the
+sum of the underlying queries, broken down per container.
+
+**Union.** List containers after `FROM`. The same query runs against each, and a
+leading `_container` column says where every row came from. One alias covers the
+whole list:
+
+```sql
+SELECT * FROM sales.orders, sales.archive AS c WHERE c.status = "open"
+```
+
+**Join.** An inner join of two containers on one equality:
+
+```sql
+SELECT o.id, o.total, cu.name
+FROM sales.orders AS o
+JOIN sales.customers AS cu ON o.customerId = cu.id
+WHERE cu.region = "west"
+```
+
+Columns come back prefixed with their alias (`o.total`, `cu.name`) unless the select
+list renames them (`cu.name AS customer`). The select list is `*` or top-level
+`alias.field` items; the `ON` fields may be nested
+(`o.customer.id`). A `WHERE` condition is sent to the container it reads, so it must
+read one side only. A side with no alias is known by its container name.
+
+Cosmos DB's own `JOIN alias IN c.array` is untouched: it has no `ON` and runs on the
+service as it always did.
+
+One side of a join is held in memory: the side a `WHERE` condition filters, or the
+joined container when that does not settle it. It may hold `max_join_rows` rows
+(10 000 unless the [profile](#profiles) says otherwise). Past that the run stops with
+an error rather than a partial answer; filter that side, or raise the cap.
+
+Anything else across containers is refused before it runs, never approximated: outer
+joins, more than two containers in a join, `ON` with anything but one `=`,
+`ORDER BY`/`GROUP BY`/`OFFSET` on a join, and subqueries over another container.
+
+`make emulator-seed` loads the emulator with `sales`, `telemetry`, and `hr` databases
+to try these against. It replaces databases of those names and only runs against
+localhost.
+
 ## Exporting results
 
 `ctrl+e` in the results pane asks for a file name and writes the rows fetched so far.
@@ -126,6 +174,7 @@ endpoint = "https://localhost:8081"
 insecure_skip_verify = true      # emulator self-signed cert only
 database = "sales"               # opened in the catalog on start
 page_size = 100
+max_join_rows = 5000             # cross-container joins; 10000 when unset
 
 [profiles.prod]
 adapter = "cosmos"
