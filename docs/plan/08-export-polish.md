@@ -59,10 +59,10 @@ and bring the README up to reality.
   malformed input (fuzz seed corpus).
 
 **Manual checklist:**
-- [ ] Query the emulator, `ctrl+e`, export both formats; open the CSV in a spreadsheet
+- [x] Query the emulator, `ctrl+e`, export both formats; open the CSV in a spreadsheet
       and `jq` the JSON.
-- [ ] Unfocused editor shows highlighted SQL; focused editing stays responsive.
-- [ ] README quickstart followed verbatim on a clean machine gets to first query.
+- [x] Unfocused editor shows highlighted SQL; focused editing stays responsive.
+- [x] README quickstart followed verbatim on a clean machine gets to first query.
 
 ## Acceptance criteria
 

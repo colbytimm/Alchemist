@@ -1,0 +1,51 @@
+name: gates
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-name: quality
+      - run: make fmt-check
+      - run: make lint
+      - run: make spell
+      - run: make test-coverage
+      - uses: actions/upload-artifact@v6
+        with:
+          name: coverage
+          path: coverage.out
+      - run: make build
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # gitleaks scans history, not just the tip.
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-name: security
+      - run: make security
+
+  # Its own job so a flaky emulator is told apart from a unit failure.
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-name: integration
+      - run: make emulator-up emulator-wait
+      - run: make test-integration
+      - if: failure()
+        run: docker logs alchemist-cosmos-emulator

@@ -25,12 +25,15 @@ words:
   - bubbletea
   - charmbracelet
   - colbytimm
+  - Timm
   - dbus
   - lipgloss
   - pflag
+  - rhysd
   - stretchr
   - termenv
   - textinput
+  - zricethezav
   # Cosmos DB REST and SQL vocabulary
   - colls
   - documentdb
@@ -50,6 +53,7 @@ words:
   - errcheck
   - errname
   - errorlint
+  - goarch
   - gocognit
   - gocritic
   - goimports
@@ -64,6 +68,7 @@ words:
   - nolint
   - nosec
   - godoc
+  - incpatch
   - gofmt
   - securego
   - staticcheck
