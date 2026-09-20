@@ -90,7 +90,7 @@ func newClient(endpoint, key string) (*azcosmos.Client, error) {
 	}
 	opts := &azcosmos.ClientOptions{}
 	opts.Transport = &http.Client{Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // self-signed emulator cert; requireLocal has vetted the host
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402 -- self-signed emulator cert; requireLocal has vetted the host
 	}}
 	client, err := azcosmos.NewClientWithKey(endpoint, cred, opts)
 	if err != nil {
