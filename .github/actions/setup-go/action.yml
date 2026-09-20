@@ -1,0 +1,31 @@
+name: Set up Go
+description: Installs the Go version go.mod names and restores this job's module, build, and tool caches.
+
+inputs:
+  cache-name:
+    description: >-
+      Names the job's cache. Each job compiles different pinned tools through
+      `go run tool@version`, and a cache is written once per key: one key shared
+      by every job would hold only what the first job to finish had built.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - id: go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+        # setup-go keys its cache on go.sum alone and shares it across jobs;
+        # the step below keys per job and on the Makefile's tool pins as well.
+        cache: false
+    - uses: actions/cache@v6
+      with:
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+          ~/.cache/golangci-lint
+          ~/.npm
+        key: go-${{ runner.os }}-${{ steps.go.outputs.go-version }}-${{ inputs.cache-name }}-${{ hashFiles('go.sum', 'Makefile') }}
+        restore-keys: |
+          go-${{ runner.os }}-${{ steps.go.outputs.go-version }}-${{ inputs.cache-name }}-

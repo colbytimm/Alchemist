@@ -8,8 +8,9 @@ main, and a tag-driven release workflow ships cross-platform binaries.
 ## Scope
 
 - `.github/workflows/pr.yml` — on `pull_request` targeting `main`:
-  - **quality** job (`ubuntu-latest`): checkout, setup-go (version from `go.mod`,
-    module cache on), `make fmt-check`, `make lint`, `make test` with coverage
+  - **quality** job (`ubuntu-latest`): checkout, `.github/actions/setup-go` (version
+    from `go.mod`; a per-job cache of modules, build output, and the pinned `go run`
+    tools, keyed on `go.sum` and the `Makefile`), `make fmt-check`, `make lint`, `make test` with coverage
     (upload coverage artifact), `make build`.
   - **security** job: `make security` (gosec, govulncheck, gitleaks — pinned versions,
     not `@latest`).

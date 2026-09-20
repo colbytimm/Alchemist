@@ -19,9 +19,9 @@ jobs:
         with:
           # goreleaser derives the snapshot version from the latest tag.
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: ./.github/actions/setup-go
         with:
-          go-version-file: go.mod
+          cache-name: snapshot
       - run: make release-snapshot
       - uses: actions/upload-artifact@v6
         with:

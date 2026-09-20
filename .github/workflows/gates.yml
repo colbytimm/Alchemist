@@ -11,9 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: ./.github/actions/setup-go
         with:
-          go-version-file: go.mod
+          cache-name: quality
       - run: make fmt-check
       - run: make lint
       - run: make spell
@@ -31,9 +31,9 @@ jobs:
         with:
           # gitleaks scans history, not just the tip.
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: ./.github/actions/setup-go
         with:
-          go-version-file: go.mod
+          cache-name: security
       - run: make security
 
   # Its own job so a flaky emulator is told apart from a unit failure.
@@ -42,9 +42,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: ./.github/actions/setup-go
         with:
-          go-version-file: go.mod
+          cache-name: integration
       - run: make emulator-up emulator-wait
       - run: make test-integration
       - if: failure()

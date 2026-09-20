@@ -24,6 +24,9 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          # Published binaries are built from a clean module and build cache:
+          # a cache is writable by any earlier run on the default branch.
+          cache: false
       - run: make release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
