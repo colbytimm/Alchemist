@@ -188,9 +188,12 @@ it, the `Raw` shape and the RU split are 21's.
 
 ## The job
 
-21's, entirely: chunks of `mutate.ChunkSize`, the probe write, `internal/writers`,
-the `writers` profile key, stop without cancelling writes in flight, `r`, the `job`
-slot with kind `jobMutation`, the guards on the switcher's `x` and on 11's `d`, the
+21's, entirely: chunks of `mutate.ChunkSize`, the probe write, one `writers.Write`
+per item through 18's `internal/writers`, 18's `writers` profile key, stop without
+cancelling writes in flight, `r`, the `job` slot with kind `jobMutation` and its
+`writes()` reporting the container (so 17 refuses a batch into a container a delete is
+emptying, and lets every other batch run), the guards on the switcher's `x` and on
+11's `d`, the
 account binding, `read_only` checked before the dry run. A delete job and an update job
 are the same kind of job and exclude each other and clones and captures alike.
 

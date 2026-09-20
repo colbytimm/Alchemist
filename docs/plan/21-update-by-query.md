@@ -342,18 +342,19 @@ on prod/sales.orders: w in the catalog shows it`; queries run as usual.
 - **Preview.** Before → after is computed locally by `mutate.Preview`, which applies
   the item's operations to the previewed body. One line per path: `~` changed, `+`
   added, `-` removed, `=` already that value. The rows have the shape of 19's
-  structural diff (`{op, path, before, after}`), so when 19 has landed they are drawn
-  by its row renderer and otherwise by a dozen lines here.
+  structural diff (`{op, path, before, after}`) and are drawn by its renderer when 19
+  has landed, as 19 records; before that, by a dozen lines here.
 - **Warnings never block.** They are: `WHERE true`; a `WHERE` with no top-level
   equality on the first key path (found with 10's `splitConjuncts`, the only thing
   Alchemist reads out of the condition, and only to warn); targets with no partition
   key; an `UNSET` that made the dry run read whole items; items that need no operation
   at all (`38 items already lack /tmp and are left out`); the snapshot line.
-- **The snapshot line** appears only when 19 has landed (`Options.Snapshots` is set)
-  and reads the store from disk: the age of the newest snapshot of this container, or
-  that there is none. It is advice, not a key: the confirmation field has the
-  keyboard, a capture is itself a job, and only one job runs at a time. Without 19 the
-  line names 18's clone when that exists, and otherwise nothing.
+- **The snapshot line** appears only when 19 has landed (`Options.Snapshots` is set).
+  It is one call in a `tea.Cmd`, 19's `snapshot.Newest(root, account, database,
+  container) (Record, error)`, which reads the newest record file and nothing else:
+  the line shows that snapshot's age, or, on `snapshot.ErrNoSnapshot`, that there is
+  none. It is advice, not a key: the confirmation field has the keyboard, a capture is
+  itself a job, and only one job runs at a time. Without 19 the line names 18's clone.
 - **RU.** The selection's charge is measured. The write figure is a labeled planning
   number, `mutate.PlanningChargePerPatch` (10) times the count, and is replaced by a
   projection from measured charges once the job runs, as in 18. On the emulator both
@@ -441,26 +442,35 @@ enter → applyChunk ─ MutationChunkAppliedMsg → applyChunk … → Mutation
         any step ─ MutationFailedMsg → ended-short view
 ```
 
-- A step is one **chunk**: `mutate.ChunkSize` (100) targets through at most `Writers`
-  goroutines, returning when each has an outcome. The first chunk is the probe plus 99.
+- A step is one **chunk**: `mutate.ChunkSize` (100) targets handed to 18's
+  `writers.Pool` as one `Run`, returning when each has an outcome. The probe is a `Run`
+  of one write; the first chunk proper is the next 99.
 - Every message carries a `jobID` and the account. A message for a job that is no
   longer current is dropped.
-- **The writer pool is 18's**, with its justification (one writer on a 50 ms link tops
-  out near 20 items a second) and its rules: it lives inside one step, a
-  `*adapter.ThrottledError` pauses all writers at a shared gate for `RetryAfter`, the
-  item is retried, the writer count steps down by one and never back up, and
-  `MaxThrottles` (10) in a row on one item end the step. The code is shared, not
-  copied: the pool and the gate move out of `internal/clone` into `internal/writers`
-  (`writers.Pool`), which both engines import. Whichever of 18 and 21 lands first
-  writes it there.
-- **The pool size is one profile key.** 18 calls it `clone_writers`. Two near-identical
-  keys for one knob is a smell, so step 1 renames it to `writers` (`Profile.Writers`,
-  `Account.Writers`, default 4, clamped 1–16), and `clone_writers` is still read when
-  `writers` is absent if 18 has shipped in a release by then.
-- `x` sets the job's stop signal, which the pool reads between items. It does not
-  cancel the context the writes run under. Each write has its own deadline,
-  `mutationWriteTimeout` (30 s, 17's `batchTimeout`); each step has
-  `mutationStepTimeout` (two minutes).
+- **The writer pool is `internal/writers`**, specified in 18 ("Why a worker pool, and
+  how it stays honest") and not described again here: `NewPool(size)`, `Run(ctx,
+  []Write) []Outcome`, the shared throttle gate, the step-down that never steps back
+  up, `writers.MaxThrottles`, the injected clock. A job makes one `Pool` and keeps it,
+  so a size stepped down in chunk 3 stays down. Whichever of 18 and 21 lands first
+  writes the package; the other imports it.
+- **One `writers.Write` per item edit.** The closure calls `ItemEditor.EditItem`,
+  records the target's outcome in the slot the job owns for it, and returns the charge.
+  It returns an error only for a `*adapter.ThrottledError`, which is the pool's to
+  retry. Every other result — applied, either skip, a refusal, an unknown outcome — is
+  an outcome of that *item* and returns `nil`, because `Run` ends the step on any other
+  error and one failed item must not stop its neighbors. A throttle that outlasts
+  `MaxThrottles` comes back in `Outcome.Err` and ends the step, resumable. A write the
+  pool never started comes back as `writers.ErrNotStarted` and is `not attempted`.
+  `MaxFailures` and `MaxUnknown` are judged by the job between chunks, over outcomes in
+  target order.
+- **The pool size is 18's `writers` profile key** (`Profile.Writers`, `Account.Writers`,
+  `writers.DefaultSize` 4, clamped to `writers.MaxSize` 16): one knob for every write
+  job, read from the job's account, introduced by whichever of 18 and 21 lands first.
+- `x` cancels the context given to `Run`, which by the pool's contract starts no new
+  write and lets the ones in flight finish. The write itself does not run under that
+  context: each `Write` derives its own with `context.WithoutCancel` and a deadline,
+  `mutationWriteTimeout` (30 s, 17's `batchTimeout`), because cancelling a sent write
+  is how an unknown outcome is made. Each step has `mutationStepTimeout` (two minutes).
 - **Resume** (`r`) continues with the targets that have no outcome. The list is in
   memory, so it is exact within the session. Across sessions the resume is running the
   statement again.
@@ -470,9 +480,13 @@ enter → applyChunk ─ MutationChunkAppliedMsg → applyChunk … → Mutation
 
 ### One background job per session
 
-18 and 19 share the rule already: a clone and a capture never run together, because
-they compete for one throughput and the status bar has one field. An update job joins
-it, and so does 22's delete job.
+18 owns the rule and its mechanism ("One background job per session" there): a clone,
+a capture, an update and a delete are the same kind of thing, and the root model has
+one slot for them, `Model.job{kind, id, label, accounts, target, cancel}` in
+`internal/tui/job.go`, with kinds `jobClone`, `jobCapture` and `jobMutation`, one
+`StatusBar.SetJob(label)` field, one quit guard and one switcher `x` guard. An update
+and 22's delete are both `jobMutation`; the label tells them apart. Whichever of 18,
+19, 21 and 22 lands first introduces the slot; the others register a kind.
 
 | While this runs | Refused | With |
 |---|---|---|
@@ -480,24 +494,28 @@ it, and so does 22's delete job.
 | a clone | `ctrl+r` on an update or delete, **before** the dry run spends RU | `a clone is running: updates wait for it (y)` |
 | a capture | the same | `a snapshot is running: updates wait for it (v)` |
 
-Queries, batches (17), catalog browsing, history, exports and reading snapshot stores
-stay available throughout. A chunk message that arrives while a 17 batch is
-`committing…` is processed as usual.
+Queries, catalog browsing, history, exports and reading snapshot stores stay available
+throughout.
 
-Three features now hold this rule, so it gets one owner: the root model has a single
-`job` slot with a kind (`jobClone`, `jobCapture`, `jobMutation`), one
-`StatusBar.SetJob(label)` field, one quit guard, one switcher guard. Whichever of 18,
-19, 21 and 22 lands first introduces the slot; the others register a kind.
-`SetClone` and `SetCapture` in plans 18 and 19 are that field under its first names.
+**What the job writes.** The slot's `job.writes() (account, path, ok)` reports, for a
+mutation, its account and `[database, container]`, and `job.writesTo(account,
+container)` is the comparison everyone asks. Two consumers matter here. Iteration 11's
+`d` guard refuses a delete of that container or its database. Iteration 17's
+`startBatch` refuses a transactional batch **into that container** with `an update is
+writing sales.orders: the batch waits for it (w)`: the review described those items,
+and a batch rewriting them mid-job would make the job's conditional writes skip for a
+reason the user caused by accident. Every other batch runs beside the job, as 17
+allows, and a chunk message that arrives while one is `committing…` is processed as
+usual.
 
 Also refused while an update runs: `x` in the switcher on the job's account (`an
-update is using prod: stop it first (w in the catalog)`), and iteration 11's `d` on
-the target container or its database. 11's `t` on it is allowed: raising throughput
-mid-run is the fix for a slow one.
+update is using prod: stop it first (w in the catalog)`), through `job.accounts`.
+11's `t` on the target is allowed: raising throughput mid-run is the fix for a slow
+one.
 
 **Quitting.** The first `q` or `ctrl+c` opens the progress view with `An update is
 running. Quit again to stop it and quit; items already updated stay updated.` The
-second stops the pool, records the history entry synchronously, logs the counts and
+second cancels the job, records the history entry synchronously, logs the counts and
 the ids whose writes were still in flight (at most `Writers` of them, and their outcome
 is unknown), and quits through `Model.quit`.
 
@@ -534,9 +552,10 @@ read-only account, run the `WHERE` as a `SELECT`; that is what the editor is for
 ## Adapter contract
 
 Reused unchanged: 17's `Operation`, `OperationKind`, `OperationResult`,
-`PartitionKey`, `ErrBatchOutcomeUnknown`; 18's `ItemScanner`, `ScanRequest`,
+`PartitionKey`, `ErrWriteOutcomeUnknown`; 18's `ItemScanner`, `ScanRequest`,
 `ItemScan`, `ItemPage`, `ThrottledError`, `PartitionKeyValues`, `ErrNoPartitionKey`;
-19's `ScanProjection`, `ScanIdentity`, `SplitSystemFields`, `ItemMeta`. Whichever
+19's `ScanProjection`, `ScanIdentity`, `SplitSystemFields`, `IsSystemField`,
+`ItemMeta`. Whichever
 iteration lands first introduces each, to its owner's text.
 
 Added, two things.
@@ -605,22 +624,23 @@ var (
 - **Errors are the contract.** `nil`: applied. `ErrPreconditionFailed`,
   `ErrItemNotFound`: not applied, and the engine's two `skipped` outcomes.
   `*ThrottledError`: not applied, retry after the delay. An error wrapping
-  `ErrBatchOutcomeUnknown`: may have been applied. Anything else: refused, not applied.
+  `ErrWriteOutcomeUnknown`: may have been applied. Anything else: refused, not applied.
   The engine and the TUI name no status code; `Status` arrives pre-rendered, as in 17.
-- `ErrBatchOutcomeUnknown` now covers a single write too. Its name says "batch"; step 1
-  renames it `ErrWriteOutcomeUnknown` when 17 has landed, and 17 should adopt that name
-  if it has not.
+- `ErrWriteOutcomeUnknown` is 17's sentinel, named for any write with no answer: a
+  batch there, a single item here.
 - One method with the container as an argument, not 18's open-then-write pair: a sink
   reads the key paths once when it opens, and here the key arrives with every call.
-- `adapter.IsSystemField(name string) bool` sits beside 19's `SplitSystemFields` and
-  reads the same list, so `CheckMutation` never spells the names.
+- `CheckMutation` asks 19's `adapter.IsSystemField(name string) bool`, which reads the
+  list `SplitSystemFields` uses, so `internal/query` never spells the names.
 
 ### Cosmos
 
 `internal/adapter/cosmos/edit.go`:
 
-- `NewContainer(container[0], container[1])`; the key folded from its components as
-  17's `batch.go` does it. One helper, shared by both files.
+- `NewContainer(container[0], container[1])`. The three helpers every write path
+  needs are 17's, in `internal/adapter/cosmos/write.go`: `partitionKey` folds the key,
+  `withoutRetries(ctx)` turns azcore's retries off, `writeError(op, err)` classifies a
+  failure. Whichever of 17 and 21 lands first writes that file with its tests.
 - A patch body maps entry by entry onto `AppendSet` and `AppendRemove` (and the rest,
   for 17's sake). **Values are passed as `json.RawMessage`, never decoded:** a decoded
   `null` is a nil `any`, which the SDK's struct tag drops from the payload, turning
@@ -630,13 +650,12 @@ var (
   containing `"` and `\`.
 - `IfMatch` becomes `ItemOptions.IfMatchEtag`. `EnableContentResponseOnWrite` stays
   false.
-- Called with `policy.WithRetryOptions(ctx, policy.RetryOptions{MaxRetries: -1})`, as
-  17's batch is. A 429 therefore arrives at once and becomes `*ThrottledError` with the
-  delay read from the response, which is what lets the engine own the backoff.
-- Status 412 → `ErrPreconditionFailed`; 404 → `ErrItemNotFound`; 408 and ≥ 500, and a
-  failure with no response that is not a dial or DNS failure, wrap the unknown-outcome
-  sentinel, by 17's classification and through its helper, not `wrap`'s
-  `adapter.Unreachable` branch.
+- Called under `withoutRetries(ctx)`, as 17's batch is. A 429 therefore arrives at
+  once and becomes `*ThrottledError` with the delay read from the response, which is
+  what lets the pool own the backoff.
+- Status 412 → `ErrPreconditionFailed`; 404 → `ErrItemNotFound`; everything else goes
+  through `writeError`, so sent-and-unanswered wraps `ErrWriteOutcomeUnknown` by the one
+  definition the adapter has, and never through `wrap`'s `adapter.Unreachable` branch.
 - `scan.go` grows `Filter`.
 
 ### Mock
@@ -687,7 +706,7 @@ type Job struct{ /* targets, outcomes, position */ }
 func NewJob(
     m query.Mutation, targets Targets, editor adapter.ItemEditor, writers int,
 ) *Job
-func (j *Job) ApplyChunk(ctx context.Context, stop <-chan struct{}) (Progress, error)
+func (j *Job) ApplyChunk(ctx context.Context) (Progress, error) // ctx is the stop
 func (j *Job) Done() bool
 func (j *Job) Summary() Summary
 
@@ -705,13 +724,11 @@ review expects, decided in one place for this iteration and the next.
 ## Scope
 
 - `internal/adapter/adapter.go` — `ScanRequest.Filter`, `ScanFilter`, `ItemEditor`,
-  `ErrPreconditionFailed`, `ErrItemNotFound`, `IsSystemField`; the rename of the
-  unknown-outcome sentinel.
-- `internal/adapter/cosmos` — `edit.go`; `scan.go` learns `Filter`; compile-time check
-  `_ adapter.ItemEditor = (*connection)(nil)`.
+  `ErrPreconditionFailed`, `ErrItemNotFound`.
+- `internal/adapter/cosmos` — `edit.go`, on 17's `write.go`; `scan.go` learns `Filter`;
+  compile-time check `_ adapter.ItemEditor = (*connection)(nil)`.
 - `internal/adapter/mock` — `WithPredicate`, `EditItem`, the injection options.
-- `internal/writers` (new, or moved from `internal/clone`) — `Pool`, the throttle
-  gate, the step-down, `MaxThrottles`.
+- `internal/writers` — 18's package, written here if 21 lands first, to 18's text.
 - `internal/query`
   - `mutation.go` — `IsMutation`, `ParseMutation(text) (Mutation, error)`,
     `Mutation{Kind, Target, Alias, Assignments, Removals, Where, EveryItem}`,
@@ -725,7 +742,7 @@ review expects, decided in one place for this iteration and the next.
   `MaxFailures`, `MaxUnknown`, `MaxReportRows`, `PlanningChargePerPatch`,
   `SelectionPageSize` (1000).
 - `internal/config` — `max_mutation_items` on `Profile` (`omitzero`, validated
-  positive); `writers` replacing `clone_writers`.
+  positive); 18's `writers` if 18 has not brought it.
 - `internal/history` — `Entry.Kind` gains the value `update`. See "History".
 - `internal/tui`
   - `mutation.go` (new) — `startMutation`, `selectTargets`, `reviewMutation`,
@@ -734,16 +751,17 @@ review expects, decided in one place for this iteration and the next.
     `Model.itemEditor()` is the single place an `ItemEditor` is handed out.
   - `app.go` — `startRun` branches on `query.IsMutation` after `query.IsBatch` and
     before `resolvePlan`; `overlayMutationReview`, `overlayMutationProgress`; a
-    `runSelecting` run state; the `job` slot.
+    `runSelecting` run state; `job.go` with the slot if no earlier iteration brought it,
+    and the `jobMutation` kind.
   - `messages.go` — `TargetsSelectedMsg`, `TargetPageMsg`, `MutationChunkAppliedMsg`,
     `MutationFinishedMsg`, `MutationFailedMsg`, each with account and `jobID`;
     `OpMutation`.
   - `keys.go` — `ShowMutation` (`w`) in the Catalog section, disabled without a job;
     `MutationReviewKeys()` and `MutationProgressKeys()` for the hint lines.
   - `history.go` — `newHistoryEntry` sets `Kind`; `recall` skips `setScope` for it.
-- `internal/tui/panes` — `MutationReview`, `MutationProgress`; `StatusBar.SetJob`; a
-  `selecting…` progress label; an `items` label in place of `rows`; `History` shows an
-  `update` tag as it shows `batch`.
+- `internal/tui/panes` — `MutationReview`, `MutationProgress`; `StatusBar.SetJob` with
+  the slot; a `selecting…` progress label; an `items` label in place of `rows`;
+  `History` shows an `update` tag as it shows `batch`.
 - `cmd/root.go` — passes `max_mutation_items` and `writers` into `Account`.
 - `test/seed` — nothing new.
 - `README.md` — "Updating by query": the grammar, what is refused, the semantics
@@ -822,21 +840,22 @@ account. A rerun always selects afresh: a target list is never reused across run
 - **16, multi-way joins.** None.
 - **17, transactions.** Hard dependency. Reused: the statement model, `ctrl+r`, the
   review-then-typed-name rule and its widget, `read_only` with its one enforcement
-  point, `runAccount`, the unknown-outcome rule and classification, retries off for
-  writes, `Operation`/`OperationResult`/`PartitionKey`, the escaping fix, the mock's
+  point, `runAccount`, the unknown-outcome rule, `ErrWriteOutcomeUnknown` and
+  `write.go`'s helpers, the batch-beside-a-job rule through `job.writesTo`, retries off
+  for writes, `Operation`/`OperationResult`/`PartitionKey`, the escaping fix, the mock's
   item store and patch code, `Entry.Kind`, the report-as-a-page approach. Different on
-  purpose: a batch blocks keys for the seconds it is in flight, a job does not block
-  for minutes; a batch is atomic, this is not, and both say so.
-- **18, cloning.** Hard dependency. Reused: the job model, the progress view's shape
-  and keys, the status bar field, the quit and switcher guards, `ItemScanner`,
-  `ThrottledError`, `PartitionKeyValues`, the writer pool and its throttle policy
-  (moved to `internal/writers`), the pool-size key (renamed `writers`). `ItemSink` is
-  not used: an upsert of a whole item is the wrong write here.
+  purpose: a batch blocks keys for the seconds it is in flight, a job does not block for
+  minutes; a batch is atomic, this is not, and both say so.
+- **18, cloning.** Hard dependency. Reused: the job model, the progress view's shape and
+  keys, the status bar field, the quit and switcher guards, `ItemScanner`,
+  `ThrottledError`, `PartitionKeyValues`, `internal/writers`, the `writers` key, the
+  `job` slot with `writes`/`writesTo`. `ItemSink` is not used: an upsert of a whole item
+  is the wrong write here.
 - **19, snapshots.** Soft. `ScanIdentity` and `SplitSystemFields` are used as they
-  stand; `Filter` is the third field added to `ScanRequest` by 19's own rule. The
-  one-job rule is shared. The review's snapshot line and the preview's row renderer
-  appear when 19 has landed. If 19 has not, step 1 introduces `Projection` to 19's
-  text.
+  stand, with `IsSystemField`; `Filter` is the third field added to `ScanRequest` by
+  19's own rule. The one-job rule is shared. The review's snapshot line is
+  `snapshot.Newest`, and the preview's rows are drawn by 19's renderer, when 19 has
+  landed. If 19 has not, step 1 introduces `Projection` to 19's text.
 - **20, CTEs and join types.** If its descent parser has landed, `ParseMutation` is
   written on its token helpers (`parseFieldRef` is most of `path`); the condition stays
   an opaque token range either way. No dependency. A `WITH` before `UPDATE` is refused.
@@ -847,9 +866,10 @@ account. A rerun always selects afresh: a target list is never reused across run
 
 Each step ships and leaves `make all` green. No write path exists before step 6.
 
-1. Contracts: `ScanRequest.Filter`, `ItemEditor`, the sentinels, `IsSystemField`; the
+1. Contracts: `ScanRequest.Filter`, `ItemEditor`, the two sentinels; the
    mock's `WithPredicate`, filtered `ScanItems`, `EditItem` and injections, tests
-   first. `internal/writers` extracted or introduced. The `writers` key.
+   first. `internal/writers`, `write.go` and the `writers` key where 17 and 18 have
+   not brought them.
 2. `query.ParseMutation`, `IsMutation`, `CheckMutation`: grammar tables and fuzz.
    Pure; ships nothing visible.
 3. `mutate.Select`, `Targets`, the cap, `UNSET` reduction, `Preview`. Pure.
@@ -894,7 +914,8 @@ under a top-level `OR`.
   retried (call count); `WithEditUnknownAt` items are `unknown` in the report.
 - `WithThrottleAt(k)`: retried after `RetryAfter` on a fake clock, writers step down,
   totals exact. Concurrent calls never exceed `Writers`.
-- Stop after chunk 2 of 5: no call starts after the signal, in-flight ones complete,
+- Stop after chunk 2 of 5: no call starts after the context is cancelled, a write in
+  flight still sees a live context, in-flight ones complete,
   `Summary` counts `not attempted`; `r` finishes with each target written once.
 - **Idempotent rerun:** run, then select and run again: the second selection is empty
   when `SET` falsifies the `WHERE`, and otherwise rewrites to byte-identical bodies.
@@ -907,8 +928,7 @@ under a top-level `OR`.
 503 (counting transport); the filtered scan's query text for plain, nested and
 two-path keys, with and without `Since`.
 
-**Unit — `config`:** `max_mutation_items` default and validation; `writers`, with
-`clone_writers` read when it is absent.
+**Unit — `config`:** `max_mutation_items` default and validation.
 
 **TUI, mock adapter** (`internal/tui/test/mutation_test.go`):
 - `ctrl+r` on an update issues scans and zero `EditItem` calls, then opens the review
@@ -932,6 +952,8 @@ two-path keys, with and without `Since`.
   session is on the second; the entry's `Profile` is the first; `x` in the switcher on
   the first is refused, on the second works.
 - A switch during `selecting…`: the review names the account the run started on.
+- With an update running on `sales.orders`, a 17 batch into `sales.orders` is refused
+  with the `w` notice and one into `sales.archive` commits.
 - One job: with a job running, `y`, `s` and a second update are refused with their
   notices; with a clone running, `ctrl+r` on an update is refused before any scan.
 - `q` once opens the warning, twice quits with the entry recorded as stopped.

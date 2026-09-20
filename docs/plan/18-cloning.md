@@ -699,21 +699,62 @@ has room for one. Four features holding that rule separately would be four check
 keep in step, so it has one owner in the root model:
 
 ```go
-type jobKind int // jobClone | jobCapture | jobUpdate | jobDelete
+// jobMutation is an update or a delete by query (21, 22); the label tells
+// them apart.
+type jobKind int // jobClone | jobCapture | jobMutation
 
 type job struct {
     kind     jobKind
     id       jobID    // what cloneID is an instance of
+    label    string   // what StatusBar.SetJob shows
     accounts []string // the switcher refuses x on these
+    target   writeTarget
     cancel   context.CancelFunc
 }
+
+// writeTarget is where a job writes. The zero value is a job that only reads.
+type writeTarget struct {
+    account string
+    path    []string // [database, container], or [database] for all of it
+}
+
+// writes reports the account and the path the job is writing under; ok is
+// false for a job that only reads (a capture). A container at or under path
+// on that account is being written.
+func (j job) writes() (account string, path []string, ok bool)
+
+// writesTo reports whether container on account is at or under that path.
+func (j job) writesTo(account string, container []string) bool
 ```
+
+`writes` is a prefix, not always a container, and that is deliberate:
+
+| Job | `writes()` |
+|---|---|
+| container clone | the target account, `[database, container]` |
+| database clone | the target account, `[database]`: the **whole** target database, for the whole job |
+| update or delete by query | its account, `[database, container]` |
+| capture | `ok` false |
+
+A database clone reports the database rather than the container it is filling at the
+moment. Its containers are created and filled in turn, so "the current one" would
+leave a window in which a write lands in a container the job is about to create, or
+has just declared finished in a summary it has not shown yet. The target database did
+not exist before the job, so nothing legitimate is locked out. A clone's **source** is
+never reported: reading it takes nothing from anyone. Callers ask `writesTo`, so the
+prefix comparison is written once.
 
 - `Model.job` is the single slot. Starting any job checks it and nothing else;
   `StatusBar.SetJob(label)` is the single field; the quit guard and the switcher's `x`
   guard read `job.accounts` and the kind's wording. Whichever of 18, 19, 21 and 22
-  lands first introduces the slot and the field, and the others register a kind. There
-  is no `SetClone`, and no per-feature "is something else running" test.
+  lands first introduces the slot, the field, and `writes`/`writesTo` with them, and
+  the others register a kind. There is no `SetClone`, and no per-feature "is something
+  else running" test.
+- The accessor has three consumers. Iteration 11's `d` guard asks `writesTo` for the
+  node under the cursor. 21 and 22 fill `target` with their container. Iteration 17,
+  which runs no job of its own, asks it in `startBatch`: a batch is allowed beside a
+  job unless `writesTo` its account and container, and then it is refused with
+  `a clone is writing sales.orders: the batch waits for it (y)`.
 - The slot is held from the review's confirmation until the ended view is closed, so
   a clone that stopped short and can still be resumed keeps other jobs out.
 
@@ -728,8 +769,9 @@ Refused while a clone holds the slot, each with a status bar notice:
 And `y` is refused while another kind holds it, with the mirror notice naming that
 job's key. Everything that is not a job stays available: `SELECT` runs, catalog
 browsing and management, history, export, the info view, and reading snapshots already
-on disk (19's `v`, its diffs). Whether a transactional batch may run beside a job is
-iteration 17's rule to state, not this plan's.
+on disk (19's `v`, its diffs). A transactional batch (17) runs beside a clone too,
+anywhere but under the clone's target: the source container, and every other container
+on either account, are fair game.
 
 Reopening stays per feature, because each view is its own overlay and its key is the
 one the user pressed to start it: `y` here, `v` for a capture, `w` for an update or a
@@ -888,7 +930,12 @@ one job and one confirmation.
   this plan obeys it as written under "Prompt fields": with the key absent only
   loopback endpoints are writable, a read-only account is never a target and always a
   valid source. `adapter.PartitionKeyValues` is shared, introduced by whichever lands
-  first. Its `Batcher` is a different write path from `ItemSink` (many operations, one
+  first. It is also the third-party consumer of the `job` slot: a batch takes no slot
+  and may run beside a clone, except that `startBatch` asks `job.writes()` (through
+  `writesTo`) and refuses a batch aimed at or under the clone's target on the same
+  account. For a database clone that is the whole target database. The accessor is
+  defined here, under "One background job per session", and lands with the slot. Its
+  `Batcher` is a different write path from `ItemSink` (many operations, one
   partition key, all or nothing), and a sink that packs a page's items into batches
   per logical partition is the obvious later optimization behind the same interface.
 - **19, snapshots.** `ItemScanner` is written to be shared: a resumable full read in
@@ -917,7 +964,7 @@ one job and one confirmation.
   An `UPDATE` is refused while a clone runs, before its dry run, and `y` while an
   update runs. Its view reopens with `w`.
 - **22, delete by query.** As 21: the same pool, key, slot and refusals, under the
-  kind `jobDelete` and the same `w`. A clone taken first is a cheap "before" copy of
+  kind `jobMutation` and the same `w`. A clone taken first is a cheap "before" copy of
   what a delete is about to remove, and 22 says so; nothing here changes for it.
 
 ## Steps
@@ -1031,6 +1078,13 @@ landed first):
   asserted once that iteration exists); a `SELECT` runs; `y` while another kind holds
   the slot is refused with the mirror notice and opens no prompt. A clone that ended
   short still holds the slot until its view is closed with `esc`.
+- `job.writes`: a container clone reports the target account and container, a
+  database clone the target account and `[database]` from the first container to the
+  last, and neither ever reports the source. `writesTo` is true for the target
+  container, for any container under a cloned database including one not created yet,
+  and false for the same path on another account and for the source. With 17 landed, a
+  batch into the clone's target container is refused while the clone runs and reaches
+  no connection, and a batch into the source or any other container commits.
 - `q` during a clone does not quit. A second `q` cancels the job and quits, and both
   accounts are closed exactly once.
 - `x` in the switcher on the source or the target account mid-clone closes nothing and

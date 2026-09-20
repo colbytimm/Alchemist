@@ -603,7 +603,8 @@ and the interface stays live between pages.
 - **One background job per session, one mechanism.** Cloning (18), capture (this
   plan) and update and delete by query (21, 22) all scan or write at volume against
   one throughput, so they share a single `job` slot on the root model, with a kind
-  (`clone`, `capture`, `update`, `delete`), one status bar field
+  (`jobClone`, `jobCapture`, `jobMutation` — update and delete share one), one status
+  bar field
   (`StatusBar.SetJob`), one quit guard and one switcher guard. Whichever of the four
   lands first introduces the slot; the others register a kind. There is no
   per-feature "is a clone running" check. Reopening stays per feature: `v` here, `y`

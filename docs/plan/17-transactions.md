@@ -339,9 +339,11 @@ The job's review described those items to the user; a batch rewriting them mid-j
 would make that description stale, and the job's conditional writes would then skip
 items for a reason the user caused by accident. Every other container, the job's
 *source*, and any container during a capture (which writes nothing) are fair game.
-The check is one comparison against the slot (`job.writes() (account string,
-container []string, ok bool)`), made in `startBatch` before validation, and the
-refusal is recorded like any other. Before any of those iterations lands there is no
+The check is one call on the slot, `job.writesTo(account string, container []string)
+bool`, which iteration 18 defines beside `job.writes()`: it is true when the job's
+write target on that account is the batch's container or the database that holds it (a
+database clone claims its whole target database). It is made in `startBatch` before
+validation, and the refusal is recorded like any other. Before any of those iterations lands there is no
 slot and no check.
 
 ### Which account
