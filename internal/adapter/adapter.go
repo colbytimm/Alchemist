@@ -6,6 +6,8 @@ package adapter
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -43,6 +45,88 @@ type Catalog interface {
 	Root(ctx context.Context) ([]Node, error)
 	// Children returns the child nodes of n, loading them on demand.
 	Children(ctx context.Context, n Node) ([]Node, error)
+}
+
+// CatalogAdmin creates and deletes the databases and containers a Catalog
+// reads. A Connection implements it when its backend allows it; callers
+// detect support with a comma-ok type assertion.
+type CatalogAdmin interface {
+	CreateDatabase(ctx context.Context, spec DatabaseSpec) error
+	DeleteDatabase(ctx context.Context, name string) error
+	CreateContainer(ctx context.Context, spec ContainerSpec) error
+	DeleteContainer(ctx context.Context, path []string) error
+}
+
+// ThroughputEditor reads and replaces provisioned capacity. It is separate
+// from CatalogAdmin because a backend can manage a catalog without having a
+// throughput concept at all.
+type ThroughputEditor interface {
+	Throughput(ctx context.Context, path []string) (Throughput, error)
+	SetThroughput(ctx context.Context, path []string, t Throughput) error
+}
+
+// ErrUnsupported marks a request no backend can carry out, as distinct from
+// one the service refused.
+var ErrUnsupported = errors.New("unsupported")
+
+type DatabaseSpec struct {
+	Name       string
+	Throughput Throughput // ThroughputNone leaves it without shared throughput
+}
+
+type ContainerSpec struct {
+	Database      string
+	Name          string
+	PartitionKeys []string // "/customerId"; more than one is a hierarchical key
+	Throughput    Throughput
+}
+
+type ThroughputMode int
+
+// ThroughputShared is a container drawing on its database's capacity.
+// ThroughputNone is nothing provisioned on the resource at all: a serverless
+// account, or a database leaving its containers to carry their own.
+const (
+	ThroughputNone ThroughputMode = iota
+	ThroughputManual
+	ThroughputAutoscale
+	ThroughputShared
+)
+
+func (m ThroughputMode) String() string {
+	switch m {
+	case ThroughputManual:
+		return "manual"
+	case ThroughputAutoscale:
+		return "autoscale"
+	case ThroughputShared:
+		return "shared"
+	}
+	return "none"
+}
+
+// Throughput is provisioned capacity. RUs is the manual rate or the autoscale
+// maximum, and is meaningless in the other two modes.
+type Throughput struct {
+	Mode ThroughputMode
+	RUs  int32
+}
+
+// Provisioned reports whether t names capacity to provision on one resource.
+func (t Throughput) Provisioned() bool {
+	return t.Mode == ThroughputManual || t.Mode == ThroughputAutoscale
+}
+
+// Settable returns nil when t names capacity that can be provisioned on one
+// resource, and otherwise says why it cannot, wrapping ErrUnsupported.
+func (t Throughput) Settable() error {
+	switch {
+	case t.Provisioned():
+		return nil
+	case t.Mode == ThroughputShared:
+		return fmt.Errorf("shared capacity is provisioned on the database: %w", ErrUnsupported)
+	}
+	return fmt.Errorf("no capacity to provision: %w", ErrUnsupported)
 }
 
 type NodeKind string

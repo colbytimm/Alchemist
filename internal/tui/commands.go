@@ -19,6 +19,7 @@ const (
 	connectTimeout = 30 * time.Second
 	loadTimeout    = 15 * time.Second
 	queryTimeout   = 60 * time.Second
+	manageTimeout  = 30 * time.Second
 )
 
 // recentHistory is how much of the log the history overlay lists.
@@ -38,29 +39,102 @@ func (m Model) openConnection(form panes.ConnectForm) tea.Cmd {
 	}
 }
 
-func (m Model) loadRoot() tea.Cmd {
+func (m Model) loadRoot(token panes.Token) tea.Cmd {
 	catalog := m.catalog
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
 		defer cancel()
 		nodes, err := catalog.Root(ctx)
 		if err != nil {
-			return ErrMsg{Op: OpCatalogRoot, Err: err}
+			return ErrMsg{Op: OpCatalogRoot, Token: token, Err: err}
 		}
-		return CatalogLoadedMsg{Nodes: nodes}
+		return CatalogLoadedMsg{Nodes: nodes, Token: token}
 	}
 }
 
-func (m Model) loadChildren(node adapter.Node) tea.Cmd {
+func (m Model) loadChildren(node adapter.Node, token panes.Token) tea.Cmd {
 	catalog := m.catalog
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
 		defer cancel()
 		nodes, err := catalog.Children(ctx, node)
 		if err != nil {
-			return ErrMsg{Op: OpCatalogChildren, Path: node.Path, Err: err}
+			return ErrMsg{Op: OpCatalogChildren, Path: node.Path, Token: token, Err: err}
 		}
-		return CatalogLoadedMsg{Parent: node.Path, Nodes: nodes}
+		return CatalogLoadedMsg{Parent: node.Path, Nodes: nodes, Token: token}
+	}
+}
+
+// manage runs one management call under a deadline of its own, so a slow
+// service never blocks Update, and reports the change or why it did not
+// happen back to the dialog that asked. The service's own words are passed on
+// untouched.
+func manage(dialog dialogID, change CatalogChangedMsg, call func(context.Context) error) tea.Cmd {
+	change.dialog = dialog
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), manageTimeout)
+		defer cancel()
+		if err := call(ctx); err != nil {
+			return ErrMsg{Op: change.Op, dialog: dialog, Err: err}
+		}
+		return change
+	}
+}
+
+func (m Model) createDatabase(spec adapter.DatabaseSpec) tea.Cmd {
+	admin := m.management.Admin
+	return manage(m.dialog,
+		CatalogChangedMsg{Op: OpCreateDatabase, Target: []string{spec.Name}},
+		func(ctx context.Context) error { return admin.CreateDatabase(ctx, spec) },
+	)
+}
+
+func (m Model) deleteDatabase(name string) tea.Cmd {
+	admin := m.management.Admin
+	return manage(m.dialog,
+		CatalogChangedMsg{Op: OpDeleteDatabase, Target: []string{name}},
+		func(ctx context.Context) error { return admin.DeleteDatabase(ctx, name) },
+	)
+}
+
+func (m Model) createContainer(spec adapter.ContainerSpec) tea.Cmd {
+	admin := m.management.Admin
+	return manage(m.dialog,
+		CatalogChangedMsg{
+			Op:     OpCreateContainer,
+			Target: []string{spec.Database, spec.Name},
+			Parent: []string{spec.Database},
+		},
+		func(ctx context.Context) error { return admin.CreateContainer(ctx, spec) },
+	)
+}
+
+func (m Model) deleteContainer(path []string) tea.Cmd {
+	admin := m.management.Admin
+	return manage(m.dialog,
+		CatalogChangedMsg{Op: OpDeleteContainer, Target: path, Parent: path[:1]},
+		func(ctx context.Context) error { return admin.DeleteContainer(ctx, path) },
+	)
+}
+
+func (m Model) setThroughput(path []string, t adapter.Throughput) tea.Cmd {
+	editor := m.management.Throughput
+	return manage(m.dialog,
+		CatalogChangedMsg{Op: OpSetThroughput, Target: path},
+		func(ctx context.Context) error { return editor.SetThroughput(ctx, path, t) },
+	)
+}
+
+func (m Model) readThroughput(path []string) tea.Cmd {
+	editor := m.management.Throughput
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), manageTimeout)
+		defer cancel()
+		current, err := editor.Throughput(ctx, path)
+		if err != nil {
+			return ErrMsg{Op: OpReadThroughput, Path: path, Err: err}
+		}
+		return ThroughputReadMsg{Path: path, Throughput: current}
 	}
 }
 

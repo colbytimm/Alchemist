@@ -57,7 +57,7 @@ var (
 func newTree() panes.Catalog {
 	return panes.NewCatalog(theme.Icons()).
 		SetSize(paneWidth, paneHeight).
-		SetChildren(nil, []adapter.Node{database, sibling})
+		SetChildren(nil, []adapter.Node{database, sibling}, 0)
 }
 
 // expand opens the node under the cursor and delivers the children it asks
@@ -66,7 +66,16 @@ func expand(t *testing.T, c panes.Catalog, children ...adapter.Node) panes.Catal
 	t.Helper()
 	c, fetch, _ := c.Toggle()
 	require.True(t, fetch.Needed, "expanding an unloaded node should ask for its children")
-	return c.SetChildren(fetch.Node.Path, children)
+	return c.SetChildren(fetch.Node.Path, children, fetch.Token)
+}
+
+// reload asks for path's children again and delivers what came back, the way
+// the root model does after a refresh.
+func reload(t *testing.T, c panes.Catalog, path []string, children ...adapter.Node) panes.Catalog {
+	t.Helper()
+	c, fetch, _ := c.RefreshPath(path)
+	require.True(t, fetch.Needed, "a refresh should ask for the node's children")
+	return c.SetChildren(path, children, fetch.Token)
 }
 
 func TestCatalogRendersRootNodes(t *testing.T) {
@@ -133,10 +142,10 @@ func TestCatalogDropsTheChevronOfANodeThatCameBackEmpty(t *testing.T) {
 }
 
 func TestCatalogPrefetchAsksForEveryUnknownChild(t *testing.T) {
-	c, nodes, tick := newTree().Prefetch()
+	c, fetches, tick := newTree().Prefetch()
 
-	require.Len(t, nodes, 2, "both databases claim children nobody has counted")
-	assert.Equal(t, database.Path, nodes[0].Path)
+	require.Len(t, fetches, 2, "both databases claim children nobody has counted")
+	assert.Equal(t, database.Path, fetches[0].Node.Path)
 	assert.NotNil(t, tick, "the first prefetch starts the animation")
 	assert.NotContains(t, c.View(), theme.Icons().SpinnerFrames[0],
 		"a load the user did not ask for stays quiet")
@@ -147,26 +156,26 @@ func TestCatalogPrefetchSkipsWhatIsAlreadyKnownOrOnItsWay(t *testing.T) {
 	c, inFlight, _ := c.CursorDown().CursorDown().Toggle()
 	require.True(t, inFlight.Needed, "telemetry is mid-fetch")
 
-	_, nodes, _ := c.Prefetch()
+	_, fetches, _ := c.Prefetch()
 
-	require.Len(t, nodes, 1, "the cached database and the loading one are both left alone")
-	assert.Equal(t, container.Path, nodes[0].Path, "the container sales just revealed is the unknown one")
+	require.Len(t, fetches, 1, "the cached database and the loading one are both left alone")
+	assert.Equal(t, container.Path, fetches[0].Node.Path, "the container sales just revealed is the unknown one")
 }
 
 func TestCatalogPrefetchLeavesAFailedNodeAlone(t *testing.T) {
-	c := newTree().SetError(database.Path, errors.New("permission denied"))
+	c := newTree().SetError(database.Path, errors.New("permission denied"), 0)
 
-	_, nodes, _ := c.Prefetch()
+	_, fetches, _ := c.Prefetch()
 
-	require.Len(t, nodes, 1, "only the node that has not failed is asked again")
-	assert.Equal(t, sibling.Path, nodes[0].Path)
+	require.Len(t, fetches, 1, "only the node that has not failed is asked again")
+	assert.Equal(t, sibling.Path, fetches[0].Node.Path)
 }
 
 func TestCatalogPrefetchSettlesTheChevronWithoutExpanding(t *testing.T) {
-	c, nodes, _ := newTree().Prefetch()
-	require.NotEmpty(t, nodes)
+	c, fetches, _ := newTree().Prefetch()
+	require.NotEmpty(t, fetches)
 
-	c = c.SetChildren(database.Path, nil)
+	c = c.SetChildren(database.Path, nil, fetches[0].Token)
 
 	assert.NotContains(t, c.View(), theme.Icons().Expanded, "nothing was expanded")
 	assert.Equal(t, 1, strings.Count(c.View(), theme.Icons().Collapsed),
@@ -177,13 +186,11 @@ func TestCatalogDoesNotFetchWhileAFetchIsInFlight(t *testing.T) {
 	c, first, _ := newTree().Toggle()
 	require.True(t, first.Needed)
 
-	// Collapse and re-expand, then refresh, before the first response lands.
+	// Collapse and re-expand before the first response lands.
 	c, _, _ = c.Toggle()
-	c, second, _ := c.Toggle()
-	_, third, _ := c.Refresh()
+	_, second, _ := c.Toggle()
 
 	assert.False(t, second.Needed, "re-expanding must not race a second request")
-	assert.False(t, third.Needed, "refreshing must not race a second request")
 }
 
 func TestCatalogRefreshFetchesAgain(t *testing.T) {
@@ -195,13 +202,43 @@ func TestCatalogRefreshFetchesAgain(t *testing.T) {
 	assert.Equal(t, database.Path, fetch.Node.Path)
 }
 
+func TestCatalogRefreshSupersedesTheReadAlreadyInFlight(t *testing.T) {
+	c, stale, _ := newTree().Toggle()
+	require.True(t, stale.Needed)
+
+	c, fresh, _ := c.Refresh()
+	require.True(t, fresh.Needed, "a refresh asks again rather than waiting on the read in flight")
+	c = c.SetChildren(fresh.Node.Path, []adapter.Node{container}, fresh.Token)
+	c = c.SetChildren(stale.Node.Path, nil, stale.Token)
+
+	assert.Contains(t, c.View(), container.Name,
+		"the superseded response must not overwrite the one that replaced it")
+}
+
+func TestCatalogRefreshPathAsksForNothingItDoesNotHold(t *testing.T) {
+	_, fetch, tick := newTree().RefreshPath([]string{"nowhere"})
+
+	assert.False(t, fetch.Needed)
+	assert.Nil(t, tick)
+}
+
+func TestCatalogSelectsANodeThatIsNotOnScreenYet(t *testing.T) {
+	c := expand(t, newTree(), container)
+
+	c = c.Select([]string{database.Name, "shipments"})
+	require.Equal(t, database.Name, selected(t, c).Name, "until it arrives, its parent holds the cursor")
+
+	shipments := adapter.Node{Kind: adapter.NodeContainer, Name: "shipments", Path: []string{database.Name, "shipments"}}
+	c = reload(t, c, database.Path, container, shipments)
+
+	assert.Equal(t, shipments.Name, selected(t, c).Name, "the cursor lands on it the moment it appears")
+}
+
 func TestCatalogRefreshForgetsTheWholeSubtree(t *testing.T) {
 	c := expand(t, expand(t, newTree(), container).CursorDown(), partitionKeyLabel)
 	require.Contains(t, c.View(), "partitionKey")
 
-	c, fetch, _ := c.CursorUp().Refresh()
-	require.True(t, fetch.Needed)
-	c = c.SetChildren(database.Path, []adapter.Node{container})
+	c = reload(t, c.CursorUp(), database.Path, container)
 
 	assert.NotContains(t, c.View(), "partitionKey",
 		"a refreshed node must not keep serving what its descendants held before")
@@ -227,7 +264,7 @@ func TestCatalogLeafNodesAskForNothing(t *testing.T) {
 	leaf := adapter.Node{Kind: adapter.NodeDatabase, Name: "empty", Path: []string{"empty"}}
 	c := panes.NewCatalog(theme.Icons()).
 		SetSize(paneWidth, paneHeight).
-		SetChildren(nil, []adapter.Node{leaf})
+		SetChildren(nil, []adapter.Node{leaf}, 0)
 
 	_, fetch, tick := c.Toggle()
 
@@ -259,8 +296,7 @@ func TestCatalogCursorFallsBackWhenItsNodeDisappears(t *testing.T) {
 	c := expand(t, newTree(), container).CursorDown()
 	require.Equal(t, container.Name, selected(t, c).Name)
 
-	// A refresh returns a tree the selected container is no longer part of.
-	c = c.SetChildren(database.Path, nil)
+	c = reload(t, c, database.Path) // a refresh returns a tree without the container
 
 	assert.Equal(t, database.Name, selected(t, c).Name,
 		"the cursor falls back to the nearest surviving ancestor")
@@ -268,10 +304,10 @@ func TestCatalogCursorFallsBackWhenItsNodeDisappears(t *testing.T) {
 
 func TestCatalogCursorStaysWhereItFellBackTo(t *testing.T) {
 	c := expand(t, newTree(), container).CursorDown()
-	c = c.SetChildren(database.Path, nil)
+	c = reload(t, c, database.Path)
 	require.Equal(t, database.Name, selected(t, c).Name)
 
-	c = c.SetChildren(database.Path, []adapter.Node{container})
+	c = reload(t, c, database.Path, container)
 
 	assert.Equal(t, database.Name, selected(t, c).Name,
 		"a node reappearing at the abandoned path must not recapture the cursor")
@@ -285,7 +321,7 @@ func TestCatalogCursorStaysOnItsNodeWhenRowsAppearAbove(t *testing.T) {
 	c = c.CursorDown()
 	require.Equal(t, sibling.Name, selected(t, c).Name)
 
-	c = c.SetChildren(fetch.Node.Path, []adapter.Node{container})
+	c = c.SetChildren(fetch.Node.Path, []adapter.Node{container}, fetch.Token)
 
 	assert.Equal(t, sibling.Name, selected(t, c).Name,
 		"a late response must not slide the cursor onto another node")
@@ -307,14 +343,14 @@ func TestCatalogSpinnerRunsOnlyWhileLoading(t *testing.T) {
 	c, again := c.Update(spinner.TickMsg{})
 	assert.NotNil(t, again, "the animation keeps ticking while the load is in flight")
 
-	c = c.SetChildren(fetch.Node.Path, []adapter.Node{container})
+	c = c.SetChildren(fetch.Node.Path, []adapter.Node{container}, fetch.Token)
 	_, stopped := c.Update(spinner.TickMsg{})
 	assert.Nil(t, stopped, "an idle catalog must stop waking the program")
 }
 
 func TestCatalogSpinnerRestartsAfterGoingIdle(t *testing.T) {
 	c, fetch, _ := newTree().Toggle()
-	c = c.SetChildren(fetch.Node.Path, []adapter.Node{container})
+	c = c.SetChildren(fetch.Node.Path, []adapter.Node{container}, fetch.Token)
 	c, _ = c.Update(spinner.TickMsg{}) // settles, stopping the chain
 
 	_, next, tick := c.CursorDown().Toggle()
@@ -339,7 +375,7 @@ func TestCatalogShowsASpinnerOnTheLoadingNode(t *testing.T) {
 }
 
 func TestCatalogRendersFailuresUnderTheirNode(t *testing.T) {
-	c := newTree().SetError(database.Path, errors.New("permission denied"))
+	c := newTree().SetError(database.Path, errors.New("permission denied"), 0)
 	lines := strings.Split(c.View(), "\n")
 
 	node := indexOfLineContaining(t, lines, database.Name)
@@ -351,7 +387,7 @@ func TestCatalogRendersFailuresUnderTheirNode(t *testing.T) {
 func TestCatalogLaysOutAnUnreachableAccountWithARetry(t *testing.T) {
 	unreachable := &adapter.UnreachableError{Reason: "connection refused"}
 
-	view := plain(newTree().SetError(nil, unreachable).View())
+	view := plain(newTree().SetError(nil, unreachable, 0).View())
 
 	assert.Contains(t, view, "│"+theme.Icons().Failure+" account unreachable")
 	assert.Contains(t, view, "│  connection refused", "the reason on a line of its own")
@@ -359,7 +395,7 @@ func TestCatalogLaysOutAnUnreachableAccountWithARetry(t *testing.T) {
 }
 
 func TestCatalogOffersNoRetryForARefusal(t *testing.T) {
-	view := plain(newTree().SetError(nil, errors.New("401 Unauthorized")).View())
+	view := plain(newTree().SetError(nil, errors.New("401 Unauthorized"), 0).View())
 
 	assert.Contains(t, view, "401 Unauthorized")
 	assert.NotContains(t, view, "r to retry", "the same request would only be refused again")
@@ -367,7 +403,7 @@ func TestCatalogOffersNoRetryForARefusal(t *testing.T) {
 
 func TestCatalogWrapsLongFailures(t *testing.T) {
 	message := "the catalog request was rejected because the account is unreachable"
-	view := newTree().SetError(database.Path, errors.New(message)).View()
+	view := newTree().SetError(database.Path, errors.New(message), 0).View()
 
 	for _, word := range strings.Fields(message) {
 		assert.Contains(t, view, word, "wrapping must not drop words")
@@ -376,14 +412,14 @@ func TestCatalogWrapsLongFailures(t *testing.T) {
 
 func TestCatalogClearsAFailureOnReload(t *testing.T) {
 	c := newTree().
-		SetError(database.Path, errors.New("permission denied")).
-		SetChildren(database.Path, []adapter.Node{container})
+		SetError(database.Path, errors.New("permission denied"), 0).
+		SetChildren(database.Path, []adapter.Node{container}, 0)
 
 	assert.NotContains(t, c.View(), "permission denied")
 }
 
 func TestCatalogClearsAFailureOnRefresh(t *testing.T) {
-	c := newTree().SetError(database.Path, errors.New("permission denied"))
+	c := newTree().SetError(database.Path, errors.New("permission denied"), 0)
 
 	c, fetch, _ := c.Refresh()
 
@@ -402,7 +438,7 @@ func TestCatalogTruncatesNamesTooWideForThePane(t *testing.T) {
 	long := adapter.Node{Kind: adapter.NodeContainer, Name: strings.Repeat("x", 100), Path: []string{"long"}}
 	c := panes.NewCatalog(theme.Icons()).
 		SetSize(paneWidth, paneHeight).
-		SetChildren(nil, []adapter.Node{long})
+		SetChildren(nil, []adapter.Node{long}, 0)
 
 	view := c.View()
 
@@ -416,7 +452,7 @@ func TestCatalogScrollsToKeepTheCursorVisible(t *testing.T) {
 		name := fmt.Sprintf("node-%02d", i)
 		many = append(many, adapter.Node{Kind: adapter.NodeDatabase, Name: name, Path: []string{name}})
 	}
-	c := panes.NewCatalog(theme.Icons()).SetSize(paneWidth, paneHeight).SetChildren(nil, many)
+	c := panes.NewCatalog(theme.Icons()).SetSize(paneWidth, paneHeight).SetChildren(nil, many, 0)
 	for range many {
 		c = c.CursorDown()
 	}

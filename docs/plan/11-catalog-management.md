@@ -244,6 +244,39 @@ message.
       border.
 - [ ] Press `d` on a database, type a wrong name, press `enter` — nothing happens.
 
+## As built
+
+Decisions the sections above left open, recorded once the code settled them:
+
+- **`Options.Manage` rather than `Options.Admin`.** A `func(adapter.Connection) Management`
+  supplied by `cmd/`, called both in `New` and in `enterSession`. The keymap is built
+  before a connection exists, so passing the interfaces directly would have left every
+  session that starts on the connect screen — first run, or a profile whose key is
+  nowhere — unable to manage anything for its whole life. The type assertions still live
+  in `cmd/` and nothing in `internal/tui` names a backend.
+- **`r` supersedes a read in flight**, because it goes through `RefreshPath` like the
+  post-mutation reload does. Tokens are what makes that safe; the deduplication that
+  keeps a prefetch cheap stays on `Toggle` and `Prefetch`.
+- **A throughput target that is shared, or has nothing provisioned, cannot be edited
+  there.** Cosmos moves no container between shared and dedicated throughput, adds no
+  shared offer to a database created without one, and provisions nothing on a serverless
+  account. That dialog has no editable fields at all: it reads the mode back beside the
+  target and says where the capacity is changed, in ordinary text — it is a note, not an
+  error — with `esc close` for a hint.
+- **A failed throughput read opens the ordinary dialog** with the service's error under
+  the fields. A read that did not answer rules nothing out, so every mode stays on offer
+  and the service has the last word; the alternative is a key that silently does nothing.
+- **Status bar notices retire after five seconds.** `SetNotice` returns a `tea.Tick`
+  carrying the notice's number, and only the current number clears it, so an older
+  notice's expiry cannot wipe the one that replaced it. Run-state changes still drop the
+  notice as they did.
+- **A dialog is submitted once, and only the dialog that asked sees the outcome.** The
+  pane carries a `Submitting` flag that ignores a second `enter`, and every mutation
+  carries a `dialogID` — the `runID` pattern — so an outcome the user walked away from
+  never lands on whatever is open now, even when the two are the same kind of dialog on
+  different nodes. The reload, cursor, notice and scope clear still happen regardless:
+  the change did occur.
+
 ## Acceptance criteria
 
 - No mutation reaches an adapter without a confirmation step the user completed by

@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/theme"
@@ -73,6 +74,27 @@ func TestStatusBarSaysWhenThereIsNoScope(t *testing.T) {
 	view := panes.NewStatusBar(theme.Icons(), "dev").SetWidth(statusWidth).View()
 
 	assert.Contains(t, view, "no scope")
+}
+
+func TestStatusBarRetiresItsNotice(t *testing.T) {
+	bar, expire := panes.NewStatusBar(theme.Icons(), "dev").SetWidth(statusWidth).
+		SetNotice("exported 10 rows")
+	require.NotNil(t, expire, "a notice schedules its own retirement")
+	require.Contains(t, plain(bar.View()), "exported 10 rows")
+
+	bar, _ = bar.Update(panes.NoticeExpiredMsg{Notice: 1})
+
+	assert.NotContains(t, plain(bar.View()), "exported 10 rows")
+}
+
+func TestStatusBarKeepsTheNoticeAnEarlierExpiryWouldWipe(t *testing.T) {
+	bar, _ := panes.NewStatusBar(theme.Icons(), "dev").SetWidth(statusWidth).SetNotice("exported 10 rows")
+	bar, _ = bar.SetNotice("created sales.shipments")
+
+	bar, _ = bar.Update(panes.NoticeExpiredMsg{Notice: 1})
+
+	assert.Contains(t, plain(bar.View()), "created sales.shipments",
+		"the first notice's expiry must not take the one that replaced it")
 }
 
 func TestStatusBarNeverOutgrowsItsWidth(t *testing.T) {

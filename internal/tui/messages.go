@@ -3,14 +3,22 @@ package tui
 import (
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/history"
+	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
 
-// Operations named by ErrMsg.Op.
+// Operations named by ErrMsg.Op, and by CatalogChangedMsg.Op for the ones
+// that change the catalog.
 const (
 	OpCatalogRoot     = "catalog root"
 	OpCatalogChildren = "catalog children"
 	OpHistory         = "history"
 	OpExport          = "export"
+	OpCreateDatabase  = "create database"
+	OpDeleteDatabase  = "delete database"
+	OpCreateContainer = "create container"
+	OpDeleteContainer = "delete container"
+	OpReadThroughput  = "read throughput"
+	OpSetThroughput   = "set throughput"
 )
 
 // runID identifies one query run. Every page and failure carries the run it
@@ -18,11 +26,33 @@ const (
 // instead of overwriting the newer one.
 type runID int
 
-// CatalogLoadedMsg carries the nodes fetched for Parent. An empty Parent means
-// the top level of the tree.
+// dialogID identifies one opened dialog. Every mutation carries the dialog
+// that asked for it, so an outcome the user has walked away from is discarded
+// on arrival instead of landing on whatever is open now — even when the two
+// are the same kind of dialog on different nodes.
+type dialogID int
+
+// CatalogLoadedMsg carries the nodes fetched for Parent under the token the
+// pane issued. An empty Parent means the top level of the tree.
 type CatalogLoadedMsg struct {
 	Parent []string
 	Nodes  []adapter.Node
+	Token  panes.Token
+}
+
+// CatalogChangedMsg reports a completed mutation: Parent is the subtree to
+// reload, and Target the node the change was about.
+type CatalogChangedMsg struct {
+	Op     string
+	Target []string
+	Parent []string
+	dialog dialogID
+}
+
+// ThroughputReadMsg delivers the capacity the throughput dialog opens on.
+type ThroughputReadMsg struct {
+	Path       []string
+	Throughput adapter.Throughput
 }
 
 // ScopeChangedMsg announces the container queries should target by default.
@@ -64,9 +94,11 @@ type PageFailedMsg struct {
 // belongs to so it can be rendered under that node; it is empty when the
 // failure has no place in the tree.
 type ErrMsg struct {
-	Op   string
-	Path []string
-	Err  error
+	Op     string
+	Path   []string
+	Token  panes.Token
+	Err    error
+	dialog dialogID
 }
 
 // ConnectedMsg delivers the connection the connect screen opened, and the

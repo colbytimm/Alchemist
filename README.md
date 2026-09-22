@@ -13,7 +13,7 @@ It also queries across containers, which the service cannot: unions and two-cont
 joins are [simulated client-side](#querying-across-containers).
 
 > **Status: early development.** Browsing, querying, cross-container queries,
-> profiles, history, and export work today. Catalog management and release builds are
+> catalog management, profiles, history, and export work today. Release builds are
 > still to come; the [implementation plan](docs/plan/00-overview.md) tracks them.
 
 ## Getting started
@@ -70,6 +70,10 @@ the catalog and queries run against it, or name one in the query itself with
 | `↑/k`, `↓/j` | catalog, results | up, down |
 | `enter/space` | catalog | expand/collapse |
 | `r` | catalog | refresh node |
+| `n` | catalog | new database |
+| `c` | catalog | new container |
+| `d` | catalog | delete node |
+| `t` | catalog | throughput |
 | `enter` | results | row detail |
 | `h/←`, `l/→` | results | scroll left, scroll right |
 | `m` | results | fetch more |
@@ -143,6 +147,32 @@ A path works too, relative, absolute, or starting with `~/`, and folders it name
 do not exist yet are created. The prompt shows the full path it will write to as you
 type. An existing file is left alone unless the name ends in `!`, as in
 `~/exports/orders.csv!`.
+
+## Managing the catalog
+
+Cosmos DB has no DDL, so `CREATE` and `DROP` never reach the editor however good it
+gets. Four keys in the catalog pane do that work instead:
+
+- `n` creates a database, with optional shared throughput its containers draw on.
+- `c` creates a container in the database under the cursor, taking a partition key of
+  up to three comma-separated paths (`/tenantId, /customerId` is hierarchical).
+- `d` deletes the database or container under the cursor.
+- `t` reads the provisioned throughput of the database or container under the cursor
+  and replaces it, manual or autoscale. A container that draws on its database's
+  throughput is changed on the database, and the dialog says so rather than sending a
+  request Cosmos would refuse.
+
+Nothing is destroyed by a single keystroke: a delete asks for the name back, character
+for character, the way the portal does. Cosmos has no undo and no recycle bin.
+
+Minimum RU/s, autoscale step size, and which modes an account may use vary by account
+type, so Alchemist sends the request and shows the service's own answer rather than
+guessing the rules. A refused create leaves the dialog open with that answer under the
+fields, so a rejected name is one edit away from a retry.
+
+Renaming is absent because Cosmos cannot rename a database or a container — the ID is
+the resource identity. A backend that cannot manage its catalog, or a session that must
+not, simply does not offer these keys, and they disappear from the help overlay too.
 
 ## Profiles
 

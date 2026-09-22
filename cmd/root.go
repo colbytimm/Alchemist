@@ -119,6 +119,7 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 			Icons:       s.icons(),
 			Connection:  launch.connection,
 			Connect:     launch.connect,
+			Manage:      management,
 			Form:        launch.form,
 			Logger:      logger,
 			History:     s.historyStore(logger, stateDir),
@@ -133,6 +134,16 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 	)
 	_, err = program.Run()
 	return err
+}
+
+// management reports the optional interfaces a connection satisfies. The
+// assertions live here rather than in internal/tui, which knows nothing of
+// any concrete backend; a connection satisfying neither leaves the TUI with
+// no management bindings at all.
+func management(conn adapter.Connection) tui.Management {
+	admin, _ := conn.(adapter.CatalogAdmin)
+	throughput, _ := conn.(adapter.ThroughputEditor)
+	return tui.Management{Admin: admin, Throughput: throughput}
 }
 
 // launch is what a session starts with: a live connection, or the connect
