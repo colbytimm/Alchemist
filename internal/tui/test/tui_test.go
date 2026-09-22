@@ -50,16 +50,18 @@ func plain(view string) string {
 // and failPage fail that many calls before the fixture answers, which is how
 // a test gets a failure the next attempt recovers from. Management calls pass
 // straight through to the mock, keeping the specs so a test can see what the
-// dialogs assembled.
+// dialogs assembled, and inspections keep the path they were asked about.
 type recordingConnection struct {
 	inner      adapter.Connection
 	admin      adapter.CatalogAdmin
 	editor     adapter.ThroughputEditor
+	inspector  adapter.Inspector
 	calls      map[string]int
 	queries    []adapter.Query
 	contexts   []context.Context
 	containers []adapter.ContainerSpec
 	provisions []adapter.Throughput
+	inspected  [][]string
 	pageReads  int
 	failRoot   int
 	failQuery  int
@@ -75,7 +77,13 @@ func newConnection(t *testing.T, opts ...mock.Option) *recordingConnection {
 	conn := &recordingConnection{inner: inner, calls: map[string]int{}}
 	conn.admin, _ = inner.(adapter.CatalogAdmin)
 	conn.editor, _ = inner.(adapter.ThroughputEditor)
+	conn.inspector, _ = inner.(adapter.Inspector)
 	return conn
+}
+
+func (c *recordingConnection) Inspect(ctx context.Context, n adapter.Node) (adapter.Details, error) {
+	c.inspected = append(c.inspected, n.Path)
+	return c.inspector.Inspect(ctx, n)
 }
 
 func (c *recordingConnection) CreateDatabase(ctx context.Context, spec adapter.DatabaseSpec) error {
@@ -163,7 +171,8 @@ func (c *recordingCursor) Close() error {
 func managed(conn adapter.Connection) tui.Management {
 	admin, _ := conn.(adapter.CatalogAdmin)
 	throughput, _ := conn.(adapter.ThroughputEditor)
-	return tui.Management{Admin: admin, Throughput: throughput}
+	inspector, _ := conn.(adapter.Inspector)
+	return tui.Management{Admin: admin, Throughput: throughput, Inspector: inspector}
 }
 
 // newModel builds a model sized to the minimum supported terminal, managing

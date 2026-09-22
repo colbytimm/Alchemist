@@ -138,6 +138,19 @@ func (m Model) readThroughput(path []string) tea.Cmd {
 	}
 }
 
+func (m Model) inspect(node adapter.Node) tea.Cmd {
+	inspector := m.management.Inspector
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
+		defer cancel()
+		details, err := inspector.Inspect(ctx, node)
+		if err != nil {
+			return ErrMsg{Op: OpInspect, Path: node.Path, Err: err}
+		}
+		return DetailsLoadedMsg{Path: node.Path, Details: details}
+	}
+}
+
 // runPlan opens a cursor and fetches its first page. ctx belongs to the
 // model, which cancels it when a newer run supersedes this one.
 func (m Model) runPlan(ctx context.Context, plan query.Plan) tea.Cmd {

@@ -68,6 +68,7 @@ const (
 	overlayExport
 	overlayForm
 	overlayConfirm
+	overlayInfo
 )
 
 // runState is how far the current query has got.
@@ -106,11 +107,13 @@ type Options struct {
 	MaxJoinRows int
 }
 
-// Management is what a session may change about the catalog it browses. A nil
-// field is a backend that cannot do that, and its bindings are removed.
+// Management is what a session may do with the catalog beyond browsing it:
+// change it, and read the metadata behind one node. A nil field is a backend
+// that cannot do that, and its bindings are removed.
 type Management struct {
 	Admin      adapter.CatalogAdmin
 	Throughput adapter.ThroughputEditor
+	Inspector  adapter.Inspector
 }
 
 // Manager reports what a connection allows. cmd/ supplies it: every type
@@ -149,6 +152,7 @@ type Model struct {
 	exportPrompt panes.ExportPrompt
 	form         panes.Form
 	confirm      panes.Confirm
+	info         panes.Info
 	statusBar    panes.StatusBar
 	help         panes.Help
 
@@ -213,6 +217,7 @@ func New(opts Options) Model {
 		detail:       panes.NewDetail(),
 		historyPane:  panes.NewHistory(opts.Icons, keys.HistoryKeys()),
 		exportPrompt: panes.NewExportPrompt(append(keys.ExportKeys(), keys.Close)),
+		info:         panes.NewInfo(opts.Icons, keys.InfoKeys()),
 		statusBar:    panes.NewStatusBar(opts.Icons, opts.Profile),
 		help:         panes.NewHelp(keys.HelpSections()),
 
@@ -271,6 +276,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyChange(msg)
 	case ThroughputReadMsg:
 		return m.openThroughputForm(msg), nil
+	case DetailsLoadedMsg:
+		m.info = m.info.SetDetails(msg.Path, msg.Details)
+		return m, nil
 	case ScopeChangedMsg:
 		return m.setScope(msg.Scope), nil
 	case PageLoadedMsg:
@@ -322,6 +330,8 @@ func (m Model) layout() string {
 		return m.form.View()
 	case m.overlay == overlayConfirm:
 		return m.confirm.View()
+	case m.overlay == overlayInfo:
+		return m.info.View()
 	}
 	right := lipgloss.JoinVertical(lipgloss.Left, m.editor.View(), m.results.View())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, m.catalogPane.View(), right)
@@ -331,11 +341,12 @@ func (m Model) layout() string {
 // animate forwards a message no pane owns outright to the ones that run
 // timers of their own.
 func (m Model) animate(msg tea.Msg) (Model, tea.Cmd) {
-	var connectCmd, catalogCmd, statusCmd tea.Cmd
+	var connectCmd, catalogCmd, infoCmd, statusCmd tea.Cmd
 	m.connectPane, connectCmd = m.connectPane.Update(msg)
 	m.catalogPane, catalogCmd = m.catalogPane.Update(msg)
+	m.info, infoCmd = m.info.Update(msg)
 	m.statusBar, statusCmd = m.statusBar.Update(msg)
-	return m, tea.Batch(connectCmd, catalogCmd, statusCmd)
+	return m, tea.Batch(connectCmd, catalogCmd, infoCmd, statusCmd)
 }
 
 func (m Model) handleErr(msg ErrMsg) Model {
@@ -352,6 +363,8 @@ func (m Model) handleErr(msg ErrMsg) Model {
 		return m.failManagement(msg)
 	case OpReadThroughput:
 		return m.failThroughputRead(msg)
+	case OpInspect:
+		m.info = m.info.Fail(msg.Path, msg.Err)
 	}
 	return m
 }
@@ -415,6 +428,8 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleFormKey(msg)
 	case overlayConfirm:
 		return m.handleConfirmKey(msg)
+	case overlayInfo:
+		return m.handleInfoKey(msg)
 	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
@@ -518,6 +533,8 @@ func (m Model) handleCatalogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.openDelete(), nil
 	case key.Matches(msg, m.keys.Throughput):
 		return m, m.openThroughput()
+	case key.Matches(msg, m.keys.Info):
+		return m.openInfo()
 	}
 	return m, nil
 }
@@ -876,6 +893,7 @@ func (m Model) resize(width, height int) Model {
 	m.exportPrompt = m.exportPrompt.SetSize(width, height)
 	m.form = m.form.SetSize(width, height)
 	m.confirm = m.confirm.SetSize(width, height)
+	m.info = m.info.SetSize(width, height)
 	return m
 }
 

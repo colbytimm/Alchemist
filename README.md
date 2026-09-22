@@ -74,6 +74,7 @@ the catalog and queries run against it, or name one in the query itself with
 | `c` | catalog | new container |
 | `d` | catalog | delete node |
 | `t` | catalog | throughput |
+| `i` | catalog | node info |
 | `enter` | results | row detail |
 | `h/←`, `l/→` | results | scroll left, scroll right |
 | `m` | results | fetch more |
@@ -173,6 +174,17 @@ fields, so a rejected name is one edit away from a retry.
 Renaming is absent because Cosmos cannot rename a database or a container — the ID is
 the resource identity. A backend that cannot manage its catalog, or a session that must
 not, simply does not offer these keys, and they disappear from the help overlay too.
+
+## Inspecting a node
+
+`i` on a database or container opens a read-only overlay with everything the account
+serves about it: identity and last-modified time, partition key kind and paths,
+throughput mode with its floor and whether a change is still scaling, document count
+and storage size, physical partition ranges, time to live, the indexing policy, and
+unique key, conflict resolution, vector and full-text policies. A figure the account
+declines to serve — a container drawing on its database's throughput has no offer of
+its own — keeps its heading with a line saying why. The overlay scrolls, `r` reads the
+node again, and `esc` or `i` closes it. A node already read reopens without a request.
 
 ## Profiles
 
