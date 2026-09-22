@@ -138,10 +138,10 @@ Decisions the sections above left open, recorded once the code settled them:
 and equals the sum of leaf charges within rounding.
 
 **Manual checklist:**
-- [ ] UNION-scan two emulator containers; `_container` column present; badge shows
+- [x] UNION-scan two emulator containers; `_container` column present; badge shows
       `simulated`.
-- [ ] The join example above returns customer names on orders; RU shows the sum.
-- [ ] A join exceeding the cap fails with the helpful message; TUI stays alive.
+- [x] The join example above returns customer names on orders; RU shows the sum.
+- [x] A join exceeding the cap fails with the helpful message; TUI stays alive.
 
 ## Acceptance criteria
 
