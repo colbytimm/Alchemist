@@ -34,6 +34,7 @@ const (
 	OpDeleteContainer = "delete_container"
 	OpThroughput      = "throughput"
 	OpSetThroughput   = "set_throughput"
+	OpInspect         = "inspect"
 )
 
 var (
@@ -43,6 +44,7 @@ var (
 	_ adapter.Cursor           = (*cursor)(nil)
 	_ adapter.CatalogAdmin     = (*conn)(nil)
 	_ adapter.ThroughputEditor = (*conn)(nil)
+	_ adapter.Inspector        = (*conn)(nil)
 )
 
 // rowsPerPage is the fixed number of rows in every canned result page.
@@ -55,10 +57,19 @@ type InjectedError struct {
 
 func (e *InjectedError) Error() string { return "mock: injected " + e.Op + " error" }
 
+// storage is what a container holds, as the info view reports it. An empty
+// size stands in for an account whose figures could not be read, which the
+// view has to say rather than show a blank.
+type storage struct {
+	documents int
+	size      string
+}
+
 type container struct {
 	name          string
 	partitionKeys []string
 	throughput    adapter.Throughput
+	storage       storage
 }
 
 type database struct {
@@ -69,17 +80,25 @@ type database struct {
 
 // newFixture is the catalog a mock adapter starts from. Each adapter gets a
 // copy of its own, so one adapter's mutations stay invisible to the next.
+// telemetry provisions shared throughput its events and alerts draw on, and
+// devices reports no readable storage, so every note the info view can show
+// has a fixture behind it.
 func newFixture() []database {
 	manual := adapter.Throughput{Mode: adapter.ThroughputManual, RUs: 400}
+	shared := adapter.Throughput{Mode: adapter.ThroughputShared}
 	return []database{
 		{name: "sales", containers: []container{
-			{name: "orders", partitionKeys: []string{"/customerId"}, throughput: manual},
-			{name: "customers", partitionKeys: []string{"/region"}, throughput: manual},
+			{name: "orders", partitionKeys: []string{"/customerId"}, throughput: manual,
+				storage: storage{documents: 1284, size: "4.2 MB"}},
+			{name: "customers", partitionKeys: []string{"/region"}, throughput: manual,
+				storage: storage{documents: 12, size: "16 KB"}},
 		}},
-		{name: "telemetry", containers: []container{
-			{name: "events", partitionKeys: []string{"/deviceId"}, throughput: manual},
+		{name: "telemetry", throughput: adapter.Throughput{Mode: adapter.ThroughputManual, RUs: 1000}, containers: []container{
+			{name: "events", partitionKeys: []string{"/deviceId"}, throughput: shared,
+				storage: storage{documents: 300, size: "120 KB"}},
 			{name: "devices", partitionKeys: []string{"/deviceId"}, throughput: manual},
-			{name: "alerts", partitionKeys: []string{"/severity"}, throughput: manual},
+			{name: "alerts", partitionKeys: []string{"/severity"}, throughput: shared,
+				storage: storage{documents: 25, size: "8 KB"}},
 		}},
 	}
 }
@@ -245,6 +264,7 @@ func (a *Adapter) addContainer(spec adapter.ContainerSpec) error {
 		name:          spec.Name,
 		partitionKeys: spec.PartitionKeys,
 		throughput:    spec.Throughput,
+		storage:       storage{size: emptySize},
 	})
 	return nil
 }
