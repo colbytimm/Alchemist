@@ -12,6 +12,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -350,6 +351,89 @@ func TestIntegrationCachesPartitionKeyPath(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, reads, "container metadata should be read once and cached")
+}
+
+func inspector(t *testing.T, conn adapter.Connection) adapter.Inspector {
+	t.Helper()
+	i, ok := conn.(adapter.Inspector)
+	require.True(t, ok, "a cosmos connection inspects its catalog")
+	return i
+}
+
+func sectionTitled(t *testing.T, details adapter.Details, title string) adapter.Section {
+	t.Helper()
+	for _, section := range details.Sections {
+		if section.Title == title {
+			return section
+		}
+	}
+	require.Failf(t, "section missing", "no section titled %q", title)
+	return adapter.Section{}
+}
+
+func propertyNamed(t *testing.T, section adapter.Section, name string) string {
+	t.Helper()
+	for _, property := range section.Properties {
+		if property.Name == name {
+			return property.Value
+		}
+	}
+	require.Failf(t, "property missing", "no property named %q in %q", name, section.Title)
+	return ""
+}
+
+// answers reports whether a section has properties, or a note saying why not.
+func answers(section adapter.Section) bool {
+	return len(section.Properties) > 0 || section.Note != ""
+}
+
+func inspectFixture(t *testing.T, conn adapter.Connection, kind adapter.NodeKind, path ...string) adapter.Details {
+	t.Helper()
+	details, err := inspector(t, conn).Inspect(context.Background(), adapter.Node{
+		Kind: kind,
+		Name: path[len(path)-1],
+		Path: path,
+	})
+	require.NoError(t, err)
+	return details
+}
+
+// TestIntegrationInspect asserts on what the fixture fixes — which key
+// partitions the container — and only on the presence of what the service
+// owns, such as byte sizes and offers, which vary by image and drift.
+func TestIntegrationInspect(t *testing.T) {
+	conn := connectWithRetry(t)
+	t.Cleanup(func() { _ = conn.Close() })
+	freshFixture(t, seedClient(t))
+
+	container := inspectFixture(t, conn, adapter.NodeContainer, itDatabase, itContainer)
+	assert.Equal(t, "/pk", propertyNamed(t, sectionTitled(t, container, "Partition key"), "Paths"))
+	assert.NotEmpty(t, propertyNamed(t, sectionTitled(t, container, "Storage"), "Documents size"))
+	assert.True(t, answers(sectionTitled(t, container, "Throughput")))
+	assert.NotEmpty(t, propertyNamed(t, sectionTitled(t, container, "Physical partitions"), "Count"))
+	assert.Contains(t, propertyNamed(t, sectionTitled(t, container, "Indexing"), "Mode"), "consistent")
+	assert.True(t, json.Valid(container.Raw))
+
+	database := inspectFixture(t, conn, adapter.NodeDatabase, itDatabase)
+	assert.Equal(t, itDatabase, propertyNamed(t, sectionTitled(t, database, "Identity"), "Database"))
+	assert.True(t, answers(sectionTitled(t, database, "Throughput")))
+}
+
+// TestIntegrationInspectCountsSeededDocuments checks the one storage figure
+// the fixture fixes. The Linux emulator image serves a usage header of zeros
+// whatever the container holds, which the test cannot tell from an adapter
+// that reads the wrong key, so it skips rather than passes on that image.
+func TestIntegrationInspectCountsSeededDocuments(t *testing.T) {
+	conn := connectWithRetry(t)
+	t.Cleanup(func() { _ = conn.Close() })
+	freshFixture(t, seedClient(t))
+
+	storage := sectionTitled(t, inspectFixture(t, conn, adapter.NodeContainer, itDatabase, itContainer), "Storage")
+	documents := propertyNamed(t, storage, "Documents")
+	if documents == "0" {
+		t.Skip("this emulator image reports no usage figures, so the document count cannot be checked against the seed")
+	}
+	assert.Equal(t, strconv.Itoa(seedCount), documents)
 }
 
 func catalogAdmin(t *testing.T, conn adapter.Connection) adapter.CatalogAdmin {
