@@ -40,6 +40,12 @@ func failureLines(failure string, width int) []string {
 	return wrapText(failure, width)
 }
 
+// clampScroll keeps offset within the count lines a body of height can
+// scroll through: never above the first, never past the last.
+func clampScroll(offset, count, height int) int {
+	return min(max(offset, 0), max(count-height, 0))
+}
+
 func styleAll(style lipgloss.Style, lines []string) []string {
 	styled := make([]string, 0, len(lines))
 	for _, line := range lines {
