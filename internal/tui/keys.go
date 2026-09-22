@@ -21,6 +21,7 @@ type KeyMap struct {
 	NewContainer key.Binding
 	Delete       key.Binding
 	Throughput   key.Binding
+	Info         key.Binding
 	Detail       key.Binding
 	ScrollLeft   key.Binding
 	ScrollRight  key.Binding
@@ -86,6 +87,10 @@ func DefaultKeyMap() KeyMap {
 		Throughput: key.NewBinding(
 			key.WithKeys("t"),
 			key.WithHelp("t", "throughput"),
+		),
+		Info: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i", "node info"),
 		),
 		Detail: key.NewBinding(
 			key.WithKeys("enter"),
@@ -184,6 +189,12 @@ func (k KeyMap) ExportKeys() []key.Binding {
 	return []key.Binding{k.Save, k.Format}
 }
 
+// InfoKeys are the bindings the info overlay answers to, shown in a hint line
+// of its own. Every one of them is a binding some pane already advertises.
+func (k KeyMap) InfoKeys() []key.Binding {
+	return []key.Binding{k.Up, k.Down, k.Refresh, k.Close}
+}
+
 func (k KeyMap) globalKeys() []key.Binding {
 	return []key.Binding{
 		k.NextPane, k.PrevPane, k.FocusEditor, k.Run,
@@ -193,7 +204,7 @@ func (k KeyMap) globalKeys() []key.Binding {
 
 func (k KeyMap) catalogKeys() []key.Binding {
 	return []key.Binding{
-		k.Up, k.Down, k.Select, k.Refresh,
+		k.Up, k.Down, k.Select, k.Refresh, k.Info,
 		k.NewDatabase, k.NewContainer, k.Delete, k.Throughput,
 	}
 }
@@ -209,6 +220,9 @@ func (k KeyMap) forManagement(management Management) KeyMap {
 	}
 	if management.Throughput == nil {
 		k.Throughput.SetEnabled(false)
+	}
+	if management.Inspector == nil {
+		k.Info.SetEnabled(false)
 	}
 	return k
 }

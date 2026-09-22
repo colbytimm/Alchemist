@@ -247,3 +247,30 @@ byte sizes — they are the service's business and will drift.
   working.
 - Opening the view costs at most three requests for a container and two for a database,
   and pressing `i` twice on the same node without `r` costs nothing the second time.
+
+## As built
+
+Decisions the sections above left open, recorded once the code settled them:
+
+- **`Inspector` rides in `Management`.** The keymap is built before a connection
+  exists, so the interface reaches the TUI the way `CatalogAdmin` and
+  `ThroughputEditor` do: through the `Manager` that `cmd/` supplies and the session
+  calls on every connection it gets. The struct's doc now says it covers reading one
+  node as well as changing the catalog.
+- **Section order is short-to-long**, not the order of the source table: Identity,
+  Partition key, Throughput, Storage, Physical partitions, Time to live, Indexing,
+  Policies. What a node is and costs fits on the first screen; the policies, which run
+  to many lines, scroll below.
+- **No `bubbles/viewport`.** The document overlay already scrolls a slice of lines by
+  offset, so the info view does the same and the clamp is shared between the two. A
+  viewport would have brought key handling and styles neither overlay uses.
+- **`q` is inert inside the overlay; `ctrl+c` still quits.** The help overlay quits on
+  `q`; this one does not, as the interaction table asks, using the same plain-letter
+  guard the dialogs use.
+- **The mock reports storage as strings**, so the fixture can say `4.2 MB` without a
+  second copy of the size formatter. A created container reports `0 B`; a fixture with
+  no size stands in for a header the Cosmos adapter could not parse.
+- **The Linux emulator image serves a usage header of zeros** whatever a container
+  holds, and gives a database created with no offer one while its containers get none.
+  The document-count integration check skips on that image rather than passing on a
+  stub, and the throughput assertions accept a note as well as figures.
