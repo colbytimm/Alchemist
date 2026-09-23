@@ -35,6 +35,7 @@ const (
 	OpThroughput      = "throughput"
 	OpSetThroughput   = "set_throughput"
 	OpInspect         = "inspect"
+	OpSampleFields    = "sample_fields"
 )
 
 var (
@@ -45,6 +46,7 @@ var (
 	_ adapter.CatalogAdmin     = (*conn)(nil)
 	_ adapter.ThroughputEditor = (*conn)(nil)
 	_ adapter.Inspector        = (*conn)(nil)
+	_ adapter.FieldSampler     = (*conn)(nil)
 )
 
 // rowsPerPage is the fixed number of rows in every canned result page.
@@ -432,6 +434,11 @@ func (c *cursor) NextPage(ctx context.Context) (adapter.Page, error) {
 	}
 	c.page++
 	c.remaining--
+	return cannedPage(c.page), nil
+}
+
+// cannedPage is page number n of the result every query serves.
+func cannedPage(n int) adapter.Page {
 	page := adapter.Page{
 		Columns: []string{"id", "pk", "amount", "note"},
 		Stats: adapter.Stats{
@@ -441,15 +448,34 @@ func (c *cursor) NextPage(ctx context.Context) (adapter.Page, error) {
 		},
 	}
 	for i := 0; i < rowsPerPage; i++ {
-		id := fmt.Sprintf("item-%d-%d", c.page, i)
+		id := fmt.Sprintf("item-%d-%d", n, i)
 		pk := fmt.Sprintf("pk-%d", i%3)
-		amount := fmt.Sprintf("%d", (c.page*100)+i)
-		note := fmt.Sprintf("row %d of page %d", i, c.page)
+		amount := fmt.Sprintf("%d", (n*100)+i)
+		note := fmt.Sprintf("row %d of page %d", i, n)
 		page.Rows = append(page.Rows, []string{id, pk, amount, note})
 		raw := fmt.Sprintf(`{"id":%q,"pk":%q,"amount":%s,"note":%q}`, id, pk, amount, note)
 		page.Raw = append(page.Raw, json.RawMessage(raw))
 	}
-	return page, nil
+	return page
+}
+
+// SampleFields flattens one canned page, so a sample finds exactly the
+// fields a query of the same container would.
+func (c *conn) SampleFields(ctx context.Context, container adapter.Node) (adapter.FieldSample, error) {
+	if err := c.a.stall(ctx, OpSampleFields); err != nil {
+		return adapter.FieldSample{}, err
+	}
+	if container.Kind != adapter.NodeContainer {
+		return adapter.FieldSample{}, fmt.Errorf("mock: sample fields %s: %s node has no items: %w", pathText(container.Path), container.Kind, adapter.ErrUnsupported)
+	}
+	c.a.mu.Lock()
+	_, _, err := c.a.locateContainer("sample fields", container.Path)
+	c.a.mu.Unlock()
+	if err != nil {
+		return adapter.FieldSample{}, err
+	}
+	page := cannedPage(1)
+	return adapter.FieldSample{Fields: adapter.FlattenFields(page.Raw), Stats: page.Stats}, nil
 }
 
 func (c *cursor) HasMore() bool { return c.remaining > 0 }

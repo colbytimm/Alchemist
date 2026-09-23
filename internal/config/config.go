@@ -42,6 +42,13 @@ type Profile struct {
 	PageSize           int    `toml:"page_size,omitzero"`
 	// MaxJoinRows caps the side of a cross-container join held in memory.
 	MaxJoinRows int `toml:"max_join_rows,omitzero"`
+	// SampleFields lets completion read a few items of a container for its
+	// fields; unset means true, which a plain bool cannot say.
+	SampleFields *bool `toml:"sample_fields,omitempty"`
+}
+
+func (p Profile) SamplesFields() bool {
+	return p.SampleFields == nil || *p.SampleFields
 }
 
 // Profile returns the profile called name, or the default profile when name

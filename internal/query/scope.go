@@ -14,27 +14,31 @@ const (
 	tokComma
 	tokString
 	tokNumber
+	tokComment
 	tokOther
 )
 
-// token is one lexed unit with its byte span in the input.
+// token is one lexed unit with its byte span in the input. open marks a
+// string still waiting for its closing quote, and every comment, since typing
+// at the end of either extends it.
 type token struct {
 	kind  int
 	text  string // original text of an ident or a tokOther symbol
 	upper string // uppercased ident text, for keyword checks
 	start int
 	end   int
+	open  bool
 }
 
 // keywords are idents that can never be a bare source alias.
 var keywords = map[string]bool{
-	"AND": true, "AS": true, "ASC": true, "BETWEEN": true, "BY": true,
+	"AND": true, "ARRAY": true, "AS": true, "ASC": true, "BETWEEN": true, "BY": true,
 	"CASE": true, "DESC": true, "DISTINCT": true, "ELSE": true, "END": true,
-	"EXISTS": true, "FALSE": true, "FROM": true, "GROUP": true, "IN": true,
-	"IS": true, "JOIN": true, "LIKE": true, "LIMIT": true, "NOT": true,
+	"ESCAPE": true, "EXISTS": true, "FALSE": true, "FROM": true, "GROUP": true,
+	"IN": true, "INNER": true, "IS": true, "JOIN": true, "LIKE": true, "LIMIT": true, "NOT": true,
 	"NULL": true, "OFFSET": true, "ON": true, "OR": true, "ORDER": true,
-	"SELECT": true, "THEN": true, "TOP": true, "TRUE": true, "VALUE": true,
-	"WHEN": true, "WHERE": true,
+	"SELECT": true, "THEN": true, "TOP": true, "TRUE": true, "UDF": true,
+	"UNDEFINED": true, "VALUE": true, "WHEN": true, "WHERE": true,
 }
 
 // joinModifiers are the idents that may precede JOIN, and so can never be a
@@ -58,7 +62,8 @@ type source struct {
 }
 
 // lex splits s into tokens, treating single- and double-quoted regions as
-// opaque string literals (backslash escapes respected).
+// opaque string literals (backslash escapes respected) and `--` to the end
+// of the line as a comment.
 func lex(s string) []token {
 	var toks []token
 	for i := 0; i < len(s); {
@@ -67,8 +72,12 @@ func lex(s string) []token {
 		case c == ' ' || c == '\t' || c == '\r' || c == '\n':
 			i++
 		case c == '\'' || c == '"':
-			end := lexString(s, i)
-			toks = append(toks, token{kind: tokString, start: i, end: end})
+			end, closed := lexString(s, i)
+			toks = append(toks, token{kind: tokString, start: i, end: end, open: !closed})
+			i = end
+		case c == '-' && i+1 < len(s) && s[i+1] == '-':
+			end := lexComment(s, i)
+			toks = append(toks, token{kind: tokComment, start: i, end: end, open: true})
 			i = end
 		case isIdentStart(c):
 			start := i
@@ -96,8 +105,9 @@ func lex(s string) []token {
 }
 
 // lexString returns the byte offset just past the string literal opening at
-// i; an unterminated literal consumes the rest of the input.
-func lexString(s string, i int) int {
+// i and whether it was closed; an unterminated literal consumes the rest of
+// the input.
+func lexString(s string, i int) (int, bool) {
 	quote := s[i]
 	i++
 	for i < len(s) {
@@ -105,12 +115,32 @@ func lexString(s string, i int) int {
 		case '\\':
 			i += 2
 		case quote:
-			return i + 1
+			return i + 1, true
 		default:
 			i++
 		}
 	}
+	return len(s), false
+}
+
+// lexComment returns the byte offset of the newline ending the comment
+// opening at i, or the end of the input.
+func lexComment(s string, i int) int {
+	if end := strings.IndexByte(s[i:], '\n'); end >= 0 {
+		return i + end
+	}
 	return len(s)
+}
+
+// code drops the comments, which take no part in a query's structure.
+func code(toks []token) []token {
+	var kept []token
+	for _, tok := range toks {
+		if tok.kind != tokComment {
+			kept = append(kept, tok)
+		}
+	}
+	return kept
 }
 
 // lexNumber returns the byte offset just past the number opening at i. A
@@ -160,8 +190,28 @@ type parser struct {
 	toks    []token
 	sources []source
 	aliases map[string]bool
-	clauses int
-	depth   int
+	// elements are the aliases a `JOIN alias IN path` declared, in order.
+	elements []element
+	clauses  int
+	depth    int
+}
+
+// element is an alias ranging over an array: the alias the array was
+// written against and the property path under it.
+type element struct {
+	name string
+	base string
+	path []string
+}
+
+func parse(text string) *parser {
+	return parseTokens(code(lex(text)))
+}
+
+func parseTokens(toks []token) *parser {
+	p := &parser{toks: toks, aliases: map[string]bool{}}
+	p.run()
+	return p
 }
 
 func (p *parser) run() {
@@ -227,13 +277,29 @@ func (p *parser) parseJoinClause(i int, modifier string) int {
 		p.record(src)
 		return j
 	}
+	collection, k, ok := p.parseSource(j + 1)
 	if len(src.path) == 1 && src.alias == "" {
 		p.aliases[src.path[0].text] = true
+		if ok && len(collection.path) > 1 {
+			p.elements = append(p.elements, element{
+				name: src.path[0].text,
+				base: collection.path[0].text,
+				path: pathText(collection.path[1:]),
+			})
+		}
 	}
-	if _, k, ok := p.parseSource(j + 1); ok {
+	if ok {
 		return k
 	}
 	return j + 1
+}
+
+func pathText(path []token) []string {
+	names := make([]string, 0, len(path))
+	for _, tok := range path {
+		names = append(names, tok.text)
+	}
+	return names
 }
 
 // parseSource consumes one dotted path plus an optional `AS alias` or bare

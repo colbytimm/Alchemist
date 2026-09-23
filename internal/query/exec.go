@@ -107,7 +107,7 @@ func (u *unionCursor) openNextLeaf(ctx context.Context) error {
 // tag places the leaf's cells under the merged columns, behind the container
 // they came from.
 func (u *unionCursor) tag(page adapter.Page) (adapter.Page, error) {
-	label := leafLabel(u.leaf)
+	label := u.leaf.Label()
 	field, err := containerField(label)
 	if err != nil {
 		return adapter.Page{}, err
@@ -171,8 +171,9 @@ func tagRaw(raw json.RawMessage, field []byte) json.RawMessage {
 	return append(tagged, fields...)
 }
 
-func leafLabel(leaf Leaf) string {
-	return strings.Join(leaf.Query.Scope, ".")
+// Label is the db.container name a merged result tags the leaf's rows with.
+func (l Leaf) Label() string {
+	return strings.Join(l.Query.Scope, ".")
 }
 
 // columnUnion is the header of a merged result. Like an adapter's, it only
@@ -221,7 +222,7 @@ func startMeter() *meter {
 
 func (m *meter) charge(leaf Leaf, page adapter.Page) {
 	m.total += page.Stats.RequestCharge
-	m.perLeaf[leafLabel(leaf)] += page.Stats.RequestCharge
+	m.perLeaf[leaf.Label()] += page.Stats.RequestCharge
 }
 
 func (m *meter) stats(rows int) adapter.Stats {

@@ -29,6 +29,8 @@ type KeyMap struct {
 	Export       key.Binding
 	Save         key.Binding
 	Format       key.Binding
+	Complete     key.Binding
+	Accept       key.Binding
 	Run          key.Binding
 	Connect      key.Binding
 	History      key.Binding
@@ -120,6 +122,16 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("tab"),
 			key.WithHelp("tab", "json/csv"),
 		),
+		// ctrl+space reaches bubbletea as ctrl+@, and some terminals swallow
+		// it; nothing depends on it, since the list opens on its own.
+		Complete: key.NewBinding(
+			key.WithKeys("ctrl+@"),
+			key.WithHelp("ctrl+space", "complete"),
+		),
+		Accept: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "accept suggestion"),
+		),
 		// ctrl+enter cannot join this binding: terminals send a bare CR for
 		// it, so bubbletea would never deliver it.
 		Run: key.NewBinding(
@@ -168,6 +180,7 @@ func (k KeyMap) HelpSections() []panes.HelpSection {
 		{Title: "Anywhere", Keys: k.globalKeys()},
 		{Title: "Catalog", Keys: k.catalogKeys()},
 		{Title: "Results", Keys: k.resultsKeys()},
+		{Title: "Editor", Keys: k.editorKeys()},
 	}
 }
 
@@ -229,6 +242,10 @@ func (k KeyMap) forManagement(management Management) KeyMap {
 
 func (k KeyMap) resultsKeys() []key.Binding {
 	return []key.Binding{k.Detail, k.ScrollLeft, k.ScrollRight, k.FetchMore, k.Export}
+}
+
+func (k KeyMap) editorKeys() []key.Binding {
+	return []key.Binding{k.Complete, k.Accept}
 }
 
 // ShortHelp names the bindings worth a single-line reminder.

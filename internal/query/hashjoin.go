@@ -149,7 +149,7 @@ func (j *joinCursor) buildMatches(ctx context.Context, meter *meter) error {
 		held += len(rows)
 		if held > j.maxRows {
 			return fmt.Errorf("query: join: %s has more than %d rows to hold in memory: %w",
-				leafLabel(j.build.leaf), j.maxRows, ErrJoinTooLarge)
+				j.build.leaf.Label(), j.maxRows, ErrJoinTooLarge)
 		}
 		for _, row := range rows {
 			j.matches[row.key] = append(j.matches[row.key], row.joinRow)
@@ -276,7 +276,7 @@ func (j *joinCursor) projectRaw(side joinSide, item json.RawMessage) (json.RawMe
 	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(item, &object); err != nil {
-		return nil, fmt.Errorf("query: join: read %s item: %w", leafLabel(side.leaf), err)
+		return nil, fmt.Errorf("query: join: read %s item: %w", side.leaf.Label(), err)
 	}
 	var raw bytes.Buffer
 	raw.WriteByte('{')
