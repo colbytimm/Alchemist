@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/complete"
 	"github.com/colbytimm/alchemist/internal/history"
 	"github.com/colbytimm/alchemist/internal/query"
 	"github.com/colbytimm/alchemist/internal/theme"
@@ -93,27 +94,32 @@ func (s runState) loaded() bool { return s == runLoaded || s == runFetching }
 // Database, when set, is expanded in the catalog as soon as the root
 // arrives. MaxJoinRows caps the in-memory side of a cross-container join; zero
 // means query.DefaultMaxJoinRows. A nil Manage leaves the session unable to
-// change anything about the catalog it browses.
+// change anything about the catalog it browses. SampleFields lets field
+// completion read a few items of a container it has not seen queried, which
+// spends request units the user did not ask for.
 type Options struct {
-	Icons       theme.IconSet
-	Connection  adapter.Connection
-	Connect     Connector
-	Manage      Manager
-	Form        panes.ConnectForm
-	Logger      *log.Logger
-	History     history.Store
-	Profile     string
-	Database    string
-	MaxJoinRows int
+	Icons        theme.IconSet
+	Connection   adapter.Connection
+	Connect      Connector
+	Manage       Manager
+	Form         panes.ConnectForm
+	Logger       *log.Logger
+	History      history.Store
+	Profile      string
+	Database     string
+	MaxJoinRows  int
+	SampleFields bool
 }
 
 // Management is what a session may do with the catalog beyond browsing it:
-// change it, and read the metadata behind one node. A nil field is a backend
-// that cannot do that, and its bindings are removed.
+// change it, read the metadata behind one node, and look at a container's
+// items for their fields. A nil field is a backend that cannot do that, and
+// its bindings are removed.
 type Management struct {
 	Admin      adapter.CatalogAdmin
 	Throughput adapter.ThroughputEditor
 	Inspector  adapter.Inspector
+	Sampler    adapter.FieldSampler
 }
 
 // Manager reports what a connection allows. cmd/ supplies it: every type
@@ -166,11 +172,23 @@ type Model struct {
 	scope      []string
 	state      runState
 	run        runID
+	plan       query.Plan
 	pageCursor adapter.Cursor
 	cancel     context.CancelFunc
 	stats      adapter.Stats
 	// simulated marks a run merged client-side from several containers.
 	simulated bool
+
+	// index is what completion offers, fed from the tree and the pages;
+	// samples is how far each container's field sample has got.
+	index        *complete.Index
+	samples      map[string]sampleState
+	sampleFields bool
+	// completing marks a list wanted at the cursor, computed for
+	// completion; dismissed is the token the user closed it on.
+	completing bool
+	completion query.Completion
+	dismissed  dismissal
 	// historyEntry is the record of the current run, appended to the log
 	// once the run has settled one way or the other.
 	historyEntry history.Entry
@@ -212,7 +230,7 @@ func New(opts Options) Model {
 		history:      store,
 		connectPane:  panes.NewConnect(opts.Icons, opts.Form),
 		catalogPane:  panes.NewCatalog(opts.Icons),
-		editor:       panes.NewEditor(),
+		editor:       panes.NewEditor(keys.Accept),
 		results:      panes.NewResults(),
 		detail:       panes.NewDetail(),
 		historyPane:  panes.NewHistory(opts.Icons, keys.HistoryKeys()),
@@ -224,6 +242,9 @@ func New(opts Options) Model {
 		defaultDatabase: opts.Database,
 		profile:         opts.Profile,
 		maxJoinRows:     opts.MaxJoinRows,
+		index:           complete.NewIndex(),
+		samples:         map[string]sampleState{},
+		sampleFields:    opts.SampleFields,
 		screen:          screenConnect,
 	}
 	if opts.Connection != nil {
@@ -267,11 +288,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	case CatalogLoadedMsg:
-		m.catalogPane = m.catalogPane.SetChildren(msg.Parent, msg.Nodes, msg.Token)
-		if len(msg.Parent) == 0 && m.defaultDatabase != "" {
-			return m.openDefaultDatabase(msg.Nodes)
-		}
-		return m.prefetch()
+		return m.loadCatalog(msg)
+	case FieldsSampledMsg:
+		return m.fileSample(msg)
 	case CatalogChangedMsg:
 		return m.applyChange(msg)
 	case ThroughputReadMsg:
@@ -290,7 +309,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case PageFailedMsg:
 		return m.failPage(msg)
 	case ErrMsg:
-		return m.handleErr(msg), nil
+		return m.handleErr(msg)
 	case ConnectedMsg:
 		return m.enterSession(msg)
 	case ConnectFailedMsg:
@@ -349,24 +368,45 @@ func (m Model) animate(msg tea.Msg) (Model, tea.Cmd) {
 	return m, tea.Batch(connectCmd, catalogCmd, infoCmd, statusCmd)
 }
 
-func (m Model) handleErr(msg ErrMsg) Model {
+func (m Model) handleErr(msg ErrMsg) (Model, tea.Cmd) {
 	m.logger.Error("operation failed", "op", msg.Op, "error", msg.Err)
 	switch msg.Op {
 	case OpCatalogRoot, OpCatalogChildren:
 		m.catalogPane = m.catalogPane.SetError(msg.Path, msg.Err, msg.Token)
+		return m.refreshSuggestions()
 	case OpHistory:
 		m.historyPane = m.historyPane.Fail(msg.Err)
 		m.overlay = overlayHistory
 	case OpExport:
 		m.exportPrompt = m.exportPrompt.Fail(msg.Err)
 	case OpCreateDatabase, OpCreateContainer, OpSetThroughput, OpDeleteDatabase, OpDeleteContainer:
-		return m.failManagement(msg)
+		return m.failManagement(msg), nil
 	case OpReadThroughput:
-		return m.failThroughputRead(msg)
+		return m.failThroughputRead(msg), nil
 	case OpInspect:
 		m.info = m.info.Fail(msg.Path, msg.Err)
+	case OpSampleFields:
+		return m.failSample(msg.Path)
 	}
-	return m
+	return m, nil
+}
+
+// loadCatalog files what the tree accepted, in the tree and in the
+// completion index alike, so the two never disagree.
+func (m Model) loadCatalog(msg CatalogLoadedMsg) (Model, tea.Cmd) {
+	if !m.catalogPane.Expects(msg.Parent, msg.Token) {
+		return m, nil
+	}
+	m.catalogPane = m.catalogPane.SetChildren(msg.Parent, msg.Nodes, msg.Token)
+	m, refresh := m.fileCatalog(msg)
+	var model Model
+	var cmd tea.Cmd
+	if len(msg.Parent) == 0 && m.defaultDatabase != "" {
+		model, cmd = m.openDefaultDatabase(msg.Nodes)
+	} else {
+		model, cmd = m.prefetch()
+	}
+	return model, tea.Batch(refresh, cmd)
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -377,11 +417,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleOverlayKey(msg)
 	}
 	if m.focus == focusEditor && typesIntoBuffer(msg) {
-		return m.editorUpdate(msg)
+		return m.editorEdit(msg)
+	}
+	if m.focus == focusEditor && m.editor.Suggesting() {
+		if model, handled := m.handleSuggestionKey(msg); handled {
+			return model, nil
+		}
 	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		return m.quit()
+	case m.focus == focusEditor && key.Matches(msg, m.keys.Complete):
+		return m.openSuggestions()
 	case key.Matches(msg, m.keys.Help):
 		m.overlay = overlayHelp
 		return m, nil
@@ -543,7 +590,7 @@ func (m Model) handleEditorKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if key.Matches(msg, m.keys.Close) {
 		return m.setFocus(m.previousFocus), nil
 	}
-	return m.editorUpdate(msg)
+	return m.editorEdit(msg)
 }
 
 func (m Model) handleResultsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -591,9 +638,10 @@ func (m Model) openDetail() Model {
 }
 
 // startRun replaces whatever is on screen with a fresh run of the editor
-// buffer. A refusal to run is reported the same way a service error is.
+// buffer, and takes down a completion list the buffer has outrun. A refusal
+// to run is reported the same way a service error is.
 func (m Model) startRun() (Model, tea.Cmd) {
-	m = m.endRun()
+	m = m.closeSuggestions().endRun()
 	m.run++
 	m.stats = adapter.Stats{}
 	m.simulated = false
@@ -604,6 +652,7 @@ func (m Model) startRun() (Model, tea.Cmd) {
 		return m.refuseRun(err)
 	}
 	m.simulated = plan.Simulated()
+	m.plan = plan
 	m.historyEntry = m.newHistoryEntry(plan.Scope())
 	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 	m.cancel = cancel
@@ -664,6 +713,7 @@ func (m Model) loadPage(msg PageLoadedMsg) (Model, tea.Cmd) {
 	}
 	m.stats = msg.Page.Stats
 	m.results = m.results.Load(msg.Page)
+	m.observePage(msg.Page)
 	model, cmd := m.acceptPage(msg.cursor)
 	return model, tea.Batch(cmd, model.recordSuccess(msg.Page.Stats))
 }
@@ -675,6 +725,7 @@ func (m Model) appendPage(msg PageAppendedMsg) (Model, tea.Cmd) {
 	}
 	m.stats = totalStats(m.stats, msg.Page.Stats)
 	m.results = m.results.Append(msg.Page)
+	m.observePage(msg.Page)
 	return m.acceptPage(msg.cursor)
 }
 
@@ -742,6 +793,7 @@ func (m Model) hasMore() bool {
 
 func (m Model) setScope(scope []string) Model {
 	m.scope = scope
+	m.index.SetScope(scope)
 	m.statusBar = m.statusBar.SetScope(scope)
 	return m
 }
@@ -862,6 +914,7 @@ func (m Model) setFocus(f focus) Model {
 		m.previousFocus = m.focus
 	}
 	m.focus = f
+	m = m.closeSuggestions()
 	m.catalogPane = m.catalogPane.Blur()
 	m.editor = m.editor.Blur()
 	m.results = m.results.Blur()

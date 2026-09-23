@@ -493,3 +493,43 @@ func indexOfLineContaining(t *testing.T, lines []string, want string) int {
 	require.Failf(t, "line not found", "no line contains %q", want)
 	return -1
 }
+
+func TestLoadPathAsksOnceForANodeTheTreeHasNotListed(t *testing.T) {
+	c := newTree()
+
+	c, fetch, tick := c.LoadPath(database.Path)
+	require.True(t, fetch.Needed)
+	assert.Equal(t, database.Path, fetch.Node.Path)
+	assert.NotNil(t, tick, "the loading animation starts")
+	assert.True(t, c.Expects(database.Path, fetch.Token))
+	assert.False(t, c.Expects(database.Path, fetch.Token-1), "an earlier request is superseded")
+
+	_, again, _ := c.LoadPath(database.Path)
+	assert.False(t, again.Needed, "the request is already out")
+
+	c = c.SetChildren(database.Path, []adapter.Node{container}, fetch.Token)
+	_, cached, _ := c.LoadPath(database.Path)
+	assert.False(t, cached.Needed, "and then the children are held")
+	assert.NotContains(t, plain(c.View()), container.Name, "loading a node does not expand it")
+}
+
+func TestLoadPathAsksNothingForAnUnknownOrEmptyPath(t *testing.T) {
+	c := newTree()
+
+	_, unknown, _ := c.LoadPath([]string{"hr"})
+	_, root, _ := c.LoadPath(nil)
+
+	assert.False(t, unknown.Needed)
+	assert.False(t, root.Needed)
+}
+
+func TestLoadPathLeavesAFailedNodeAlone(t *testing.T) {
+	c := newTree()
+	c, fetch, _ := c.LoadPath(database.Path)
+	c = c.SetError(database.Path, errors.New("unreachable"), fetch.Token)
+
+	_, again, _ := c.LoadPath(database.Path)
+
+	assert.False(t, again.Needed)
+	assert.False(t, c.Loading(database.Path))
+}

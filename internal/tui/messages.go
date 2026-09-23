@@ -20,6 +20,7 @@ const (
 	OpReadThroughput  = "read throughput"
 	OpSetThroughput   = "set throughput"
 	OpInspect         = "inspect"
+	OpSampleFields    = "sample fields"
 )
 
 // runID identifies one query run. Every page and failure carries the run it
@@ -60,6 +61,12 @@ type ThroughputReadMsg struct {
 type DetailsLoadedMsg struct {
 	Path    []string
 	Details adapter.Details
+}
+
+// FieldsSampledMsg delivers what one look at the container at Path found.
+type FieldsSampledMsg struct {
+	Path   []string
+	Sample adapter.FieldSample
 }
 
 // ScopeChangedMsg announces the container queries should target by default.

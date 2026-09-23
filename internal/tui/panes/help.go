@@ -54,19 +54,35 @@ func (h Help) SetSize(width, height int) Help {
 	return h
 }
 
-// View renders each section through the bubble on its own: given every
-// column at once it has no place for a title above them.
+// View lays the sections out as columns, wrapping onto a further row of
+// columns where the pane is too narrow for them all side by side.
 func (h Help) View() string {
-	columns := make([]string, 0, 2*len(h.sections))
-	for i, section := range h.sections {
-		if i > 0 {
-			columns = append(columns, helpColumnGap)
+	width, _ := h.frame.inner()
+	var rows, row []string
+	rowWidth := 0
+	for _, section := range h.sections {
+		column := h.column(section)
+		columnWidth := lipgloss.Width(column)
+		if len(row) > 0 && rowWidth+len(helpColumnGap)+columnWidth > width {
+			rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, row...), "")
+			row, rowWidth = nil, 0
 		}
-		column := lipgloss.JoinVertical(lipgloss.Left,
-			headerStyle().Render(section.Title),
-			h.model.FullHelpView([][]key.Binding{section.Keys}),
-		)
-		columns = append(columns, column)
+		if len(row) > 0 {
+			row = append(row, helpColumnGap)
+			rowWidth += len(helpColumnGap)
+		}
+		row = append(row, column)
+		rowWidth += columnWidth
 	}
-	return h.frame.render(lipgloss.JoinHorizontal(lipgloss.Top, columns...))
+	rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, row...))
+	return h.frame.render(lipgloss.JoinVertical(lipgloss.Left, rows...))
+}
+
+// column renders one section through the bubble on its own: given every
+// column at once it has no place for a title above them.
+func (h Help) column(section HelpSection) string {
+	return lipgloss.JoinVertical(lipgloss.Left,
+		headerStyle().Render(section.Title),
+		h.model.FullHelpView([][]key.Binding{section.Keys}),
+	)
 }
