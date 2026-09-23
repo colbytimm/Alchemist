@@ -31,10 +31,10 @@ func TestSpans(t *testing.T) {
 	}{
 		{
 			name:  "cosmos keywords in any case",
-			input: "select VALUE t From c JOIN t IN c.tags",
+			input: "select VALUE t From c INNER JOIN t IN c.tags",
 			want: []spanText{
 				{query.SpanKeyword, "select"}, {query.SpanKeyword, "VALUE"}, {query.SpanKeyword, "From"},
-				{query.SpanKeyword, "JOIN"}, {query.SpanKeyword, "IN"},
+				{query.SpanKeyword, "INNER"}, {query.SpanKeyword, "JOIN"}, {query.SpanKeyword, "IN"},
 			},
 		},
 		{
@@ -82,6 +82,24 @@ func TestSpans(t *testing.T) {
 			name:  "a number keeps no trailing dot or dangling exponent",
 			input: "1. 2e 3e+",
 			want:  []spanText{{query.SpanNumber, "1"}, {query.SpanNumber, "2"}, {query.SpanNumber, "3"}},
+		},
+		{
+			name:  "a comment runs to the end of its line and hides its quotes",
+			input: "SELECT * -- the customer's 'orders'\nFROM c",
+			want: []spanText{
+				{query.SpanKeyword, "SELECT"}, {query.SpanComment, "-- the customer's 'orders'"},
+				{query.SpanKeyword, "FROM"},
+			},
+		},
+		{
+			name:  "a comment at the end runs out with the input",
+			input: "SELECT 1 --",
+			want:  []spanText{{query.SpanKeyword, "SELECT"}, {query.SpanNumber, "1"}, {query.SpanComment, "--"}},
+		},
+		{
+			name:  "a lone dash is not a comment",
+			input: "c.a - 1",
+			want:  []spanText{{query.SpanNumber, "1"}},
 		},
 		{name: "empty input", input: "", want: nil},
 	}

@@ -73,10 +73,11 @@ func NewRootCmd(keyring config.Keyring) *cobra.Command {
 
 // sessionFlags configure one TUI session.
 type sessionFlags struct {
-	adapter string
-	ascii   bool
-	verbose bool
-	history bool
+	adapter      string
+	ascii        bool
+	verbose      bool
+	history      bool
+	sampleFields bool
 }
 
 func (s *sessionFlags) bind(flags *pflag.FlagSet) {
@@ -86,6 +87,8 @@ func (s *sessionFlags) bind(flags *pflag.FlagSet) {
 	flags.BoolVar(&s.verbose, "verbose", false, "log at debug level")
 	flags.BoolVar(&s.history, "history", true,
 		fmt.Sprintf("record every query run to %s in the state directory", history.FileName))
+	flags.BoolVar(&s.sampleFields, "sample-fields", true,
+		"let autocomplete read a few items of a container for its fields (spends request units)")
 }
 
 // run resolves what to connect to before touching the filesystem, so an
@@ -116,16 +119,17 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 	logger.Info("session started", "profile", launch.profile)
 	program := tea.NewProgram(
 		tui.New(tui.Options{
-			Icons:       s.icons(),
-			Connection:  launch.connection,
-			Connect:     launch.connect,
-			Manage:      management,
-			Form:        launch.form,
-			Logger:      logger,
-			History:     s.historyStore(logger, stateDir),
-			Profile:     launch.profile,
-			Database:    launch.database,
-			MaxJoinRows: launch.maxJoinRows,
+			Icons:        s.icons(),
+			Connection:   launch.connection,
+			Connect:      launch.connect,
+			Manage:       management,
+			Form:         launch.form,
+			Logger:       logger,
+			History:      s.historyStore(logger, stateDir),
+			Profile:      launch.profile,
+			Database:     launch.database,
+			MaxJoinRows:  launch.maxJoinRows,
+			SampleFields: launch.sampleFields && s.sampleFields,
 		}),
 		tea.WithAltScreen(),
 		tea.WithContext(cmd.Context()),
@@ -144,18 +148,20 @@ func management(conn adapter.Connection) tui.Management {
 	admin, _ := conn.(adapter.CatalogAdmin)
 	throughput, _ := conn.(adapter.ThroughputEditor)
 	inspector, _ := conn.(adapter.Inspector)
-	return tui.Management{Admin: admin, Throughput: throughput, Inspector: inspector}
+	sampler, _ := conn.(adapter.FieldSampler)
+	return tui.Management{Admin: admin, Throughput: throughput, Inspector: inspector, Sampler: sampler}
 }
 
 // launch is what a session starts with: a live connection, or the connect
 // screen that opens one.
 type launch struct {
-	profile     string
-	database    string
-	maxJoinRows int
-	connection  adapter.Connection
-	connect     tui.Connector
-	form        panes.ConnectForm
+	profile      string
+	database     string
+	maxJoinRows  int
+	sampleFields bool
+	connection   adapter.Connection
+	connect      tui.Connector
+	form         panes.ConnectForm
 }
 
 // resolveLaunch picks the connection: --adapter names an adapter to run with
@@ -169,7 +175,7 @@ func (s sessionFlags) resolveLaunch(ctx context.Context, args []string, keyring 
 		if err != nil {
 			return launch{}, connectError(err)
 		}
-		return launch{profile: s.adapter, connection: conn}, nil
+		return launch{profile: s.adapter, sampleFields: true, connection: conn}, nil
 	}
 	var name string
 	if len(args) > 0 {
@@ -204,10 +210,11 @@ func profileLaunch(ctx context.Context, name string, keyring config.Keyring) (la
 		return launch{}, err
 	}
 	return launch{
-		profile:     profile.Name,
-		database:    profile.Database,
-		maxJoinRows: profile.MaxJoinRows,
-		connection:  conn,
+		profile:      profile.Name,
+		database:     profile.Database,
+		maxJoinRows:  profile.MaxJoinRows,
+		sampleFields: profile.SamplesFields(),
+		connection:   conn,
 	}, nil
 }
 
@@ -216,8 +223,9 @@ func profileLaunch(ctx context.Context, name string, keyring config.Keyring) (la
 // saved, so an attempt that did not connect leaves nothing behind.
 func setupLaunch(store config.Store, keyring config.Keyring, profile config.Profile) launch {
 	return launch{
-		database:    profile.Database,
-		maxJoinRows: profile.MaxJoinRows,
+		database:     profile.Database,
+		maxJoinRows:  profile.MaxJoinRows,
+		sampleFields: profile.SamplesFields(),
 		form: panes.ConnectForm{
 			Profile:    profile.Name,
 			Endpoint:   profile.Endpoint,

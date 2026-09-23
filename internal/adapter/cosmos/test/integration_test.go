@@ -117,9 +117,10 @@ func seedFixture(t *testing.T, client *azcosmos.Client) {
 	for i := 0; i < seedCount; i++ {
 		pk := fmt.Sprintf("pk-%d", i%3)
 		item, err := json.Marshal(map[string]any{
-			"id": fmt.Sprintf("item-%03d", i),
-			"pk": pk,
-			"n":  i,
+			"id":   fmt.Sprintf("item-%03d", i),
+			"pk":   pk,
+			"n":    i,
+			"meta": map[string]any{"batch": i % 2, "tags": []string{"seed"}},
 		})
 		require.NoError(t, err)
 		_, err = container.CreateItem(ctx, azcosmos.NewPartitionKeyString(pk), item, nil)
@@ -264,6 +265,24 @@ func TestIntegration(t *testing.T) {
 			Text: `SELECT * FROM c WHERE c.pk = "pk-1"`, Scope: []string{itDatabase, itContainer}, PageSize: 10,
 		})
 		assert.Equal(t, itemsInPartition(1), total, "only the pinned partition's items")
+	})
+
+	t.Run("sample fields", func(t *testing.T) {
+		sampler, ok := conn.(adapter.FieldSampler)
+		require.True(t, ok, "the cosmos connection samples fields")
+
+		sample, err := sampler.SampleFields(context.Background(), adapter.Node{
+			Kind: adapter.NodeContainer, Name: itContainer, Path: []string{itDatabase, itContainer},
+		})
+		require.NoError(t, err)
+
+		paths := make([]string, 0, len(sample.Fields))
+		for _, field := range sample.Fields {
+			paths = append(paths, field.Path)
+		}
+		assert.Subset(t, paths, []string{"id", "pk", "n", "meta", "meta.batch", "meta.tags", "meta.tags[]", "_ts"})
+		assert.Greater(t, sample.Stats.RequestCharge, 0.0)
+		assert.LessOrEqual(t, sample.Stats.RowCount, 20)
 	})
 
 	t.Run("bad sql returns service error", func(t *testing.T) {
