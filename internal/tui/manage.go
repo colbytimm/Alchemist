@@ -20,7 +20,7 @@ func (m Model) openDatabaseForm() Model {
 // openContainerForm creates in the database under the cursor, or in the one
 // holding the container under it.
 func (m Model) openContainerForm() Model {
-	node, ok := m.catalogPane.SelectedNode()
+	node, ok := m.catalogPane().SelectedNode()
 	if !ok {
 		return m
 	}
@@ -29,7 +29,7 @@ func (m Model) openContainerForm() Model {
 }
 
 func (m Model) openDelete() Model {
-	node, ok := m.catalogPane.SelectedNode()
+	node, ok := m.catalogPane().SelectedNode()
 	if !ok {
 		return m
 	}
@@ -42,7 +42,7 @@ func (m Model) openDelete() Model {
 // openThroughput reads what the node under the cursor provisions now. The
 // dialog opens on the answer, so it never seeds itself with a stale figure.
 func (m Model) openThroughput() tea.Cmd {
-	node, ok := m.catalogPane.SelectedNode()
+	node, ok := m.catalogPane().SelectedNode()
 	if !ok {
 		return nil
 	}
@@ -74,8 +74,11 @@ func (m Model) failManagement(msg ErrMsg) Model {
 // silently does nothing. A read that did not answer rules nothing out, so
 // every mode stays on offer and the service has the last word.
 func (m Model) failThroughputRead(msg ErrMsg) Model {
+	if msg.Account != m.accounts.active {
+		return m
+	}
 	unknown := adapter.Throughput{Mode: adapter.ThroughputManual}
-	m = m.openThroughputForm(ThroughputReadMsg{Path: msg.Path, Throughput: unknown})
+	m = m.openThroughputForm(ThroughputReadMsg{Account: msg.Account, Path: msg.Path, Throughput: unknown})
 	m.form = m.form.Fail(msg.Err)
 	return m
 }
@@ -211,32 +214,34 @@ func partitionKeyPaths(typed string) []string {
 }
 
 // applyChange closes the dialog the mutation came from, reloads the subtree it
-// changed, and leaves the cursor where the change puts it. The change itself
-// is applied whatever is on screen — it happened — but only the dialog that
-// asked for it is taken down, so one the user has since opened survives even
-// when it is the same kind on another node.
+// changed in the account it was made on, and leaves the cursor where the
+// change puts it. The change itself is applied whatever is on screen — it
+// happened — but only the dialog that asked for it is taken down, so one the
+// user has since opened survives even when it is the same kind on another
+// node.
 func (m Model) applyChange(msg CatalogChangedMsg) (Model, tea.Cmd) {
-	m.logger.Info("catalog changed", "op", msg.Op, "target", msg.Target)
+	m.logger.Info("catalog changed", "account", msg.Account, "op", msg.Op, "target", msg.Target)
 	if msg.dialog == m.dialog {
 		m = m.closeDialog()
 	}
 	var expiry tea.Cmd
 	m.statusBar, expiry = m.statusBar.SetNotice(changeNotice(msg))
-	if msg.Op == OpSetThroughput {
+	entry, ok := m.accounts.get(msg.Account)
+	if msg.Op == OpSetThroughput || !ok || !entry.connected() {
 		return m, expiry
 	}
-	m.catalogPane = m.catalogPane.Select(cursorAfter(msg))
-	pane, fetch, tick := m.catalogPane.RefreshPath(msg.Parent)
-	m.catalogPane = pane
+	pane, fetch, tick := entry.pane.Select(cursorAfter(msg)).RefreshPath(msg.Parent)
+	entry.pane = pane
+	m.accounts.put(entry)
 
 	cmds := []tea.Cmd{tick, expiry}
 	if fetch.Needed {
-		cmds = append(cmds, m.load(fetch))
+		cmds = append(cmds, m.load(entry, fetch))
 	}
 	// A scope naming a container that no longer exists would be a lie about
 	// what the next run would query.
-	if deletes(msg.Op) && within(msg.Target, m.scope) {
-		cmds = append(cmds, scopeChanged(nil))
+	if deletes(msg.Op) && within(msg.Target, entry.scope) {
+		cmds = append(cmds, scopeChanged(msg.Account, nil))
 	}
 	return m, tea.Batch(cmds...)
 }

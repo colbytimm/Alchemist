@@ -36,13 +36,15 @@ func (s *recordingStore) Append(entry history.Entry) error {
 	return nil
 }
 
-func (s *recordingStore) Recent(n int) ([]history.Entry, error) {
+func (s *recordingStore) Recent(account string, n int) ([]history.Entry, error) {
 	if s.failRecent != nil {
 		return nil, s.failRecent
 	}
 	var recent []history.Entry
 	for i := len(s.entries) - 1; i >= 0 && len(recent) < n; i-- {
-		recent = append(recent, s.entries[i])
+		if s.entries[i].Profile == account {
+			recent = append(recent, s.entries[i])
+		}
 	}
 	return recent, nil
 }
@@ -72,7 +74,7 @@ func pastRuns() *recordingStore {
 // newHistoryModel is newLoadedModel with a store the test can read back.
 func newHistoryModel(t *testing.T, conn adapter.Connection, store history.Store) tea.Model {
 	t.Helper()
-	m := newModelWith(t, tui.Options{Connection: conn, History: store})
+	m := newModelWith(t, conn, tui.Options{History: store})
 	model, _ := settle(m, m.Init())
 	return model
 }

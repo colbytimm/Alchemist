@@ -64,7 +64,7 @@ func fixtureLog() []history.Entry {
 func newHistory(entries ...history.Entry) panes.History {
 	return panes.NewHistory(theme.Icons(), historyHints).
 		SetSize(historyWidth, paneHeight).
-		SetEntries(entries, loadedAt)
+		SetEntries("dev", entries, loadedAt)
 }
 
 func typeFilter(pane panes.History, text string) panes.History {
@@ -272,7 +272,7 @@ func TestHistoryFailureShowsInPlaceOfTheEntries(t *testing.T) {
 func TestHistorySetEntriesStartsOver(t *testing.T) {
 	pane := typeFilter(newHistory(fixtureLog()...).CursorDown(), "telemetry")
 
-	fresh := pane.SetEntries(fixtureLog(), loadedAt)
+	fresh := pane.SetEntries("dev", fixtureLog(), loadedAt)
 
 	assert.False(t, fresh.Filtering())
 	selected, ok := fresh.Selected()

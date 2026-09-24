@@ -32,6 +32,10 @@ type KeyMap struct {
 	Run          key.Binding
 	Connect      key.Binding
 	History      key.Binding
+	Accounts     key.Binding
+	Switch       key.Binding
+	AddAccount   key.Binding
+	Disconnect   key.Binding
 	Filter       key.Binding
 	Recall       key.Binding
 	Rerun        key.Binding
@@ -134,6 +138,24 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+o"),
 			key.WithHelp("ctrl+o", "history"),
 		),
+		// ctrl+g is bound by nothing in the editor's textarea, so it reaches
+		// the switcher while the editor has the keyboard.
+		Accounts: key.NewBinding(
+			key.WithKeys("ctrl+g"),
+			key.WithHelp("ctrl+g", "accounts"),
+		),
+		Switch: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "switch"),
+		),
+		AddAccount: key.NewBinding(
+			key.WithKeys("a"),
+			key.WithHelp("a", "add account"),
+		),
+		Disconnect: key.NewBinding(
+			key.WithKeys("x"),
+			key.WithHelp("x", "disconnect"),
+		),
 		Filter: key.NewBinding(
 			key.WithKeys("/"),
 			key.WithHelp("/", "filter"),
@@ -171,7 +193,7 @@ func (k KeyMap) HelpSections() []panes.HelpSection {
 	}
 }
 
-// ConnectKeys are the bindings only the connect screen answers to. It shows
+// ConnectKeys are the bindings only the connect form answers to. It shows
 // them in a hint line of its own: the help overlay is not reachable from
 // there.
 func (k KeyMap) ConnectKeys() []key.Binding {
@@ -182,6 +204,12 @@ func (k KeyMap) ConnectKeys() []key.Binding {
 // a hint line of its own like ConnectKeys.
 func (k KeyMap) HistoryKeys() []key.Binding {
 	return []key.Binding{k.Filter, k.Recall, k.Rerun}
+}
+
+// AccountsKeys are the bindings only the account switcher answers to. Its
+// hint line shows Filter beside them, which HistoryKeys already groups.
+func (k KeyMap) AccountsKeys() []key.Binding {
+	return []key.Binding{k.Switch, k.AddAccount, k.Disconnect}
 }
 
 // ExportKeys are the bindings only the export prompt answers to.
@@ -198,7 +226,7 @@ func (k KeyMap) InfoKeys() []key.Binding {
 func (k KeyMap) globalKeys() []key.Binding {
 	return []key.Binding{
 		k.NextPane, k.PrevPane, k.FocusEditor, k.Run,
-		k.History, k.Help, k.Close, k.Quit,
+		k.History, k.Accounts, k.Help, k.Close, k.Quit,
 	}
 }
 
@@ -233,5 +261,5 @@ func (k KeyMap) resultsKeys() []key.Binding {
 
 // ShortHelp names the bindings worth a single-line reminder.
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextPane, k.Select, k.Run, k.Help, k.Quit}
+	return []key.Binding{k.NextPane, k.Select, k.Run, k.Accounts, k.Help, k.Quit}
 }

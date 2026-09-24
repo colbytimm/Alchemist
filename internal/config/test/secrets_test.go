@@ -93,8 +93,8 @@ func TestResolveOrder(t *testing.T) {
 		{
 			name:    "connection string as the last resort",
 			keyring: newFakeKeyring(),
-			env:     map[string]string{"COSMOS_CONNECTION_STRING": "AccountEndpoint=x;AccountKey=y;"},
-			want:    config.Secret{ConnectionString: "AccountEndpoint=x;AccountKey=y;", Source: "$COSMOS_CONNECTION_STRING"},
+			env:     map[string]string{"COSMOS_CONNECTION_STRING": prodConnectionString},
+			want:    config.Secret{ConnectionString: prodConnectionString, Source: "$COSMOS_CONNECTION_STRING"},
 		},
 		{
 			name:    "nothing anywhere",
@@ -110,7 +110,7 @@ func TestResolveOrder(t *testing.T) {
 				t.Setenv(name, value)
 			}
 
-			got, err := config.SecretResolver{Keyring: tt.keyring}.Resolve("prod")
+			got, err := config.SecretResolver{Keyring: tt.keyring}.Resolve(prodProfile())
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -126,7 +126,7 @@ func TestResolveNamesEveryPlaceItLooked(t *testing.T) {
 	t.Setenv("ALCHEMIST_MY_EMULATOR_KEY", "")
 	t.Setenv("COSMOS_CONNECTION_STRING", "")
 
-	_, err := config.SecretResolver{Keyring: newFakeKeyring()}.Resolve("my-emulator")
+	_, err := config.SecretResolver{Keyring: newFakeKeyring()}.Resolve(config.Profile{Name: "my-emulator", Endpoint: "https://localhost:8081"})
 
 	require.ErrorIs(t, err, config.ErrSecretNotFound)
 	assert.Contains(t, err.Error(), "keychain")
@@ -138,8 +138,43 @@ func TestResolveKeepsAnUnreachableKeychainDiagnosable(t *testing.T) {
 	t.Setenv("ALCHEMIST_PROD_KEY", "")
 	t.Setenv("COSMOS_CONNECTION_STRING", "")
 
-	_, err := config.SecretResolver{Keyring: &fakeKeyring{err: errNoKeychain}}.Resolve("prod")
+	_, err := config.SecretResolver{Keyring: &fakeKeyring{err: errNoKeychain}}.Resolve(prodProfile())
 
 	require.ErrorIs(t, err, config.ErrSecretNotFound)
 	assert.ErrorIs(t, err, errNoKeychain)
+}
+
+const prodConnectionString = "AccountEndpoint=https://myaccount.documents.azure.com:443/;AccountKey=y;"
+
+func TestAConnectionStringServesOnlyTheAccountItNames(t *testing.T) {
+	tests := []struct {
+		name             string
+		connectionString string
+		want             bool
+	}{
+		{name: "same endpoint", connectionString: prodConnectionString, want: true},
+		{name: "default port left off", connectionString: "AccountEndpoint=https://myaccount.documents.azure.com/;AccountKey=y;", want: true},
+		{name: "case and spacing", connectionString: " accountEndpoint=HTTPS://MyAccount.documents.azure.com:443 ; AccountKey=y", want: true},
+		{name: "another account", connectionString: "AccountEndpoint=https://staging.documents.azure.com:443/;AccountKey=y;"},
+		{name: "another port", connectionString: "AccountEndpoint=https://myaccount.documents.azure.com:8081/;AccountKey=y;"},
+		{name: "another scheme", connectionString: "AccountEndpoint=http://myaccount.documents.azure.com:443/;AccountKey=y;"},
+		{name: "no endpoint", connectionString: "AccountKey=y;"},
+		{name: "malformed endpoint", connectionString: "AccountEndpoint=::;AccountKey=y;"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("ALCHEMIST_PROD_KEY", "")
+			t.Setenv("COSMOS_CONNECTION_STRING", tt.connectionString)
+
+			secret, err := config.SecretResolver{Keyring: newFakeKeyring()}.Resolve(prodProfile())
+
+			if !tt.want {
+				require.ErrorIs(t, err, config.ErrSecretNotFound)
+				assert.Contains(t, err.Error(), "not for this account")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.connectionString, secret.ConnectionString)
+		})
+	}
 }

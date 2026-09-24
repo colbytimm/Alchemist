@@ -66,8 +66,9 @@ func (s Store) Load() (Config, error) {
 }
 
 // SaveProfile puts p into the store and, when key is not empty, files it in
-// the keyring. The profile is written first, so a keyring that refuses the
-// key still leaves one the environment can serve.
+// the keyring. The profile is checked before the key goes anywhere, and the
+// key is filed before the profile, so a refusal from any step leaves nothing
+// behind.
 func SaveProfile(store Store, keyring Keyring, p Profile, key string) error {
 	cfg, err := store.Load()
 	if err != nil {
@@ -77,13 +78,16 @@ func SaveProfile(store Store, keyring Keyring, p Profile, key string) error {
 	if err != nil {
 		return err
 	}
-	if err := store.Save(cfg); err != nil {
+	if key == "" {
+		return store.Save(cfg)
+	}
+	if err := keyring.Set(p.Name, key); err != nil {
 		return err
 	}
-	if key == "" {
-		return nil
+	if err := store.Save(cfg); err != nil {
+		return errors.Join(err, keyring.Delete(p.Name))
 	}
-	return keyring.Set(p.Name, key)
+	return nil
 }
 
 // Save writes cfg, creating the directory on first use. Comments in an

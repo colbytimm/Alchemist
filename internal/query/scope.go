@@ -164,6 +164,12 @@ type parser struct {
 	depth   int
 }
 
+func parse(text string) *parser {
+	p := &parser{toks: lex(text), aliases: map[string]bool{}}
+	p.run()
+	return p
+}
+
 func (p *parser) run() {
 	for i := 0; i < len(p.toks); {
 		switch {

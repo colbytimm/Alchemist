@@ -502,8 +502,9 @@ History is scoped to the account the session is on. `ctrl+o` lists the entries w
 - **15, saved queries.** Builds on "Contract for iteration 15", including its table of
   what moved.
 
-None of 11–13 has landed. Whichever lands after this iteration adopts the account
-field from the start; if one lands first, adding the field is part of step 2 here.
+11 and 12 landed before this iteration, so their messages carry the account (see
+"Implementation notes"); 13 has not landed. Whichever lands after this iteration adopts the account field from
+the start.
 
 ## Steps
 
@@ -657,3 +658,70 @@ was.
   working.
 - `internal/tui` imports the `internal/adapter` interfaces only; every concrete adapter
   and all config and keychain access stay in `cmd`.
+
+## Implementation notes
+
+Landed. Where the code settled differently from the text above:
+
+- `setActive(account string) Model` returns no command. Spinner ticks reach every
+  account's catalog pane, on screen or not, so a pane with loads in flight is already
+  animating when it is switched to; there is nothing for the switch to start.
+- `AccountRow` has no `Current` field: `SetRows(rows, current)` names the current
+  account, and `Open` puts the cursor on it.
+- `AccountsKeys()` returns `Switch, AddAccount, Disconnect`. `Filter` is already grouped
+  by `HistoryKeys()`, so the switcher's hint line puts it in front of them rather than
+  the drift guard counting it twice.
+- `cmd.Profiles` (`Accounts`, `Open`, `Connect`) holds the config and keychain access,
+  so `cmd`'s tests reach the `Opener` and the `Connector` through an exported API.
+- `--adapter <name>` connects the adapter once in `cmd` and drops the connection, so a
+  backend that needs a profile (`--adapter cosmos`) still fails before the TUI starts.
+- A launch attempt that fails leaves the session on no account: the form for a missing
+  key, the switcher with the reason under the row for anything else.
+- The form refuses a name that is connecting as well as one that is connected.
+- Iteration 11 had landed: `Management` is asserted per account where its connection
+  arrives, the bindings follow the active account's, and `CatalogChangedMsg`,
+  `ThroughputReadMsg` and a failed throughput read carry the account.
+- `ScopeChangedMsg` carries the account too: the message can land after a switch, and
+  must set the scope of the account it was made on.
+- A file that already holds names differing only in case still loads, and either
+  profile can still be replaced; only `Put` of a new name refuses a collision.
+- `Model.CloseConnections` is what `quit` calls, and `cmd` calls it again on the model
+  `Run` returns, so a session ended by a signal or a cancelled context closes its
+  connections too. A second call closes nothing.
+- A reconnected account reuses its tree with `Catalog.Forget`, which supersedes every
+  request in flight, so no response from the connection `x` closed lands in the new one.
+- Every attempt to connect is numbered, the switcher's and the connect form's alike, and
+  only the answer to an account's latest attempt counts. A form left with `esc` while
+  connecting still connects, in the background; only the form on screen closes and
+  switches.
+- A launch attempt that fails while the person has opened something else leaves it
+  open: the reason waits under the account's row in the switcher.
+- `ctrl+r` while the launch account is still connecting says so, rather than
+  `errNoAccount`.
+- `--adapter <name>` needs no config directory; only adding an account from the
+  session does.
+- `Options.ListAccounts` reads the profiles afresh each time the switcher opens, so a
+  profile added in another terminal, or any profile of an `--adapter` session, can be
+  switched to. Accounts are only ever added to the session, never dropped.
+- A keychain that cannot be read asks for the key like one that holds none, so a
+  machine without one can still complete a profile; `SaveProfile` files the key first,
+  so a keychain that cannot take it leaves the profile as it was. Saves are serialized,
+  so two forms finishing at once cannot drop each other's profile.
+- An attempt that lands while an overlay other than the switcher is open leaves the
+  session where it is and the account connected, or failed, in the background. `x` on
+  a row a connect form is connecting abandons that attempt.
+- `config.SaveProfile` checks the profile against the config, then files the key,
+  then the profile, and takes the key back if the file cannot be written, so a
+  refusal from any step leaves nothing behind. The connect form saves through it.
+- Disconnecting the account of a query still waiting for its first page puts
+  "its account was disconnected" in the results pane.
+- An `--adapter` session's own account is always the adapter, even when a profile of
+  that name exists; the switcher does not list such a profile.
+- `COSMOS_CONNECTION_STRING` serves a profile only when its `AccountEndpoint` is the
+  profile's endpoint (scheme, host and port, the default port implied). One profile
+  borrowing another account's string would browse, and change, that account under
+  its own name in the switcher and the status bar. `SecretResolver.Resolve` takes the
+  `Profile` for this, not just its name.
+- Iteration 12 had landed too: `Inspector` travels in the per-account `Management`,
+  each account keeps its own `panes.Info` (so its cache is keyed by account and path),
+  and `DetailsLoadedMsg` and `OpInspect` failures carry the account.

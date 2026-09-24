@@ -13,7 +13,7 @@ import (
 func (m Model) newHistoryEntry(scope []string) history.Entry {
 	return history.Entry{
 		Time:    time.Now().UTC(),
-		Profile: m.profile,
+		Profile: m.accounts.active,
 		Scope:   scope,
 		Query:   m.editor.Value(),
 	}
@@ -36,10 +36,34 @@ func (m Model) recordFailure(err error) tea.Cmd {
 	return m.record(entry)
 }
 
+// openHistoryOrRefuse asks for the active account's log. With no account
+// there is no log to ask for, and the overlay says why.
+func (m Model) openHistoryOrRefuse() (Model, tea.Cmd) {
+	if m.accounts.active == "" {
+		m.historyPane = m.historyPane.SetEntries("", nil, time.Now()).Fail(errNoAccount)
+		m.overlay = overlayHistory
+		return m, nil
+	}
+	return m, m.loadHistory()
+}
+
 // openHistory shows the log as it arrived. The overlay opens on the
-// response rather than on the key press, so it never shows a stale list.
+// response rather than on the key press, so it never shows a stale list —
+// nor one of an account the session has since left.
 func (m Model) openHistory(msg HistoryLoadedMsg) Model {
-	m.historyPane = m.historyPane.SetEntries(msg.Entries, time.Now())
+	if msg.Account != m.accounts.active {
+		return m
+	}
+	m.historyPane = m.historyPane.SetEntries(msg.Account, msg.Entries, time.Now())
+	m.overlay = overlayHistory
+	return m
+}
+
+func (m Model) failHistory(msg ErrMsg) Model {
+	if msg.Account != m.accounts.active {
+		return m
+	}
+	m.historyPane = m.historyPane.SetEntries(msg.Account, nil, time.Now()).Fail(msg.Err)
 	m.overlay = overlayHistory
 	return m
 }
@@ -97,7 +121,7 @@ func (m Model) recall() (Model, bool) {
 		return m, false
 	}
 	m.editor = m.editor.SetValue(entry.Query)
-	m = m.setScope(entry.Scope)
+	m = m.setScope(m.accounts.active, entry.Scope)
 	m.overlay = overlayNone
 	return m.setFocus(focusEditor), true
 }

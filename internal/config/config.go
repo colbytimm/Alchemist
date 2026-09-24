@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 )
 
 // Errors matchable with errors.Is.
@@ -77,9 +78,13 @@ func (c Config) Add(p Profile) (Config, error) {
 }
 
 // Put adds p, or replaces the profile of that name. The first profile becomes
-// the default.
+// the default. A name differing from an existing one only in case is refused,
+// so every profile stays distinct on a case-insensitive filesystem.
 func (c Config) Put(p Profile) (Config, error) {
 	if err := p.validate(); err != nil {
+		return Config{}, fmt.Errorf("config: %w", err)
+	}
+	if err := c.checkCaseCollision(p.Name); err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
 	}
 	c = c.clone()
@@ -122,6 +127,20 @@ func (c Config) named() Config {
 		c.Profiles[name] = profile
 	}
 	return c
+}
+
+// checkCaseCollision refuses a new name that differs from an existing one
+// only in case. A profile already in the file may always be replaced.
+func (c Config) checkCaseCollision(name string) error {
+	if _, exists := c.Profiles[name]; exists {
+		return nil
+	}
+	for existing := range c.Profiles {
+		if existing != name && strings.EqualFold(existing, name) {
+			return fmt.Errorf("profile %q: differs from %q only in case: %w", name, existing, ErrProfileExists)
+		}
+	}
+	return nil
 }
 
 func (c Config) validate() error {

@@ -33,7 +33,7 @@ To run against a real account, start without the flag:
 ./bin/alchemist
 ```
 
-The first run opens the connect screen: name the profile, enter the account endpoint
+The first run opens the connect form: name the profile, enter the account endpoint
 and key, choose whether to remember the key in the OS keychain, and press enter. The
 profile is saved to `config.toml`; the key goes to the keychain or nowhere. Every run
 after that connects straight into the catalog, and `alchemist prod` picks a profile by
@@ -64,6 +64,7 @@ the catalog and queries run against it, or name one in the query itself with
 | `e` | anywhere | editor |
 | `ctrl+r` | anywhere | run query |
 | `ctrl+o` | anywhere | history |
+| `ctrl+g` | anywhere | accounts |
 | `?` | anywhere | help |
 | `esc` | anywhere | close |
 | `q` | anywhere but a text field | quit |
@@ -190,7 +191,7 @@ node again, and `esc` or `i` closes it. A node already read reopens without a re
 
 Profiles are named connections kept in `config.toml` under `$XDG_CONFIG_HOME/alchemist`
 (`~/.config/alchemist` by default). The file holds endpoints, never keys. The connect
-screen writes it for you; the `profile` commands do the same from a shell, for scripts
+form writes it for you; the `profile` commands do the same from a shell, for scripts
 and CI:
 
 ```sh
@@ -223,6 +224,33 @@ adapter = "cosmos"
 endpoint = "https://myaccount.documents.azure.com:443/"
 ```
 
+### Accounts
+
+A session is on one account at a time, the one named on the command line or the
+default profile: its databases fill the catalog and its name leads the status bar.
+`ctrl+g` opens the account switcher, which lists every profile, from anywhere,
+the editor included:
+
+| Key | Action |
+|---|---|
+| `enter` | switch to the selected account, connecting it first if it is not connected |
+| `a` | add account: the connect form, empty |
+| `x` | disconnect the selected account |
+| `/` | filter by name or endpoint |
+| `esc` | clear the filter, or close |
+
+An account connects the first time it is switched to, and a switch that cannot connect
+leaves the session where it was, with the reason under the account's row. One whose
+key is nowhere to be found opens the connect form instead. An account you leave stays
+connected, with its tree and selected container kept, so switching back is instant.
+`x` closes its connection and forgets its tree; the profile and its key stay where
+they are.
+
+The editor is shared by every account, so the same query can be run on two in turn.
+The results pane's title names the account its rows came from, which is not always
+the one the session is on now. A query always runs on the account the session is on:
+`FROM staging.sales.orders` naming another account is refused with a message saying so.
+
 ### Keys on CI and headless machines
 
 The key for profile `<name>` is looked up in this order:
@@ -230,8 +258,10 @@ The key for profile `<name>` is looked up in this order:
 1. The OS keychain (service `alchemist`, account `<name>`).
 2. `ALCHEMIST_<NAME>_KEY`: the profile name upper-cased, with dashes as underscores
    (`my-emulator` → `ALCHEMIST_MY_EMULATOR_KEY`).
-3. `COSMOS_CONNECTION_STRING`, a whole connection string, for ad-hoc use.
-4. The connect screen, which asks for it and offers to store it in the keychain.
+3. `COSMOS_CONNECTION_STRING`, a whole connection string, for ad-hoc use. It serves
+   only a profile whose endpoint is the account the string names, so with several
+   accounts in one session a string for one can never connect another.
+4. The connect form, which asks for it and offers to store it in the keychain.
 
 A machine with no keychain (a container, a CI runner, a server without a Secret
 Service) falls through to the environment. `alchemist profile list` shows which source
@@ -245,7 +275,8 @@ file: the query as typed, the scope it ran in, and its statistics, never a key o
 endpoint. Failed queries are recorded too, with the error, since fixing one is the
 usual reason to look back.
 
-`ctrl+o` opens the history, newest first. `/` filters by query text or scope, `enter`
+`ctrl+o` opens the history of the account the session is on, newest first; switch
+accounts to see another's. `/` filters by query text or scope, `enter`
 loads the selected query into the editor with its scope restored, and `ctrl+r` loads
 it and runs it at once. `alchemist --history=false` records nothing for that session.
 

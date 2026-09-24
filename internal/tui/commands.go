@@ -25,43 +25,27 @@ const (
 // recentHistory is how much of the log the history overlay lists.
 const recentHistory = 500
 
-// openConnection hands the form to the connector the session was built with.
-func (m Model) openConnection(form panes.ConnectForm) tea.Cmd {
-	connect := m.connect
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
-		defer cancel()
-		conn, err := connect(ctx, form)
-		if err != nil {
-			return ConnectFailedMsg{Err: err}
-		}
-		return ConnectedMsg{Connection: conn, Profile: form.Profile}
-	}
-}
-
-func (m Model) loadRoot(token panes.Token) tea.Cmd {
-	catalog := m.catalog
+func loadRoot(account string, catalog adapter.Catalog, token panes.Token) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
 		defer cancel()
 		nodes, err := catalog.Root(ctx)
 		if err != nil {
-			return ErrMsg{Op: OpCatalogRoot, Token: token, Err: err}
+			return ErrMsg{Account: account, Op: OpCatalogRoot, Token: token, Err: err}
 		}
-		return CatalogLoadedMsg{Nodes: nodes, Token: token}
+		return CatalogLoadedMsg{Account: account, Nodes: nodes, Token: token}
 	}
 }
 
-func (m Model) loadChildren(node adapter.Node, token panes.Token) tea.Cmd {
-	catalog := m.catalog
+func loadChildren(account string, catalog adapter.Catalog, node adapter.Node, token panes.Token) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
 		defer cancel()
 		nodes, err := catalog.Children(ctx, node)
 		if err != nil {
-			return ErrMsg{Op: OpCatalogChildren, Path: node.Path, Token: token, Err: err}
+			return ErrMsg{Account: account, Op: OpCatalogChildren, Path: node.Path, Token: token, Err: err}
 		}
-		return CatalogLoadedMsg{Parent: node.Path, Nodes: nodes, Token: token}
+		return CatalogLoadedMsg{Account: account, Parent: node.Path, Nodes: nodes, Token: token}
 	}
 }
 
@@ -82,80 +66,81 @@ func manage(dialog dialogID, change CatalogChangedMsg, call func(context.Context
 }
 
 func (m Model) createDatabase(spec adapter.DatabaseSpec) tea.Cmd {
-	admin := m.management.Admin
+	admin := m.activeManagement().Admin
 	return manage(m.dialog,
-		CatalogChangedMsg{Op: OpCreateDatabase, Target: []string{spec.Name}},
+		CatalogChangedMsg{Account: m.accounts.active, Op: OpCreateDatabase, Target: []string{spec.Name}},
 		func(ctx context.Context) error { return admin.CreateDatabase(ctx, spec) },
 	)
 }
 
 func (m Model) deleteDatabase(name string) tea.Cmd {
-	admin := m.management.Admin
+	admin := m.activeManagement().Admin
 	return manage(m.dialog,
-		CatalogChangedMsg{Op: OpDeleteDatabase, Target: []string{name}},
+		CatalogChangedMsg{Account: m.accounts.active, Op: OpDeleteDatabase, Target: []string{name}},
 		func(ctx context.Context) error { return admin.DeleteDatabase(ctx, name) },
 	)
 }
 
 func (m Model) createContainer(spec adapter.ContainerSpec) tea.Cmd {
-	admin := m.management.Admin
+	admin := m.activeManagement().Admin
 	return manage(m.dialog,
 		CatalogChangedMsg{
-			Op:     OpCreateContainer,
-			Target: []string{spec.Database, spec.Name},
-			Parent: []string{spec.Database},
+			Account: m.accounts.active,
+			Op:      OpCreateContainer,
+			Target:  []string{spec.Database, spec.Name},
+			Parent:  []string{spec.Database},
 		},
 		func(ctx context.Context) error { return admin.CreateContainer(ctx, spec) },
 	)
 }
 
 func (m Model) deleteContainer(path []string) tea.Cmd {
-	admin := m.management.Admin
+	admin := m.activeManagement().Admin
 	return manage(m.dialog,
-		CatalogChangedMsg{Op: OpDeleteContainer, Target: path, Parent: path[:1]},
+		CatalogChangedMsg{Account: m.accounts.active, Op: OpDeleteContainer, Target: path, Parent: path[:1]},
 		func(ctx context.Context) error { return admin.DeleteContainer(ctx, path) },
 	)
 }
 
 func (m Model) setThroughput(path []string, t adapter.Throughput) tea.Cmd {
-	editor := m.management.Throughput
+	editor := m.activeManagement().Throughput
 	return manage(m.dialog,
-		CatalogChangedMsg{Op: OpSetThroughput, Target: path},
+		CatalogChangedMsg{Account: m.accounts.active, Op: OpSetThroughput, Target: path},
 		func(ctx context.Context) error { return editor.SetThroughput(ctx, path, t) },
 	)
 }
 
 func (m Model) readThroughput(path []string) tea.Cmd {
-	editor := m.management.Throughput
+	editor, account := m.activeManagement().Throughput, m.accounts.active
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), manageTimeout)
 		defer cancel()
 		current, err := editor.Throughput(ctx, path)
 		if err != nil {
-			return ErrMsg{Op: OpReadThroughput, Path: path, Err: err}
+			return ErrMsg{Account: account, Op: OpReadThroughput, Path: path, Err: err}
 		}
-		return ThroughputReadMsg{Path: path, Throughput: current}
+		return ThroughputReadMsg{Account: account, Path: path, Throughput: current}
 	}
 }
 
 func (m Model) inspect(node adapter.Node) tea.Cmd {
-	inspector := m.management.Inspector
+	entry, _ := m.accounts.get(m.accounts.active)
+	inspector, account, attempt := entry.management.Inspector, entry.account.Name, entry.attempt
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
 		defer cancel()
 		details, err := inspector.Inspect(ctx, node)
 		if err != nil {
-			return ErrMsg{Op: OpInspect, Path: node.Path, Err: err}
+			return ErrMsg{Account: account, Op: OpInspect, Path: node.Path, Err: err, attempt: attempt}
 		}
-		return DetailsLoadedMsg{Path: node.Path, Details: details}
+		return DetailsLoadedMsg{Account: account, Path: node.Path, Details: details, attempt: attempt}
 	}
 }
 
 // runPlan opens a cursor and fetches its first page. ctx belongs to the
 // model, which cancels it when a newer run supersedes this one.
-func (m Model) runPlan(ctx context.Context, plan query.Plan) tea.Cmd {
+func (m Model) runPlan(ctx context.Context, engine query.Engine, plan query.Plan) tea.Cmd {
 	run, logger := m.run, m.logger
-	engine := query.Engine{Connection: m.connection, MaxJoinRows: m.maxJoinRows}
 	return func() tea.Msg {
 		cursor, err := engine.Execute(ctx, plan)
 		if err != nil {
@@ -186,13 +171,13 @@ func (m Model) fetchPage(ctx context.Context, cursor adapter.Cursor) tea.Cmd {
 }
 
 func (m Model) loadHistory() tea.Cmd {
-	store := m.history
+	store, account := m.history, m.accounts.active
 	return func() tea.Msg {
-		entries, err := store.Recent(recentHistory)
+		entries, err := store.Recent(account, recentHistory)
 		if err != nil {
-			return ErrMsg{Op: OpHistory, Err: err}
+			return ErrMsg{Account: account, Op: OpHistory, Err: err}
 		}
-		return HistoryLoadedMsg{Entries: entries}
+		return HistoryLoadedMsg{Account: account, Entries: entries}
 	}
 }
 
@@ -209,9 +194,9 @@ func (m Model) record(entry history.Entry) tea.Cmd {
 	}
 }
 
-func scopeChanged(scope []string) tea.Cmd {
+func scopeChanged(account string, scope []string) tea.Cmd {
 	return func() tea.Msg {
-		return ScopeChangedMsg{Scope: scope}
+		return ScopeChangedMsg{Account: account, Scope: scope}
 	}
 }
 

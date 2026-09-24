@@ -86,8 +86,7 @@ func (p Plan) WithDefaultScope(scope []string) Plan {
 // any shape over several that cannot be simulated is an ErrUnsupported. It
 // never panics on arbitrary input.
 func BuildPlan(text string) (Plan, error) {
-	p := parser{toks: lex(text), aliases: map[string]bool{}}
-	p.run()
+	p := parse(text)
 	containers := p.containerSources()
 	switch len(containers) {
 	case 0:

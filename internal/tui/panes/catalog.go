@@ -165,6 +165,21 @@ func (c Catalog) Reload() (Catalog, Fetch, tea.Cmd) {
 	return c.RefreshPath(nil)
 }
 
+// Forget drops everything the tree holds and supersedes every request in
+// flight, so no response to one made before can land in what comes after.
+func (c Catalog) Forget() Catalog {
+	for key := range c.tokens {
+		c.tokens[key]++
+	}
+	c.roots = nil
+	c.cursor = nil
+	clear(c.children)
+	clear(c.expanded)
+	clear(c.loading)
+	clear(c.failures)
+	return c
+}
+
 // Select puts the cursor on path, which need not be on screen yet: a node a
 // mutation created appears only once the reload lands, and until then the
 // cursor rests on its nearest visible ancestor.
