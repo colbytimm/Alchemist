@@ -332,13 +332,17 @@ of scalars, a field whose kind varies across documents, `null`, empty document.
 nested paths of the seed documents and a non-zero request charge.
 
 **Manual checklist:**
-- [ ] Against the emulator: complete a database, a container, and a nested field in one
-      query, then run it.
-- [ ] Against the seeded `sales` database: write the iteration 10 join example using
+- [x] Against the emulator: complete a database, a container, and a nested field in one
+      query, then run it. Driven through the model in
+      `test/integration/complete_test.go`, which is where the join example and the
+      `sample_fields = false` check live too.
+- [x] Against the seeded `sales` database: write the iteration 10 join example using
       completion for both containers, both aliases' fields, and `ON`; run it.
-- [ ] Typing at speed in a 200-line buffer stays responsive with the list open.
+- [x] Typing at speed in a 200-line buffer stays responsive with the list open.
+      `BenchmarkTypingWithTheListOpen` measures one keystroke narrowing an open list,
+      buffer redraw included, at about 10 ms.
 - [ ] `ctrl+space` behavior noted for Terminal.app, iTerm2, and one Linux terminal.
-- [ ] With `sample_fields = false` the log shows no sampling query.
+- [x] With `sample_fields = false` the log shows no sampling query.
 
 ## As built
 

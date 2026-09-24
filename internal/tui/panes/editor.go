@@ -202,6 +202,13 @@ func (e Editor) SetSuggestions(items []complete.Suggestion, note string) Editor 
 	return e.layout()
 }
 
+// RefreshSuggestions is SetSuggestions for rows that arrived on their own,
+// which leaves a chosen row chosen.
+func (e Editor) RefreshSuggestions(items []complete.Suggestion, note string) Editor {
+	e.suggestions = e.suggestions.Refresh(items, note)
+	return e.layout()
+}
+
 func (e Editor) ClearSuggestions() Editor {
 	e.suggestions = e.suggestions.Clear()
 	return e.layout()
