@@ -66,6 +66,8 @@ const (
 	overlayDetail
 	overlayHistory
 	overlayExport
+	overlayForm
+	overlayConfirm
 )
 
 // runState is how far the current query has got.
@@ -89,11 +91,13 @@ func (s runState) loaded() bool { return s == runLoaded || s == runFetching }
 // A nil Logger discards output, and a nil History records nothing.
 // Database, when set, is expanded in the catalog as soon as the root
 // arrives. MaxJoinRows caps the in-memory side of a cross-container join; zero
-// means query.DefaultMaxJoinRows.
+// means query.DefaultMaxJoinRows. A nil Manage leaves the session unable to
+// change anything about the catalog it browses.
 type Options struct {
 	Icons       theme.IconSet
 	Connection  adapter.Connection
 	Connect     Connector
+	Manage      Manager
 	Form        panes.ConnectForm
 	Logger      *log.Logger
 	History     history.Store
@@ -101,6 +105,17 @@ type Options struct {
 	Database    string
 	MaxJoinRows int
 }
+
+// Management is what a session may change about the catalog it browses. A nil
+// field is a backend that cannot do that, and its bindings are removed.
+type Management struct {
+	Admin      adapter.CatalogAdmin
+	Throughput adapter.ThroughputEditor
+}
+
+// Manager reports what a connection allows. cmd/ supplies it: every type
+// assertion to a backend's optional interfaces belongs there, never here.
+type Manager func(adapter.Connection) Management
 
 // Connector opens the connection the connect screen asked for. It is called
 // off the main goroutine, once per attempt, never with an incomplete form.
@@ -116,9 +131,12 @@ const (
 
 type Model struct {
 	keys       KeyMap
+	icons      theme.IconSet
 	connection adapter.Connection
 	catalog    adapter.Catalog
 	connect    Connector
+	manage     Manager
+	management Management
 	logger     *log.Logger
 	history    history.Store
 
@@ -129,6 +147,8 @@ type Model struct {
 	detail       panes.Detail
 	historyPane  panes.History
 	exportPrompt panes.ExportPrompt
+	form         panes.Form
+	confirm      panes.Confirm
 	statusBar    panes.StatusBar
 	help         panes.Help
 
@@ -151,6 +171,15 @@ type Model struct {
 	// once the run has settled one way or the other.
 	historyEntry history.Entry
 
+	// rootLoad is the request for the top of the tree that New issued and
+	// Init hands to the adapter; a constructor cannot return a command.
+	rootLoad panes.Fetch
+	// managing is the operation the open dialog will run, target the node it
+	// runs against, and dialog which opening of it this is.
+	managing string
+	target   []string
+	dialog   dialogID
+
 	screen        screen
 	focus         focus
 	previousFocus focus
@@ -171,8 +200,10 @@ func New(opts Options) Model {
 	keys := DefaultKeyMap()
 	m := Model{
 		keys:         keys,
+		icons:        opts.Icons,
 		connection:   opts.Connection,
 		connect:      opts.Connect,
+		manage:       opts.Manage,
 		logger:       logger,
 		history:      store,
 		connectPane:  panes.NewConnect(opts.Icons, opts.Form),
@@ -196,8 +227,8 @@ func New(opts Options) Model {
 	}
 	// The tick is discarded because Init, which bubbletea always calls next,
 	// starts the animation; a constructor cannot hand back a command.
-	m.catalogPane, _, _ = m.catalogPane.Reload()
-	return m.setFocus(focusCatalog)
+	m.catalogPane, m.rootLoad, _ = m.catalogPane.Reload()
+	return m.withManagement(opts.Connection).setFocus(focusCatalog)
 }
 
 // Init starts loading the catalog. A session still to connect needs nothing
@@ -210,7 +241,18 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) startCatalog() tea.Cmd {
-	return tea.Batch(m.catalogPane.SpinnerTick(), m.loadRoot())
+	return tea.Batch(m.catalogPane.SpinnerTick(), m.load(m.rootLoad))
+}
+
+// withManagement records what conn allows and rebuilds the bindings from it,
+// so a session offers nothing its backend cannot carry out.
+func (m Model) withManagement(conn adapter.Connection) Model {
+	if m.manage != nil && conn != nil {
+		m.management = m.manage(conn)
+	}
+	m.keys = DefaultKeyMap().forManagement(m.management)
+	m.help = panes.NewHelp(m.keys.HelpSections())
+	return m
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -220,11 +262,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	case CatalogLoadedMsg:
-		m.catalogPane = m.catalogPane.SetChildren(msg.Parent, msg.Nodes)
+		m.catalogPane = m.catalogPane.SetChildren(msg.Parent, msg.Nodes, msg.Token)
 		if len(msg.Parent) == 0 && m.defaultDatabase != "" {
 			return m.openDefaultDatabase(msg.Nodes)
 		}
 		return m.prefetch()
+	case CatalogChangedMsg:
+		return m.applyChange(msg)
+	case ThroughputReadMsg:
+		return m.openThroughputForm(msg), nil
 	case ScopeChangedMsg:
 		return m.setScope(msg.Scope), nil
 	case PageLoadedMsg:
@@ -245,7 +291,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case HistoryLoadedMsg:
 		return m.openHistory(msg), nil
 	case ExportedMsg:
-		return m.finishExport(msg), nil
+		return m.finishExport(msg)
 	}
 	return m.animate(msg)
 }
@@ -272,6 +318,10 @@ func (m Model) layout() string {
 		return m.historyPane.View()
 	case m.overlay == overlayExport:
 		return m.exportPrompt.View()
+	case m.overlay == overlayForm:
+		return m.form.View()
+	case m.overlay == overlayConfirm:
+		return m.confirm.View()
 	}
 	right := lipgloss.JoinVertical(lipgloss.Left, m.editor.View(), m.results.View())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, m.catalogPane.View(), right)
@@ -292,12 +342,16 @@ func (m Model) handleErr(msg ErrMsg) Model {
 	m.logger.Error("operation failed", "op", msg.Op, "error", msg.Err)
 	switch msg.Op {
 	case OpCatalogRoot, OpCatalogChildren:
-		m.catalogPane = m.catalogPane.SetError(msg.Path, msg.Err)
+		m.catalogPane = m.catalogPane.SetError(msg.Path, msg.Err, msg.Token)
 	case OpHistory:
 		m.historyPane = m.historyPane.Fail(msg.Err)
 		m.overlay = overlayHistory
 	case OpExport:
 		m.exportPrompt = m.exportPrompt.Fail(msg.Err)
+	case OpCreateDatabase, OpCreateContainer, OpSetThroughput, OpDeleteDatabase, OpDeleteContainer:
+		return m.failManagement(msg)
+	case OpReadThroughput:
+		return m.failThroughputRead(msg)
 	}
 	return m
 }
@@ -357,6 +411,10 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleHistoryKey(msg)
 	case overlayExport:
 		return m.handleExportKey(msg)
+	case overlayForm:
+		return m.handleFormKey(msg)
+	case overlayConfirm:
+		return m.handleConfirmKey(msg)
 	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
@@ -419,6 +477,7 @@ func (m Model) submitConnect() (Model, tea.Cmd) {
 // enterSession leaves the connect screen for the catalog, on the connection
 // the screen just opened.
 func (m Model) enterSession(msg ConnectedMsg) (Model, tea.Cmd) {
+	m = m.withManagement(msg.Connection)
 	m.connection = msg.Connection
 	m.catalog = msg.Connection.Catalog()
 	m.ownsConnection = true
@@ -451,6 +510,14 @@ func (m Model) handleCatalogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.selectNode()
 	case key.Matches(msg, m.keys.Refresh):
 		return m.refreshNode()
+	case key.Matches(msg, m.keys.NewDatabase):
+		return m.openDatabaseForm(), nil
+	case key.Matches(msg, m.keys.NewContainer):
+		return m.openContainerForm(), nil
+	case key.Matches(msg, m.keys.Delete):
+		return m.openDelete(), nil
+	case key.Matches(msg, m.keys.Throughput):
+		return m, m.openThroughput()
 	}
 	return m, nil
 }
@@ -666,7 +733,7 @@ func (m Model) setScope(scope []string) Model {
 // the notice was about.
 func (m Model) syncStatusBar() (Model, tea.Cmd) {
 	var cmd tea.Cmd
-	m.statusBar = m.statusBar.SetNotice("")
+	m.statusBar, _ = m.statusBar.SetNotice("")
 	m.statusBar, cmd = m.statusBar.SetProgress(panes.Progress{
 		Stats:     m.stats,
 		More:      m.hasMore(),
@@ -714,7 +781,7 @@ func (m Model) selectNode() (Model, tea.Cmd) {
 		cmds = append(cmds, scopeChanged(node.Path))
 	}
 	if fetch.Needed {
-		cmds = append(cmds, m.load(fetch.Node))
+		cmds = append(cmds, m.load(fetch))
 	}
 	m, chevrons := m.prefetch() // the rows this opened onto are new to the screen
 	return m, tea.Batch(append(cmds, chevrons)...)
@@ -742,15 +809,15 @@ func (m Model) openDefaultDatabase(roots []adapter.Node) (Model, tea.Cmd) {
 // it: the catalog paints as soon as the root arrives, and each answer settles
 // one more row.
 func (m Model) prefetch() (Model, tea.Cmd) {
-	pane, nodes, tick := m.catalogPane.Prefetch()
+	pane, fetches, tick := m.catalogPane.Prefetch()
 	m.catalogPane = pane
 
-	cmds := make([]tea.Cmd, 0, len(nodes)+1)
+	cmds := make([]tea.Cmd, 0, len(fetches)+1)
 	if tick != nil {
 		cmds = append(cmds, tick)
 	}
-	for _, node := range nodes {
-		cmds = append(cmds, m.loadChildren(node))
+	for _, fetch := range fetches {
+		cmds = append(cmds, m.load(fetch))
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -761,15 +828,16 @@ func (m Model) refreshNode() (Model, tea.Cmd) {
 	if !fetch.Needed {
 		return m, nil
 	}
-	return m, tea.Batch(tick, m.load(fetch.Node))
+	return m, tea.Batch(tick, m.load(fetch))
 }
 
-// load fetches node's children, or the top level when node has no path.
-func (m Model) load(node adapter.Node) tea.Cmd {
-	if len(node.Path) == 0 {
-		return m.loadRoot()
+// load issues fetch: the children of its node, or the top level when that
+// node has no path.
+func (m Model) load(fetch panes.Fetch) tea.Cmd {
+	if len(fetch.Node.Path) == 0 {
+		return m.loadRoot(fetch.Token)
 	}
-	return m.loadChildren(node)
+	return m.loadChildren(fetch.Node, fetch.Token)
 }
 
 func (m Model) setFocus(f focus) Model {
@@ -806,6 +874,8 @@ func (m Model) resize(width, height int) Model {
 	m.detail = m.detail.SetSize(width, height)
 	m.historyPane = m.historyPane.SetSize(width, height)
 	m.exportPrompt = m.exportPrompt.SetSize(width, height)
+	m.form = m.form.SetSize(width, height)
+	m.confirm = m.confirm.SetSize(width, height)
 	return m
 }
 

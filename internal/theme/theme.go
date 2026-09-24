@@ -46,6 +46,8 @@ type IconSet struct {
 	Container     string
 	Expanded      string
 	Collapsed     string
+	Left          string
+	Right         string
 	Success       string
 	Failure       string
 	Separator     string
@@ -58,6 +60,8 @@ var (
 		Container:     "▪",
 		Expanded:      "▾",
 		Collapsed:     "▸",
+		Left:          "◂",
+		Right:         "▸",
 		Success:       "✓",
 		Failure:       "✗",
 		Separator:     "▪",
@@ -68,6 +72,8 @@ var (
 		Container:     "-",
 		Expanded:      "v",
 		Collapsed:     ">",
+		Left:          "<",
+		Right:         ">",
 		Success:       "+",
 		Failure:       "x",
 		Separator:     "|",

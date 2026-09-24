@@ -42,6 +42,13 @@ func wrap(op string, err error) error {
 	return fmt.Errorf("cosmos: %s: %w", op, err)
 }
 
+// notFound reports a request the service answered 404. A resource with no
+// throughput offer of its own is refused that way, as is a missing one.
+func notFound(err error) bool {
+	var respErr *azcore.ResponseError
+	return errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound
+}
+
 func refusal(respErr *azcore.ResponseError) string {
 	text := strconv.Itoa(respErr.StatusCode)
 	if status := http.StatusText(respErr.StatusCode); status != "" {

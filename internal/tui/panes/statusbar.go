@@ -27,6 +27,16 @@ const (
 	pending = "—"
 )
 
+// noticeLife is how long a notice stays on screen before it retires itself.
+const noticeLife = 5 * time.Second
+
+// NoticeExpiredMsg retires the notice it names.
+type NoticeExpiredMsg struct {
+	// Notice is the number the status bar gave the notice this retires.
+	// Notices are numbered from one, in the order they were set.
+	Notice int
+}
+
 // Progress is the state of the current query run as the status bar reports
 // it. The zero value is the bar before anything has been run.
 type Progress struct {
@@ -47,6 +57,7 @@ type StatusBar struct {
 	scope    []string
 	progress Progress
 	notice   string
+	notices  int
 	width    int
 	spinning bool
 }
@@ -62,13 +73,28 @@ func NewStatusBar(icons theme.IconSet, profile string) StatusBar {
 	}
 }
 
-// Update advances the running animation and stops it once the run settles, so
-// an idle bar wakes the program no further.
 func (s StatusBar) Update(msg tea.Msg) (StatusBar, tea.Cmd) {
-	tick, ok := msg.(spinner.TickMsg)
-	if !ok {
-		return s, nil
+	switch msg := msg.(type) {
+	case NoticeExpiredMsg:
+		return s.retireNotice(msg), nil
+	case spinner.TickMsg:
+		return s.animate(msg)
 	}
+	return s, nil
+}
+
+// retireNotice drops the notice msg was issued for. A notice already replaced
+// by a newer one is left to that one's own expiry.
+func (s StatusBar) retireNotice(msg NoticeExpiredMsg) StatusBar {
+	if msg.Notice == s.notices {
+		s.notice = ""
+	}
+	return s
+}
+
+// animate advances the running animation and stops it once the run settles,
+// so an idle bar wakes the program no further.
+func (s StatusBar) animate(tick spinner.TickMsg) (StatusBar, tea.Cmd) {
 	if !s.progress.Running {
 		s.spinning = false
 		return s, nil
@@ -104,11 +130,23 @@ func (s StatusBar) SetProgress(progress Progress) (StatusBar, tea.Cmd) {
 	return s, s.spinner.Tick
 }
 
-// SetNotice reports something that went well outside the run itself; an
-// empty notice clears it.
-func (s StatusBar) SetNotice(notice string) StatusBar {
+// SetNotice reports something that went well outside the run itself. The
+// returned command retires it after a few seconds, so nothing is left
+// claiming an outcome the screen has long moved past. An empty notice clears
+// it at once and has nothing to wait for.
+func (s StatusBar) SetNotice(notice string) (StatusBar, tea.Cmd) {
 	s.notice = notice
-	return s
+	if notice == "" {
+		return s, nil
+	}
+	s.notices++
+	return s, expireNotice(s.notices)
+}
+
+func expireNotice(notice int) tea.Cmd {
+	return tea.Tick(noticeLife, func(time.Time) tea.Msg {
+		return NoticeExpiredMsg{Notice: notice}
+	})
 }
 
 func (s StatusBar) View() string {

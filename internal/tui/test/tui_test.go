@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -47,17 +48,23 @@ func plain(view string) string {
 // and — by keeping the contexts it was handed, which only a recorder has any
 // business doing — whether a replaced run was cancelled. failRoot, failQuery
 // and failPage fail that many calls before the fixture answers, which is how
-// a test gets a failure the next attempt recovers from.
+// a test gets a failure the next attempt recovers from. Management calls pass
+// straight through to the mock, keeping the specs so a test can see what the
+// dialogs assembled.
 type recordingConnection struct {
-	inner     adapter.Connection
-	calls     map[string]int
-	queries   []adapter.Query
-	contexts  []context.Context
-	pageReads int
-	failRoot  int
-	failQuery int
-	failPage  int
-	closed    int
+	inner      adapter.Connection
+	admin      adapter.CatalogAdmin
+	editor     adapter.ThroughputEditor
+	calls      map[string]int
+	queries    []adapter.Query
+	contexts   []context.Context
+	containers []adapter.ContainerSpec
+	provisions []adapter.Throughput
+	pageReads  int
+	failRoot   int
+	failQuery  int
+	failPage   int
+	closed     int
 }
 
 func newConnection(t *testing.T, opts ...mock.Option) *recordingConnection {
@@ -65,7 +72,36 @@ func newConnection(t *testing.T, opts ...mock.Option) *recordingConnection {
 	inner, err := mock.New(opts...).Connect(context.Background(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, inner.Close()) })
-	return &recordingConnection{inner: inner, calls: map[string]int{}}
+	conn := &recordingConnection{inner: inner, calls: map[string]int{}}
+	conn.admin, _ = inner.(adapter.CatalogAdmin)
+	conn.editor, _ = inner.(adapter.ThroughputEditor)
+	return conn
+}
+
+func (c *recordingConnection) CreateDatabase(ctx context.Context, spec adapter.DatabaseSpec) error {
+	return c.admin.CreateDatabase(ctx, spec)
+}
+
+func (c *recordingConnection) DeleteDatabase(ctx context.Context, name string) error {
+	return c.admin.DeleteDatabase(ctx, name)
+}
+
+func (c *recordingConnection) CreateContainer(ctx context.Context, spec adapter.ContainerSpec) error {
+	c.containers = append(c.containers, spec)
+	return c.admin.CreateContainer(ctx, spec)
+}
+
+func (c *recordingConnection) DeleteContainer(ctx context.Context, path []string) error {
+	return c.admin.DeleteContainer(ctx, path)
+}
+
+func (c *recordingConnection) Throughput(ctx context.Context, path []string) (adapter.Throughput, error) {
+	return c.editor.Throughput(ctx, path)
+}
+
+func (c *recordingConnection) SetThroughput(ctx context.Context, path []string, t adapter.Throughput) error {
+	c.provisions = append(c.provisions, t)
+	return c.editor.SetThroughput(ctx, path, t)
 }
 
 func (c *recordingConnection) Catalog() adapter.Catalog { return c }
@@ -123,10 +159,18 @@ func (c *recordingCursor) Close() error {
 	return c.Cursor.Close()
 }
 
-// newModel builds a model sized to the minimum supported terminal.
+// managed reports what a connection allows, the way cmd/ does.
+func managed(conn adapter.Connection) tui.Management {
+	admin, _ := conn.(adapter.CatalogAdmin)
+	throughput, _ := conn.(adapter.ThroughputEditor)
+	return tui.Management{Admin: admin, Throughput: throughput}
+}
+
+// newModel builds a model sized to the minimum supported terminal, managing
+// whatever its connection allows.
 func newModel(t *testing.T, connection adapter.Connection) tea.Model {
 	t.Helper()
-	return newModelWith(t, tui.Options{Connection: connection})
+	return newModelWith(t, tui.Options{Connection: connection, Manage: managed})
 }
 
 // newModelWith builds a model from opts, with the icons and profile every
@@ -173,22 +217,34 @@ func settle(m tea.Model, cmd tea.Cmd) (tea.Model, []tea.Msg) {
 	return m, delivered
 }
 
+// timerGrace is how long messages waits on a command before taking it for a
+// timer. Every command a test does follow answers from memory, in microseconds.
+const timerGrace = 50 * time.Millisecond
+
 // messages executes cmd the way the runtime does, flattening batches into what
-// they produce. Nested commands are not followed.
+// they produce. Nested commands are not followed, and neither is one still
+// counting down: a notice retiring itself seconds from now is not part of what
+// the key press produced, and waiting for it would stall the whole suite.
 func messages(cmd tea.Cmd) []tea.Msg {
 	if cmd == nil {
 		return nil
 	}
-	msg := cmd()
-	batch, ok := msg.(tea.BatchMsg)
-	if !ok {
-		return []tea.Msg{msg}
+	answered := make(chan tea.Msg, 1)
+	go func() { answered <- cmd() }()
+	select {
+	case msg := <-answered:
+		batch, ok := msg.(tea.BatchMsg)
+		if !ok {
+			return []tea.Msg{msg}
+		}
+		var msgs []tea.Msg
+		for _, c := range batch {
+			msgs = append(msgs, messages(c)...)
+		}
+		return msgs
+	case <-time.After(timerGrace):
+		return nil
 	}
-	var msgs []tea.Msg
-	for _, c := range batch {
-		msgs = append(msgs, messages(c)...)
-	}
-	return msgs
 }
 
 // press sends a key and drives the model to rest, returning it together with

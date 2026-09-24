@@ -10,29 +10,33 @@ import (
 // overlay is generated from HelpSections, so a binding added here needs no
 // separate help entry.
 type KeyMap struct {
-	NextPane    key.Binding
-	PrevPane    key.Binding
-	FocusEditor key.Binding
-	Up          key.Binding
-	Down        key.Binding
-	Select      key.Binding
-	Refresh     key.Binding
-	Detail      key.Binding
-	ScrollLeft  key.Binding
-	ScrollRight key.Binding
-	FetchMore   key.Binding
-	Export      key.Binding
-	Save        key.Binding
-	Format      key.Binding
-	Run         key.Binding
-	Connect     key.Binding
-	History     key.Binding
-	Filter      key.Binding
-	Recall      key.Binding
-	Rerun       key.Binding
-	Help        key.Binding
-	Close       key.Binding
-	Quit        key.Binding
+	NextPane     key.Binding
+	PrevPane     key.Binding
+	FocusEditor  key.Binding
+	Up           key.Binding
+	Down         key.Binding
+	Select       key.Binding
+	Refresh      key.Binding
+	NewDatabase  key.Binding
+	NewContainer key.Binding
+	Delete       key.Binding
+	Throughput   key.Binding
+	Detail       key.Binding
+	ScrollLeft   key.Binding
+	ScrollRight  key.Binding
+	FetchMore    key.Binding
+	Export       key.Binding
+	Save         key.Binding
+	Format       key.Binding
+	Run          key.Binding
+	Connect      key.Binding
+	History      key.Binding
+	Filter       key.Binding
+	Recall       key.Binding
+	Rerun        key.Binding
+	Help         key.Binding
+	Close        key.Binding
+	Quit         key.Binding
 }
 
 // DefaultKeyMap binds no function key: too many terminals and laptop
@@ -66,6 +70,22 @@ func DefaultKeyMap() KeyMap {
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh node"),
+		),
+		NewDatabase: key.NewBinding(
+			key.WithKeys("n"),
+			key.WithHelp("n", "new database"),
+		),
+		NewContainer: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "new container"),
+		),
+		Delete: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d", "delete node"),
+		),
+		Throughput: key.NewBinding(
+			key.WithKeys("t"),
+			key.WithHelp("t", "throughput"),
 		),
 		Detail: key.NewBinding(
 			key.WithKeys("enter"),
@@ -172,7 +192,25 @@ func (k KeyMap) globalKeys() []key.Binding {
 }
 
 func (k KeyMap) catalogKeys() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Select, k.Refresh}
+	return []key.Binding{
+		k.Up, k.Down, k.Select, k.Refresh,
+		k.NewDatabase, k.NewContainer, k.Delete, k.Throughput,
+	}
+}
+
+// forManagement disables the bindings whose operation this session cannot
+// perform. The overlay is generated from the same map, so a disabled binding
+// leaves no dead key and no help entry behind.
+func (k KeyMap) forManagement(management Management) KeyMap {
+	if management.Admin == nil {
+		k.NewDatabase.SetEnabled(false)
+		k.NewContainer.SetEnabled(false)
+		k.Delete.SetEnabled(false)
+	}
+	if management.Throughput == nil {
+		k.Throughput.SetEnabled(false)
+	}
+	return k
 }
 
 func (k KeyMap) resultsKeys() []key.Binding {

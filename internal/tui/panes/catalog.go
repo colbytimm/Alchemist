@@ -30,10 +30,17 @@ const (
 	rootKey = ""
 )
 
-// Fetch is the load an interaction produced. Node is meaningful only when
-// Needed is true, and a Node with no Path means the top level of the tree.
+// Token orders the requests made for one node. A response carrying anything
+// but that node's latest token is stale and dropped, which is what lets a
+// reload issued after a mutation overtake a read that started before it.
+type Token int
+
+// Fetch is the load an interaction produced. Node and Token are meaningful
+// only when Needed is true, and a Node with no Path means the top level of
+// the tree.
 type Fetch struct {
 	Node   adapter.Node
+	Token  Token
 	Needed bool
 }
 
@@ -44,8 +51,8 @@ type Fetch struct {
 // Following the bubbles models it composes, its methods take a value receiver
 // but share the underlying maps, so a caller must keep every Catalog it is
 // handed. Dropping one still mutates the original — and dropping a Fetch
-// leaves its node marked in flight with no request behind it, which no later
-// interaction can clear.
+// leaves its node marked in flight with no request behind it, which only a
+// refresh can clear.
 type Catalog struct {
 	frame    frame
 	icons    theme.IconSet
@@ -55,6 +62,7 @@ type Catalog struct {
 	expanded map[string]bool
 	loading  map[string]bool
 	failures map[string]error
+	tokens   map[string]Token
 	cursor   []string
 	spinning bool
 }
@@ -71,6 +79,7 @@ func NewCatalog(icons theme.IconSet) Catalog {
 		expanded: map[string]bool{},
 		loading:  map[string]bool{},
 		failures: map[string]error{},
+		tokens:   map[string]Token{},
 	}
 }
 
@@ -121,11 +130,9 @@ func (c Catalog) Toggle() (Catalog, Fetch, tea.Cmd) {
 	return c.fetch(node)
 }
 
-// Refresh drops the cached children of the node under the cursor, and of
-// everything below it, then asks for them again. With nothing selected it
+// Refresh reloads the node under the cursor. With nothing selected it
 // reloads the top level, which is the only way back from a failed startup
-// fetch. A refresh while that node is already loading is dropped rather than
-// raced; the animation shows the request it will answer with.
+// fetch.
 func (c Catalog) Refresh() (Catalog, Fetch, tea.Cmd) {
 	node, ok := c.SelectedNode()
 	if !ok {
@@ -134,14 +141,54 @@ func (c Catalog) Refresh() (Catalog, Fetch, tea.Cmd) {
 	if !node.HasChildren {
 		return c, Fetch{}, nil
 	}
-	c = c.invalidate(node)
-	c.expanded[pathKey(node.Path)] = true
-	return c.fetch(node)
+	return c.RefreshPath(node.Path)
+}
+
+// RefreshPath drops what the node at path holds, and everything below it,
+// then asks for it again whatever is already in flight: a reload after a
+// mutation has to overtake a read that started before it, or the change never
+// reaches the screen. An unknown path asks for nothing.
+func (c Catalog) RefreshPath(path []string) (Catalog, Fetch, tea.Cmd) {
+	node, ok := c.nodeAt(path)
+	if !ok {
+		return c, Fetch{}, nil
+	}
+	if len(path) > 0 {
+		c = c.invalidate(node)
+		c.expanded[pathKey(path)] = true
+	}
+	return c.reload(node)
 }
 
 // Reload asks for the top level of the tree.
 func (c Catalog) Reload() (Catalog, Fetch, tea.Cmd) {
-	return c.fetch(adapter.Node{})
+	return c.RefreshPath(nil)
+}
+
+// Select puts the cursor on path, which need not be on screen yet: a node a
+// mutation created appears only once the reload lands, and until then the
+// cursor rests on its nearest visible ancestor.
+func (c Catalog) Select(path []string) Catalog {
+	c.cursor = path
+	return c
+}
+
+// nodeAt finds the node at path among the ones already fetched. The empty
+// path is the top level, which has no node of its own.
+func (c Catalog) nodeAt(path []string) (adapter.Node, bool) {
+	if len(path) == 0 {
+		return adapter.Node{}, true
+	}
+	siblings := c.roots
+	if len(path) > 1 {
+		siblings = c.children[pathKey(path[:len(path)-1])]
+	}
+	for _, node := range siblings {
+		if node.Name == path[len(path)-1] {
+			return node, true
+		}
+	}
+	return adapter.Node{}, false
 }
 
 // SpinnerTick starts the loading animation. The root model runs it from Init,
@@ -154,8 +201,8 @@ func (c Catalog) SpinnerTick() tea.Cmd {
 // An adapter that cannot answer HasChildren without listing them — Cosmos
 // cannot, for a database — has to claim it, and only the answer distinguishes
 // a node worth opening from one with nothing inside.
-func (c Catalog) Prefetch() (Catalog, []adapter.Node, tea.Cmd) {
-	var nodes []adapter.Node
+func (c Catalog) Prefetch() (Catalog, []Fetch, tea.Cmd) {
+	var fetches []Fetch
 	var tick tea.Cmd
 	for _, node := range c.visibleRows() {
 		// A node that already failed is left alone. Retrying it on every
@@ -170,29 +217,38 @@ func (c Catalog) Prefetch() (Catalog, []adapter.Node, tea.Cmd) {
 		)
 		c, fetch, start = c.fetch(node)
 		if fetch.Needed {
-			nodes = append(nodes, fetch.Node)
+			fetches = append(fetches, fetch)
 		}
 		if start != nil {
 			tick = start
 		}
 	}
-	return c, nodes, tick
+	return c, fetches, tick
 }
 
 // fetch asks for node's children unless they are already cached or a request
-// for them is still in flight. Letting a second request start would leave two
-// responses racing to be the one the tree keeps.
+// for them is still in flight. Dropping the second request is what keeps a
+// prefetch cheap; only a caller with a reason to supersede reloads outright.
 func (c Catalog) fetch(node adapter.Node) (Catalog, Fetch, tea.Cmd) {
 	key := pathKey(node.Path)
 	if _, cached := c.children[key]; cached || c.loading[key] {
 		return c, Fetch{}, nil
 	}
+	return c.reload(node)
+}
+
+// reload issues a request for node's children whatever else is in flight, and
+// hands back the token that makes every earlier response for it stale.
+func (c Catalog) reload(node adapter.Node) (Catalog, Fetch, tea.Cmd) {
+	key := pathKey(node.Path)
+	c.tokens[key]++
 	c.loading[key] = true
+	fetch := Fetch{Node: node, Token: c.tokens[key], Needed: true}
 	if c.spinning {
-		return c, Fetch{Node: node, Needed: true}, nil
+		return c, fetch, nil
 	}
 	c.spinning = true
-	return c, Fetch{Node: node, Needed: true}, c.spinner.Tick
+	return c, fetch, c.spinner.Tick
 }
 
 // invalidate forgets node's children and everything below them, so a refresh
@@ -223,10 +279,15 @@ func under(key, prefix string) bool {
 	return key == prefix || strings.HasPrefix(key, prefix+separator)
 }
 
-// SetChildren records the nodes fetched for parent, clearing any earlier
-// failure there. An empty parent sets the top level of the tree.
-func (c Catalog) SetChildren(parent []string, nodes []adapter.Node) Catalog {
+// SetChildren records the nodes fetched for parent under token, clearing any
+// earlier failure there. An empty parent sets the top level of the tree, and
+// a superseded token is ignored outright: the request it answers is no longer
+// the one the pane is waiting for.
+func (c Catalog) SetChildren(parent []string, nodes []adapter.Node, token Token) Catalog {
 	key := pathKey(parent)
+	if token != c.tokens[key] {
+		return c
+	}
 	delete(c.loading, key)
 	delete(c.failures, key)
 	if key == rootKey {
@@ -237,9 +298,13 @@ func (c Catalog) SetChildren(parent []string, nodes []adapter.Node) Catalog {
 	return c.reanchor()
 }
 
-// SetError records a failed fetch so it renders under the node it belongs to.
-func (c Catalog) SetError(path []string, err error) Catalog {
+// SetError records a failed fetch so it renders under the node it belongs to,
+// ignoring a superseded token the way SetChildren does.
+func (c Catalog) SetError(path []string, err error, token Token) Catalog {
 	key := pathKey(path)
+	if token != c.tokens[key] {
+		return c
+	}
 	delete(c.loading, key)
 	c.failures[key] = err
 	return c

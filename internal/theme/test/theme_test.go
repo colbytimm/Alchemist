@@ -70,6 +70,8 @@ func TestIconSetsAreComplete(t *testing.T) {
 		assert.NotEmpty(t, icons.Container)
 		assert.NotEmpty(t, icons.Expanded)
 		assert.NotEmpty(t, icons.Collapsed)
+		assert.NotEmpty(t, icons.Left)
+		assert.NotEmpty(t, icons.Right)
 		assert.NotEmpty(t, icons.Success)
 		assert.NotEmpty(t, icons.Failure)
 		assert.NotEmpty(t, icons.Separator)
@@ -81,7 +83,7 @@ func TestASCIIIconsAreASCIIOnly(t *testing.T) {
 	icons := theme.ASCIIIcons()
 	glyphs := append([]string{
 		icons.Database, icons.Container, icons.Expanded, icons.Collapsed,
-		icons.Success, icons.Failure, icons.Separator,
+		icons.Left, icons.Right, icons.Success, icons.Failure, icons.Separator,
 	}, icons.SpinnerFrames...)
 
 	for _, glyph := range glyphs {

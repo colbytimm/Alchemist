@@ -35,6 +35,14 @@ const (
 	seedCount   = 25
 )
 
+// The catalog the management test builds and tears down, kept apart from the
+// query fixture so the two can run in either order.
+const (
+	itManagedDatabase = "alchemist_it_manage"
+	itDedicated       = "shipments"
+	itShared          = "returns"
+)
+
 func settings() map[string]string {
 	endpoint := os.Getenv("COSMOS_ENDPOINT")
 	if endpoint == "" {
@@ -342,4 +350,114 @@ func TestIntegrationCachesPartitionKeyPath(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, reads, "container metadata should be read once and cached")
+}
+
+func catalogAdmin(t *testing.T, conn adapter.Connection) adapter.CatalogAdmin {
+	t.Helper()
+	admin, ok := conn.(adapter.CatalogAdmin)
+	require.True(t, ok, "a cosmos connection manages its catalog")
+	return admin
+}
+
+func throughputEditor(t *testing.T, conn adapter.Connection) adapter.ThroughputEditor {
+	t.Helper()
+	editor, ok := conn.(adapter.ThroughputEditor)
+	require.True(t, ok, "a cosmos connection edits throughput")
+	return editor
+}
+
+func nodeNames(nodes []adapter.Node) []string {
+	listed := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		listed = append(listed, node.Name)
+	}
+	return listed
+}
+
+func rootNames(t *testing.T, conn adapter.Connection) []string {
+	t.Helper()
+	roots, err := conn.Catalog().Root(context.Background())
+	require.NoError(t, err)
+	return nodeNames(roots)
+}
+
+func containerNodes(t *testing.T, conn adapter.Connection, database string) []adapter.Node {
+	t.Helper()
+	nodes, err := conn.Catalog().Children(context.Background(), adapter.Node{
+		Kind: adapter.NodeDatabase,
+		Name: database,
+		Path: []string{database},
+	})
+	require.NoError(t, err)
+	return nodes
+}
+
+func nodeNamed(t *testing.T, nodes []adapter.Node, name string) adapter.Node {
+	t.Helper()
+	for _, node := range nodes {
+		if node.Name == name {
+			return node
+		}
+	}
+	require.Failf(t, "not in the catalog", "no node named %q among %v", name, nodeNames(nodes))
+	return adapter.Node{}
+}
+
+func TestIntegrationCatalogManagement(t *testing.T) {
+	conn := connectWithRetry(t)
+	t.Cleanup(func() { _ = conn.Close() })
+	admin, editor := catalogAdmin(t, conn), throughputEditor(t, conn)
+	ctx := context.Background()
+
+	_ = admin.DeleteDatabase(ctx, itManagedDatabase) // a leftover from an earlier run would fail the create
+
+	autoscale := adapter.Throughput{Mode: adapter.ThroughputAutoscale, RUs: 4000}
+	if err := admin.CreateDatabase(ctx, adapter.DatabaseSpec{Name: itManagedDatabase, Throughput: autoscale}); err != nil {
+		t.Skipf("this emulator image refuses an autoscale database, which the rest of this test builds on: %v", err)
+	}
+	t.Cleanup(func() { _ = admin.DeleteDatabase(context.Background(), itManagedDatabase) })
+	require.Contains(t, rootNames(t, conn), itManagedDatabase)
+
+	manual := adapter.Throughput{Mode: adapter.ThroughputManual, RUs: 400}
+	require.NoError(t, admin.CreateContainer(ctx, adapter.ContainerSpec{
+		Database:      itManagedDatabase,
+		Name:          itDedicated,
+		PartitionKeys: []string{"/tenantId", "/customerId"},
+		Throughput:    manual,
+	}))
+	require.NoError(t, admin.CreateContainer(ctx, adapter.ContainerSpec{
+		Database:      itManagedDatabase,
+		Name:          itShared,
+		PartitionKeys: []string{"/tenantId"},
+	}))
+
+	nodes := containerNodes(t, conn, itManagedDatabase)
+	assert.Equal(t, "/tenantId,/customerId", nodeNamed(t, nodes, itDedicated).Meta[adapter.MetaPartitionKey],
+		"a hierarchical key keeps every path")
+
+	dedicated := []string{itManagedDatabase, itDedicated}
+	read, err := editor.Throughput(ctx, dedicated)
+	require.NoError(t, err)
+	assert.Equal(t, manual, read)
+
+	replaced := adapter.Throughput{Mode: adapter.ThroughputManual, RUs: 800}
+	require.NoError(t, editor.SetThroughput(ctx, dedicated, replaced))
+	read, err = editor.Throughput(ctx, dedicated)
+	require.NoError(t, err)
+	assert.Equal(t, replaced, read)
+
+	read, err = editor.Throughput(ctx, []string{itManagedDatabase})
+	require.NoError(t, err)
+	assert.Equal(t, autoscale, read, "the database keeps the capacity it was created with")
+
+	read, err = editor.Throughput(ctx, []string{itManagedDatabase, itShared})
+	require.NoError(t, err)
+	assert.Equal(t, adapter.Throughput{Mode: adapter.ThroughputShared}, read,
+		"a container with no offer of its own draws on its database")
+
+	require.NoError(t, admin.DeleteContainer(ctx, dedicated))
+	assert.NotContains(t, nodeNames(containerNodes(t, conn, itManagedDatabase)), itDedicated)
+
+	require.NoError(t, admin.DeleteDatabase(ctx, itManagedDatabase))
+	assert.NotContains(t, rootNames(t, conn), itManagedDatabase)
 }

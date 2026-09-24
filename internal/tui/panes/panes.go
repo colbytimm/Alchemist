@@ -32,6 +32,14 @@ func wrapText(text string, width int) []string {
 	return lines
 }
 
+// failureLines wraps a failure to fit, and is empty when there is none.
+func failureLines(failure string, width int) []string {
+	if failure == "" {
+		return nil
+	}
+	return wrapText(failure, width)
+}
+
 func styleAll(style lipgloss.Style, lines []string) []string {
 	styled := make([]string, 0, len(lines))
 	for _, line := range lines {
@@ -80,6 +88,14 @@ func (f frame) render(content string) string {
 	body := border.BorderTop(false).Width(width).Height(height).Render(clipped)
 	edge := lipgloss.NewStyle().Foreground(border.GetBorderTopForeground())
 	return edge.Render(f.topEdge()) + "\n" + body
+}
+
+// renderWithHint draws lines inside f, padded so hint lands on its last line.
+func (f frame) renderWithHint(lines []string, hint string) string {
+	_, height := f.inner()
+	body := make([]string, max(height-1, len(lines)))
+	copy(body, lines)
+	return f.render(strings.Join(append(body, hint), "\n"))
 }
 
 func (f frame) borderStyle() lipgloss.Style {

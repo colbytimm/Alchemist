@@ -145,15 +145,13 @@ func (p ExportPrompt) Fail(err error) ExportPrompt {
 }
 
 func (p ExportPrompt) View() string {
-	width, height := p.frame.inner()
+	width, _ := p.frame.inner()
 	lines := []string{p.input.View()}
 	lines = append(lines, styleAll(theme.TextStyle(), p.destinationLines(width))...)
 	lines = append(lines, p.formatLine(), "")
 	lines = append(lines, styleAll(theme.HintStyle(), wrapText(exportHint, width))...)
-	lines = append(lines, styleAll(theme.ErrorStyle(), p.failureLines(width))...)
-	body := make([]string, max(height-1, len(lines)))
-	copy(body, lines)
-	return p.frame.render(strings.Join(append(body, p.hints.ShortHelpView(p.keys)), "\n"))
+	lines = append(lines, styleAll(theme.ErrorStyle(), failureLines(p.failure, width))...)
+	return p.frame.renderWithHint(lines, p.hints.ShortHelpView(p.keys))
 }
 
 // destinationLines spell out where the name as typed resolves to, so a bare
@@ -179,11 +177,4 @@ func (p ExportPrompt) formatLine() string {
 		line += style.Render(format.label) + formatGap
 	}
 	return line
-}
-
-func (p ExportPrompt) failureLines(width int) []string {
-	if p.failure == "" {
-		return nil
-	}
-	return wrapText(p.failure, width)
 }

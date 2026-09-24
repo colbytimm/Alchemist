@@ -63,11 +63,12 @@ func (m Model) exportPromptUpdate(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) finishExport(msg ExportedMsg) Model {
+func (m Model) finishExport(msg ExportedMsg) (Model, tea.Cmd) {
 	m.logger.Info("exported", "path", msg.Path, "rows", msg.Rows)
-	m.statusBar = m.statusBar.SetNotice(fmt.Sprintf("exported %d rows to %s", msg.Rows, msg.Path))
+	var expiry tea.Cmd
+	m.statusBar, expiry = m.statusBar.SetNotice(fmt.Sprintf("exported %d rows to %s", msg.Rows, msg.Path))
 	m.overlay = overlayNone
-	return m
+	return m, expiry
 }
 
 func exportResults(target panes.ExportTarget, fetched adapter.Page) tea.Cmd {
