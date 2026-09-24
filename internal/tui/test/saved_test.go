@@ -588,3 +588,23 @@ func TestTheOverlayUnderTheRenamePromptFollowsTheAccountAway(t *testing.T) {
 	assert.Equal(t, "beta", only(t, store, "prod").Name, "the rename went to the account it was opened for")
 	assert.Contains(t, plain(renamed.View()), "no account connected: ctrl+g to choose one")
 }
+
+func TestRecallingASavedQueryOpensNoSuggestionList(t *testing.T) {
+	store := newSavedStore(t)
+	create(t, store, mock.Name, saved.Query{Name: "sel", Text: "SEL"})
+	m := tall(openSaved(t, newSavedModel(t, newConnection(t), store)))
+
+	m = pressAll(t, m, keyMsg(tea.KeyEnter))
+
+	assert.Contains(t, editorText(m), "SEL")
+	assert.False(t, listed(m.View(), "SELECT"), "a recall is not typing:\n%s", plain(m.View()))
+}
+
+func TestCtrlSWithTheSuggestionListOpenOpensThePrompt(t *testing.T) {
+	m := typeQuery(t, tall(newSavedModel(t, newConnection(t), newSavedStore(t))), "SEL")
+	require.True(t, listed(m.View(), "SELECT"), "the list is open:\n%s", plain(m.View()))
+
+	m = pressAll(t, m, keyMsg(tea.KeyCtrlS))
+
+	assert.Contains(t, plain(m.View()), promptTitle)
+}

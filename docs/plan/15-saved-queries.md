@@ -792,8 +792,10 @@ Landed. Where the code settled differently from the text above:
 - `Dir.RemoveAccount` and `profile remove` count every query file, listed or skipped
   (`Listing.Files`): a file the overlay skips is still something removal keeps or
   deletes.
-- 13 and 17 have not landed: nothing checks `query.IsBatch`, and there is no
-  suggestion list to close.
+- 13 landed beneath this iteration (#23). A recall goes through `Editor.SetValue`
+  and ends in `setFocus`, which closes any suggestion list, and `ctrl+s` and `ctrl+l`
+  are not suggestion keys; both are tested. 17 has not landed, so nothing checks
+  `query.IsBatch`.
 - `profile remove` still stops at a keychain that cannot be reached, before it says
   anything about saved queries, as it did before this iteration.
 
