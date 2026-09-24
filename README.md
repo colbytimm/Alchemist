@@ -8,12 +8,13 @@ write SQL, and page through results without leaving the terminal.
 
 It shows the request charge (RU) of every query, runs cross-partition queries by
 default, and pages with continuation tokens rather than loading a whole result set.
-Result sets export to JSON or CSV, and every query is kept in a searchable history.
+Result sets export to JSON or CSV, every query is kept in a searchable history, and
+the ones worth keeping can be saved under a name.
 It also queries across containers, which the service cannot: unions and two-container
 joins are [simulated client-side](#querying-across-containers).
 
 > **Status: early development.** Browsing, querying, cross-container queries,
-> catalog management, profiles, history, and export work today. Release builds are
+> catalog management, profiles, history, saved queries, and export work today. Release builds are
 > still to come; the [implementation plan](docs/plan/00-overview.md) tracks them.
 
 ## Getting started
@@ -64,6 +65,8 @@ the catalog and queries run against it, or name one in the query itself with
 | `e` | anywhere | editor |
 | `ctrl+r` | anywhere | run query |
 | `ctrl+o` | anywhere | history |
+| `ctrl+s` | anywhere, history | save query |
+| `ctrl+l` | anywhere | open saved |
 | `ctrl+g` | anywhere | accounts |
 | `?` | anywhere | help |
 | `esc` | anywhere | close |
@@ -80,6 +83,8 @@ the catalog and queries run against it, or name one in the query itself with
 | `h/←`, `l/→` | results | scroll left, scroll right |
 | `m` | results | fetch more |
 | `ctrl+e` | results | export to file |
+| `r` | saved queries | rename |
+| `d`, then `y` | saved queries | delete |
 
 While the editor has the keyboard, plain letters are text; `ctrl+c` always quits.
 Once the editor loses focus it shows the query with keywords, strings, and numbers
@@ -278,11 +283,39 @@ usual reason to look back.
 `ctrl+o` opens the history of the account the session is on, newest first; switch
 accounts to see another's. `/` filters by query text or scope, `enter`
 loads the selected query into the editor with its scope restored, and `ctrl+r` loads
-it and runs it at once. `alchemist --history=false` records nothing for that session.
+it and runs it at once. `ctrl+s` saves the selected query under a name. `alchemist
+--history=false` records nothing for that session.
 
 The file is one JSON object per line, so `jq . < history.jsonl` reads it. A line a
 session never finished writing is skipped, and the file is trimmed to its newest
 2,500 entries once it passes 5,000.
+
+## Saved queries
+
+`ctrl+s` saves the query in the editor under a name, for the account the session is
+on. `ctrl+l` lists that account's saved queries by name, with the same keys as
+history: `/` filters by name, text or scope, `enter` loads one into the editor, and
+`ctrl+r` loads and runs it. `r` renames the selected query and `d`, then `y`,
+deletes it. To update a saved query, load it, edit it, press `ctrl+s` (the name is
+filled in) and end the name with `!` to replace it.
+
+Each query is a plain `.sql` file under `queries/<account>/` in the config directory
+(`~/.config/alchemist/queries/prod/open orders.sql`), so `ls`, `cat`, `mv` and `rm`
+work on them, and a `.sql` file dropped there is listed the next time the overlay
+opens. A query saved against the selected container starts with one header line
+recording it, and loading it selects that container again:
+
+```sql
+-- alchemist: scope=sales/orders
+SELECT c.id, c.total FROM c WHERE c.status = "open"
+```
+
+A query that names its own containers (`FROM sales.orders c`) is saved without one.
+A name is letters, digits, spaces, `.`, `-` and `_`, up to 64 characters.
+
+`alchemist profile remove <name>` keeps the profile's saved queries and says where
+they are, so a profile removed and added again under the same name finds them.
+`--purge` deletes them too.
 
 ## Writing an adapter
 

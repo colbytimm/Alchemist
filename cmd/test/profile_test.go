@@ -2,6 +2,7 @@ package cmd_test
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/config"
+	"github.com/colbytimm/alchemist/internal/saved"
 )
 
 const enteredKey = "entered-key-material"
@@ -184,4 +186,67 @@ func TestProfileWithoutASubcommandPrintsHelp(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Contains(t, out, "set-key")
+}
+
+// saveQueries files queries for account where a session would have saved
+// them, under the harness's config directory.
+func saveQueries(t *testing.T, account string, names ...string) saved.Dir {
+	t.Helper()
+	dir, err := config.Dir()
+	require.NoError(t, err)
+	queries := saved.Open(filepath.Join(dir, saved.DirName))
+	for _, name := range names {
+		require.NoError(t, queries.Create(account, saved.Query{Name: name, Text: "SELECT * FROM c"}))
+	}
+	return queries
+}
+
+func TestProfileRemoveKeepsTheSavedQueriesAndSaysWhere(t *testing.T) {
+	h := newHarness(t)
+	h.addProfile(t, "staging")
+	queries := saveQueries(t, "staging", "open orders", "late shipments")
+
+	out, err := h.run("", "profile", "remove", "staging")
+
+	require.NoError(t, err)
+	assert.Contains(t, out, "kept 2 saved queries in "+queries.AccountPath("staging"))
+	assert.Contains(t, out, "alchemist profile remove staging --purge")
+	assert.DirExists(t, queries.AccountPath("staging"))
+}
+
+func TestProfileRemovePurgeDeletesTheSavedQueries(t *testing.T) {
+	h := newHarness(t)
+	h.addProfile(t, "staging")
+	queries := saveQueries(t, "staging", "open orders")
+
+	out, err := h.run("", "profile", "remove", "staging", "--purge")
+
+	require.NoError(t, err)
+	assert.Contains(t, out, "removed profile staging and its 1 saved query")
+	assert.NoDirExists(t, queries.AccountPath("staging"))
+}
+
+func TestProfileRemoveWithNothingSavedDoesNotMentionQueries(t *testing.T) {
+	for _, args := range [][]string{{"profile", "remove", "staging"}, {"profile", "remove", "staging", "--purge"}} {
+		h := newHarness(t)
+		h.addProfile(t, "staging")
+
+		out, err := h.run("", args...)
+
+		require.NoError(t, err)
+		assert.Equal(t, "removed profile staging\n", out, "%v", args)
+	}
+}
+
+func TestProfileRemoveLeavesOtherAccountsQueries(t *testing.T) {
+	h := newHarness(t)
+	h.addProfile(t, "staging")
+	h.addProfile(t, "prod")
+	queries := saveQueries(t, "prod", "open orders")
+	saveQueries(t, "staging", "open orders")
+
+	_, err := h.run("", "profile", "remove", "staging", "--purge")
+
+	require.NoError(t, err)
+	assert.DirExists(t, queries.AccountPath("prod"))
 }

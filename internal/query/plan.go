@@ -70,6 +70,11 @@ func (p Plan) Scope() []string {
 	return p.Leaves[0].Query.Scope
 }
 
+// NeedsDefaultScope reports whether any leaf names no container of its own.
+func (p Plan) NeedsDefaultScope() bool {
+	return slices.ContainsFunc(p.Leaves, func(leaf Leaf) bool { return len(leaf.Query.Scope) == 0 })
+}
+
 // WithDefaultScope targets every leaf whose query named no container at scope.
 func (p Plan) WithDefaultScope(scope []string) Plan {
 	p.Leaves = slices.Clone(p.Leaves)

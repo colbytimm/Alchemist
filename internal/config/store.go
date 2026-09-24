@@ -24,17 +24,18 @@ type Store struct {
 	Path string
 }
 
-// DefaultStore locates the config file: $XDG_CONFIG_HOME/alchemist when set,
-// otherwise ~/.config/alchemist.
+// DefaultStore locates the config file in Dir.
 func DefaultStore() (Store, error) {
-	dir, err := configDir()
+	dir, err := Dir()
 	if err != nil {
 		return Store{}, err
 	}
 	return Store{Path: filepath.Join(dir, FileName)}, nil
 }
 
-func configDir() (string, error) {
+// Dir returns the config directory: $XDG_CONFIG_HOME/alchemist when set,
+// otherwise ~/.config/alchemist.
+func Dir() (string, error) {
 	if base := os.Getenv("XDG_CONFIG_HOME"); base != "" {
 		return filepath.Join(base, "alchemist"), nil
 	}

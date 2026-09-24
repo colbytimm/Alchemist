@@ -3,6 +3,7 @@ package tui
 import (
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/history"
+	"github.com/colbytimm/alchemist/internal/saved"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
 
@@ -22,6 +23,9 @@ const (
 	OpReadThroughput  = "read throughput"
 	OpSetThroughput   = "set throughput"
 	OpInspect         = "inspect"
+	OpSavedList       = "saved queries"
+	OpSaveQuery       = "save query"
+	OpRemoveQuery     = "remove saved query"
 )
 
 // runID identifies one query run. Every page and failure carries the run it
@@ -153,4 +157,27 @@ type HistoryLoadedMsg struct {
 type ExportedMsg struct {
 	Path string
 	Rows int
+}
+
+// SavedLoadedMsg delivers the saved queries of Account.
+type SavedLoadedMsg struct {
+	Account string
+	Listing saved.Listing
+	// reload marks a listing for an overlay already open, which it must not
+	// reopen once closed; selectName is the query to put the cursor on.
+	reload     bool
+	selectName string
+}
+
+// QuerySavedMsg reports a create, a replace, or a rename, from From when
+// that is not empty.
+type QuerySavedMsg struct {
+	Account string
+	Name    string
+	From    string
+}
+
+type QueryRemovedMsg struct {
+	Account string
+	Name    string
 }

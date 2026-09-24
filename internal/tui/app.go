@@ -20,6 +20,7 @@ import (
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/history"
 	"github.com/colbytimm/alchemist/internal/query"
+	"github.com/colbytimm/alchemist/internal/saved"
 	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
@@ -76,6 +77,8 @@ const (
 	overlayInfo
 	overlayAccounts
 	overlayConnect
+	overlaySaved
+	overlaySavePrompt
 )
 
 // runState is how far the current query has got.
@@ -107,6 +110,7 @@ type Options struct {
 	Form         panes.ConnectForm // first run only: no account exists yet
 	Logger       *log.Logger
 	History      history.Store
+	Saved        saved.Store // nil keeps nothing and says why on save
 }
 
 // Management is what a session may do with the catalog beyond browsing it:
@@ -132,6 +136,7 @@ type Model struct {
 	manage       Manager
 	logger       *log.Logger
 	history      history.Store
+	saved        saved.Store
 
 	connectPane   panes.Connect
 	accountsPane  panes.Accounts
@@ -140,6 +145,8 @@ type Model struct {
 	results       panes.Results
 	detail        panes.Detail
 	historyPane   panes.History
+	savedPane     panes.Saved
+	savePrompt    panes.SavePrompt
 	exportPrompt  panes.ExportPrompt
 	form          panes.Form
 	confirm       panes.Confirm
@@ -154,6 +161,12 @@ type Model struct {
 	lastAttempt      int
 	formAttempts     map[string]int
 	shownFormAttempt int
+
+	// promptReturn is the overlay the save prompt was opened over, and goes
+	// back to. recalledName is the saved query the editor was last filled
+	// from, offered when saving again.
+	promptReturn overlay
+	recalledName string
 
 	// runAccount is the account the current run went to.
 	runAccount string
@@ -190,6 +203,10 @@ func New(opts Options) Model {
 	if store == nil {
 		store = history.Discard{}
 	}
+	savedStore := opts.Saved
+	if savedStore == nil {
+		savedStore = saved.Unavailable{Err: errNoSavedStore}
+	}
 	open := opts.Open
 	if open == nil {
 		open = func(context.Context, string) (adapter.Connection, error) { return nil, ErrCredentialsNeeded }
@@ -204,17 +221,21 @@ func New(opts Options) Model {
 		manage:        opts.Manage,
 		logger:        logger,
 		history:       store,
+		saved:         savedStore,
 		connectPane:   panes.NewConnect(opts.Icons, opts.Form),
 		accountsPane:  panes.NewAccounts(opts.Icons, append([]key.Binding{keys.Filter}, keys.AccountsKeys()...)),
 		noAccountPane: panes.NewCatalog(opts.Icons).SetError(nil, errNoAccount, 0),
 		editor:        panes.NewEditor(),
 		results:       panes.NewResults(),
 		detail:        panes.NewDetail(),
-		historyPane:   panes.NewHistory(opts.Icons, keys.HistoryKeys()),
-		exportPrompt:  panes.NewExportPrompt(append(keys.ExportKeys(), keys.Close)),
-		statusBar:     panes.NewStatusBar(opts.Icons, ""),
-		help:          panes.NewHelp(keys.HelpSections()),
-		formAttempts:  map[string]int{},
+		historyPane:   panes.NewHistory(opts.Icons, append(keys.HistoryKeys(), keys.SaveQuery)),
+		savedPane: panes.NewSaved(opts.Icons,
+			append(keys.HistoryKeys(), keys.SavedKeys()...), keys.Confirm),
+		savePrompt:   panes.NewSavePrompt([]key.Binding{keys.Save, keys.Close}),
+		exportPrompt: panes.NewExportPrompt(append(keys.ExportKeys(), keys.Close)),
+		statusBar:    panes.NewStatusBar(opts.Icons, ""),
+		help:         panes.NewHelp(keys.HelpSections()),
+		formAttempts: map[string]int{},
 	}
 	m.accounts = newAccountSet(opts.Accounts, m.blankEntry)
 	if opts.Launch == "" {
@@ -282,6 +303,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.mergeAccounts(msg.Accounts)
 	case HistoryLoadedMsg:
 		return m.openHistory(msg), nil
+	case SavedLoadedMsg:
+		return m.applySaved(msg), nil
+	case QuerySavedMsg:
+		return m.finishSave(msg)
+	case QueryRemovedMsg:
+		return m.finishRemove(msg)
 	case ExportedMsg:
 		return m.finishExport(msg)
 	}
@@ -312,6 +339,10 @@ func (m Model) layout() string {
 		return m.historyPane.View()
 	case overlayExport:
 		return m.exportPrompt.View()
+	case overlaySaved:
+		return m.savedPane.View()
+	case overlaySavePrompt:
+		return m.savePrompt.View()
 	case overlayForm:
 		return m.form.View()
 	case overlayConfirm:
@@ -355,6 +386,12 @@ func (m Model) handleErr(msg ErrMsg) (Model, tea.Cmd) {
 		return m, nil
 	case OpHistory:
 		return m.failHistory(msg), nil
+	case OpSavedList:
+		return m.failSaved(msg), nil
+	case OpSaveQuery:
+		return m.failSave(msg.Err), nil
+	case OpRemoveQuery:
+		return m.notify(fmt.Sprintf("not deleted: %v", msg.Err))
 	case OpExport:
 		m.exportPrompt = m.exportPrompt.Fail(msg.Err)
 	case OpCreateDatabase, OpCreateContainer, OpSetThroughput, OpDeleteDatabase, OpDeleteContainer:
@@ -390,6 +427,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.startRun()
 	case key.Matches(msg, m.keys.History):
 		return m.openHistoryOrRefuse()
+	case key.Matches(msg, m.keys.SaveQuery):
+		return m.openSavePrompt()
+	case key.Matches(msg, m.keys.Saved):
+		return m.openSavedOrRefuse()
 	case key.Matches(msg, m.keys.Accounts):
 		return m.openAccounts()
 	}
@@ -425,6 +466,10 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleHistoryKey(msg)
 	case overlayExport:
 		return m.handleExportKey(msg)
+	case overlaySaved:
+		return m.handleSavedKey(msg)
+	case overlaySavePrompt:
+		return m.handleSavePromptKey(msg)
 	case overlayForm:
 		return m.handleFormKey(msg)
 	case overlayConfirm:
@@ -914,6 +959,8 @@ func (m Model) resize(width, height int) Model {
 	m.help = m.help.SetSize(width, height)
 	m.detail = m.detail.SetSize(width, height)
 	m.historyPane = m.historyPane.SetSize(width, height)
+	m.savedPane = m.savedPane.SetSize(width, height)
+	m.savePrompt = m.savePrompt.SetSize(width, height)
 	m.exportPrompt = m.exportPrompt.SetSize(width, height)
 	m.form = m.form.SetSize(width, height)
 	m.confirm = m.confirm.SetSize(width, height)

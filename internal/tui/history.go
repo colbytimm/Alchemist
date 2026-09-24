@@ -94,6 +94,8 @@ func (m Model) handleHistoryKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return model, nil
 	case key.Matches(msg, m.keys.Rerun):
 		return m.rerun()
+	case key.Matches(msg, m.keys.SaveQuery):
+		return m.saveHistoryEntry(), nil
 	case m.historyPane.Filtering():
 		return m.filterUpdate(msg)
 	}
@@ -122,6 +124,7 @@ func (m Model) recall() (Model, bool) {
 	}
 	m.editor = m.editor.SetValue(entry.Query)
 	m = m.setScope(m.accounts.active, entry.Scope)
+	m.recalledName = ""
 	m.overlay = overlayNone
 	return m.setFocus(focusEditor), true
 }

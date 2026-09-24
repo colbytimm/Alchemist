@@ -110,6 +110,27 @@ func TestAScopeWrittenInTheQueryOutranksTheDefault(t *testing.T) {
 	assert.Equal(t, []string{"telemetry", "events"}, scoped.Scope())
 }
 
+func TestNeedsDefaultScope(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{name: "bare source", input: "SELECT * FROM c", want: true},
+		{name: "named container", input: "SELECT * FROM sales.orders c"},
+		{name: "container list", input: "SELECT * FROM sales.orders, sales.archive AS c"},
+		{name: "join of named containers", input: "SELECT o.id FROM sales.orders o JOIN sales.customers cu ON o.customerId = cu.id"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan, err := query.BuildPlan(tt.input)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.want, plan.NeedsDefaultScope(), "NeedsDefaultScope(%q)", tt.input)
+		})
+	}
+}
+
 func TestAContainerListPlansAUnionAll(t *testing.T) {
 	tests := []struct {
 		name  string

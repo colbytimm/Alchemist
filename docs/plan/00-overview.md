@@ -26,6 +26,7 @@ can be added without touching the TUI.
 | Query editor | Editor pane: multiline Cosmos SQL | 5 |
 | Results viewer | Results pane: pageable table with fetch-more | 5 |
 | Query history | History overlay, JSONL-backed | 7 |
+| — | Saved queries: named `.sql` files per account | 15 |
 | Data exporter | JSON / CSV export | 8 |
 | DDL via SQL (Cosmos has none) | Catalog management: create/delete, throughput | 11 |
 | Adapter plugins | Go interfaces + registry | 2, 3 |
@@ -53,10 +54,11 @@ internal/
     app.go                    # root model: layout, focus, routing only
     keys.go messages.go
     panes/                    # catalog.go, editor.go, results.go, history.go,
-                              # statusbar.go, help.go
+                              # saved.go, save.go, statusbar.go, help.go
   theme/                      # adaptive alchemy palette + ASCII logo
   config/                     # TOML profiles + keyring/env secret resolution
   history/                    # JSONL query history
+  saved/                      # saved queries, one .sql file each, per account
   export/                     # JSON/CSV export
   logging/                    # log to file while the TUI owns the terminal
 docs/plan/                    # these documents

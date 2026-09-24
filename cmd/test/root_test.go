@@ -22,6 +22,7 @@ import (
 	"github.com/colbytimm/alchemist/internal/config"
 	"github.com/colbytimm/alchemist/internal/history"
 	"github.com/colbytimm/alchemist/internal/logging"
+	"github.com/colbytimm/alchemist/internal/saved"
 )
 
 // fakeKeyring is an in-memory config.Keyring.
@@ -296,4 +297,11 @@ func TestNoLogDirectoryIsCreatedWhenTheSessionNeverStarts(t *testing.T) {
 
 	_, statErr := os.Stat(os.Getenv("XDG_STATE_HOME") + "/alchemist")
 	assert.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+func TestALaunchCreatesNoSavedQueriesDirectoryBeforeTheFirstSave(t *testing.T) {
+	err := newHarness(t).launch("--adapter", mock.Name)
+
+	require.ErrorIs(t, err, tea.ErrProgramKilled)
+	assert.NoDirExists(t, filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "alchemist", saved.DirName))
 }
