@@ -9,7 +9,6 @@ import (
 
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/adapter/mock"
-	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui"
 )
 
@@ -152,9 +151,8 @@ func TestCursorStopsAtTheEndsOfTheTree(t *testing.T) {
 
 func newModelOpeningDatabase(t *testing.T, connection adapter.Connection, database string) tea.Model {
 	t.Helper()
-	m := tui.New(tui.Options{Icons: theme.Icons(), Connection: connection, Profile: mock.Name, Database: database})
-	model, _ := m.Update(tea.WindowSizeMsg{Width: testWidth, Height: testHeight})
-	model, _ = settle(model, model.Init())
+	m := newModelWith(t, connection, tui.Options{Accounts: []tui.Account{{Name: mock.Name, Database: database}}})
+	model, _ := settle(m, m.Init())
 	return model
 }
 

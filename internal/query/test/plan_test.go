@@ -323,25 +323,28 @@ func TestTwoStatementsAreNotMistakenForASubquery(t *testing.T) {
 	assert.ErrorContains(t, err, "more than one statement")
 }
 
+// plannerSeeds is the fuzz corpus every parser entry point shares.
+var plannerSeeds = []string{
+	"SELECT * FROM mydb.orders AS c WHERE c.total > 5",
+	"SELECT * FROM c",
+	"SELECT t.name FROM c JOIN t IN c.tags",
+	`SELECT * FROM c WHERE c.note = "FROM a.b"`,
+	"select * from MyDb.Orders as c",
+	"FROM",
+	"FROM a.",
+	"FROM a.b AS",
+	"FROM a.b JOIN c.d ON",
+	"FROM a.b x JOIN c.d y ON x.k = y.k WHERE",
+	"'unterminated",
+	`"also unterminated \`,
+	"SELECT * FROM a.b, x.y",
+	"SELECT x.k, FROM a.b x JOIN c.d y ON x.k = y.k WHERE (x.a AND",
+	"SELECT * FROM (SELECT * FROM inner.things) outer",
+	"..,,..''\"\"[[]]",
+}
+
 func FuzzBuildPlan(f *testing.F) {
-	for _, seed := range []string{
-		"SELECT * FROM mydb.orders AS c WHERE c.total > 5",
-		"SELECT * FROM c",
-		"SELECT t.name FROM c JOIN t IN c.tags",
-		`SELECT * FROM c WHERE c.note = "FROM a.b"`,
-		"select * from MyDb.Orders as c",
-		"FROM",
-		"FROM a.",
-		"FROM a.b AS",
-		"FROM a.b JOIN c.d ON",
-		"FROM a.b x JOIN c.d y ON x.k = y.k WHERE",
-		"'unterminated",
-		`"also unterminated \`,
-		"SELECT * FROM a.b, x.y",
-		"SELECT x.k, FROM a.b x JOIN c.d y ON x.k = y.k WHERE (x.a AND",
-		"SELECT * FROM (SELECT * FROM inner.things) outer",
-		"..,,..''\"\"[[]]",
-	} {
+	for _, seed := range plannerSeeds {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, input string) {

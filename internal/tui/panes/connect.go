@@ -15,7 +15,7 @@ import (
 
 const (
 	connectTitle   = "Connect"
-	connectHint    = "enter connect · tab next field · space toggle · esc quit"
+	connectHint    = "enter connect · tab next field · space toggle · esc "
 	connectingText = "Connecting…"
 	labelWidth     = 10
 )
@@ -28,7 +28,7 @@ var (
 	errNoKey      = errors.New("enter the account key")
 )
 
-// ConnectForm is what the connect screen collects: a profile to create or
+// ConnectForm is what the connect form collects: a profile to create or
 // complete, its key, and whether to remember the key.
 type ConnectForm struct {
 	Profile    string
@@ -63,13 +63,14 @@ var fieldLabels = [fieldCount]string{
 
 var fieldPlaceholders = [textFieldCount]string{"emulator", "https://localhost:8081", "account key"}
 
-// Connect is the screen a session opens on when it has no connection yet.
+// Connect is the form that connects an account and saves it as a profile.
 // Like the inputs it wraps, its value receiver hides shared slices, so a
 // caller must keep every Connect it is handed.
 type Connect struct {
 	frame      frame
 	icons      theme.IconSet
 	intro      string
+	escape     string
 	inputs     [textFieldCount]textinput.Model
 	skipVerify bool
 	storeKey   bool
@@ -83,9 +84,10 @@ type Connect struct {
 // empty, so a profile that only lacks its key opens on the key.
 func NewConnect(icons theme.IconSet, form ConnectForm) Connect {
 	c := Connect{
-		frame: frame{title: connectTitle, focused: true},
-		icons: icons,
-		intro: intro(form),
+		frame:  frame{title: connectTitle, focused: true},
+		icons:  icons,
+		intro:  intro(form),
+		escape: "quit",
 		spinner: spinner.New(
 			spinner.WithSpinner(spinner.Spinner{Frames: icons.SpinnerFrames, FPS: spinnerFPS}),
 			spinner.WithStyle(theme.SpinnerStyle()),
@@ -108,6 +110,15 @@ func intro(form ConnectForm) string {
 		return fmt.Sprintf("Profile %s has no key in the keychain or the environment. Enter it to connect.", form.Profile)
 	}
 	return "No profile yet. Enter the account to connect to; the profile is saved to config.toml, the key never is."
+}
+
+// OverSession marks a form opened over a running session: esc goes back rather than quitting.
+func (c Connect) OverSession() Connect {
+	c.escape = "back"
+	if c.inputs[fieldEndpoint].Value() == "" {
+		c.intro = "Add an account. The profile is saved to config.toml, the key never is."
+	}
+	return c
 }
 
 func newInput(placeholder, value string) textinput.Model {
@@ -247,7 +258,7 @@ func (c Connect) View() string {
 	for field := connectField(0); field < fieldCount; field++ {
 		lines = append(lines, c.row(field))
 	}
-	lines = append(lines, "", c.status(width), "", theme.HintStyle().Render(connectHint))
+	lines = append(lines, "", c.status(width), "", theme.HintStyle().Render(connectHint+c.escape))
 	return c.frame.render(strings.Join(lines, "\n"))
 }
 

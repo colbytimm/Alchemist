@@ -69,7 +69,7 @@ func tall(m tea.Model) tea.Model {
 // newModelWithoutSampling is a session whose profile turned sampling off.
 func newModelWithoutSampling(t *testing.T, conn adapter.Connection) tea.Model {
 	t.Helper()
-	m := newModelWith(t, tui.Options{Connection: conn, Manage: managed})
+	m := newModelWith(t, conn, tui.Options{Manage: managed})
 	model, _ := settle(m, m.Init())
 	return tall(model)
 }
@@ -100,7 +100,9 @@ func TestTypingAfterFromListsDatabases(t *testing.T) {
 func rootOnly(t *testing.T, conn *recordingConnection) (tea.Model, tea.Cmd) {
 	t.Helper()
 	m := tall(newModel(t, conn))
-	root := messages(m.Init())
+	connected := messages(m.Init())
+	m, load := m.Update(connected[len(connected)-1])
+	root := messages(load)
 	return m.Update(root[len(root)-1])
 }
 
@@ -156,8 +158,9 @@ func TestALateSampleForAnotherContainerIsFiledUnderIt(t *testing.T) {
 	require.True(t, listed(m.View(), "amount"), "orders is on screen, sampled")
 
 	m, _ = m.Update(tui.FieldsSampledMsg{
-		Path:   []string{"telemetry", "events"},
-		Sample: adapter.FieldSample{Fields: []adapter.Field{{Path: "reading", Kind: "number"}}},
+		Account: mock.Name,
+		Path:    []string{"telemetry", "events"},
+		Sample:  adapter.FieldSample{Fields: []adapter.Field{{Path: "reading", Kind: "number"}}},
 	})
 
 	assert.False(t, listed(m.View(), "reading"), "the open list is about orders")
@@ -169,8 +172,9 @@ func TestASampleForAContainerNoLongerRequestedIsDropped(t *testing.T) {
 	m := typeQuery(t, newModelWithoutSampling(t, newConnection(t)), "SELECT * FROM telemetry.events e WHERE e.")
 
 	m, _ = m.Update(tui.FieldsSampledMsg{
-		Path:   []string{"telemetry", "events"},
-		Sample: adapter.FieldSample{Fields: []adapter.Field{{Path: "reading", Kind: "number"}}},
+		Account: mock.Name,
+		Path:    []string{"telemetry", "events"},
+		Sample:  adapter.FieldSample{Fields: []adapter.Field{{Path: "reading", Kind: "number"}}},
 	})
 
 	assert.False(t, listed(m.View(), "reading"), "nothing asked for it")
@@ -179,8 +183,9 @@ func TestASampleForAContainerNoLongerRequestedIsDropped(t *testing.T) {
 func TestAcceptingABracketFormFieldReplacesTheDot(t *testing.T) {
 	m := pendingSample(t, selectContainer(t, newTallModel(t, newConnection(t))), "SELECT * FROM c WHERE c.")
 	m, _ = m.Update(tui.FieldsSampledMsg{
-		Path:   []string{firstDatabase, firstContainer},
-		Sample: adapter.FieldSample{Fields: []adapter.Field{{Path: "order-id", Kind: "string"}}},
+		Account: mock.Name,
+		Path:    []string{firstDatabase, firstContainer},
+		Sample:  adapter.FieldSample{Fields: []adapter.Field{{Path: "order-id", Kind: "string"}}},
 	})
 
 	m = pressAll(t, m, keyText("order"), keyMsg(tea.KeyTab))
@@ -230,7 +235,7 @@ func TestSamplingOffIssuesNoSample(t *testing.T) {
 func TestAFailedSampleIsLoggedNotRetriedAndLeavesTypingAlone(t *testing.T) {
 	conn := newConnection(t, mock.WithError(mock.OpSampleFields))
 	var logged bytes.Buffer
-	m := newModelWith(t, tui.Options{Connection: conn, Manage: managed, SampleFields: true, Logger: log.New(&logged)})
+	m := newModelWith(t, conn, tui.Options{Manage: managed, SampleFields: true, Logger: log.New(&logged)})
 	m, _ = settle(m, m.Init())
 
 	m = typeQuery(t, selectContainer(t, m), "SELECT * FROM c WHERE c.")
@@ -447,8 +452,9 @@ func TestASampleLandingKeepsTheChosenRow(t *testing.T) {
 	require.Contains(t, plain(m.View()), "2 of 5")
 
 	m, _ = m.Update(tui.FieldsSampledMsg{
-		Path:   []string{firstDatabase, firstContainer},
-		Sample: adapter.FieldSample{Fields: []adapter.Field{{Path: "amount", Kind: "number"}}},
+		Account: mock.Name,
+		Path:    []string{firstDatabase, firstContainer},
+		Sample:  adapter.FieldSample{Fields: []adapter.Field{{Path: "amount", Kind: "number"}}},
 	})
 
 	assert.Contains(t, plain(m.View()), "2 of 5", "the sample changed nothing and moved nothing")

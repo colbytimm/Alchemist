@@ -179,3 +179,29 @@ func TestPutReplacesAnExistingProfile(t *testing.T) {
 	assert.Equal(t, []string{"emulator", "prod"}, cfg.Names())
 	assert.Equal(t, "emulator", cfg.DefaultProfile)
 }
+
+func TestPutRefusesANameDifferingOnlyInCase(t *testing.T) {
+	shouting := prodProfile()
+	shouting.Name = "Prod"
+
+	_, err := twoProfiles(t).Put(shouting)
+
+	require.ErrorIs(t, err, config.ErrProfileExists)
+}
+
+func TestPutStillReplacesAProfileUnderItsExactName(t *testing.T) {
+	_, err := twoProfiles(t).Put(prodProfile())
+
+	require.NoError(t, err)
+}
+
+func TestPutStillReplacesAProfileBesideACaseVariantAlreadyInTheFile(t *testing.T) {
+	shouting := prodProfile()
+	shouting.Name = "Prod"
+	cfg := twoProfiles(t)
+	cfg.Profiles["Prod"] = shouting
+
+	_, err := cfg.Put(prodProfile())
+
+	require.NoError(t, err)
+}
