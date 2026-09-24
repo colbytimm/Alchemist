@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	helpHint = "? help"
-	noScope  = "no scope"
-	moreHint = " (+more)"
+	helpHint  = "? help"
+	noScope   = "no scope"
+	noAccount = "no account"
+	moreHint  = " (+more)"
 	// simulatedBadge marks a result merged client-side, so its summed charge
 	// is never mistaken for one server-side query.
 	simulatedBadge = "simulated (client-side)"
@@ -48,12 +49,12 @@ type Progress struct {
 	Simulated bool
 }
 
-// StatusBar is the one-line footer: profile, active scope, and the statistics
+// StatusBar is the one-line footer: account, active scope, and the statistics
 // of the current result set.
 type StatusBar struct {
 	icons    theme.IconSet
 	spinner  spinner.Model
-	profile  string
+	account  string
 	scope    []string
 	progress Progress
 	notice   string
@@ -62,14 +63,14 @@ type StatusBar struct {
 	spinning bool
 }
 
-func NewStatusBar(icons theme.IconSet, profile string) StatusBar {
+func NewStatusBar(icons theme.IconSet, account string) StatusBar {
 	return StatusBar{
 		icons: icons,
 		spinner: spinner.New(
 			spinner.WithSpinner(spinner.Spinner{Frames: icons.SpinnerFrames, FPS: spinnerFPS}),
 			spinner.WithStyle(theme.SpinnerStyle()),
 		),
-		profile: profile,
+		account: account,
 	}
 }
 
@@ -109,8 +110,9 @@ func (s StatusBar) SetWidth(width int) StatusBar {
 	return s
 }
 
-func (s StatusBar) SetProfile(profile string) StatusBar {
-	s.profile = profile
+// SetAccount names the account the session is on; empty is none.
+func (s StatusBar) SetAccount(account string) StatusBar {
+	s.account = account
 	return s
 }
 
@@ -164,7 +166,7 @@ func (s StatusBar) View() string {
 
 func (s StatusBar) fields() []string {
 	fields := []string{
-		theme.TextStyle().Render(s.profile),
+		theme.TextStyle().Render(s.accountLabel()),
 		theme.TextStyle().Render(s.scopeLabel()),
 	}
 	if s.progress.Simulated {
@@ -182,6 +184,13 @@ func (s StatusBar) fields() []string {
 		fields = append(fields, theme.SuccessStyle().Render(s.notice))
 	}
 	return fields
+}
+
+func (s StatusBar) accountLabel() string {
+	if s.account == "" {
+		return noAccount
+	}
+	return s.account
 }
 
 func (s StatusBar) scopeLabel() string {

@@ -23,12 +23,12 @@ const (
 )
 
 // TestEveryBindingIsGroupedExactlyOnce is the drift guard: HelpSections,
-// ConnectKeys, HistoryKeys and ExportKeys are hand-grouped, and a binding they
+// ConnectKeys, HistoryKeys, AccountsKeys and ExportKeys are hand-grouped, and a binding they
 // omit would silently vanish from the overlay while a duplicated one would
 // keep a plain count looking right.
 func TestEveryBindingIsGroupedExactlyOnce(t *testing.T) {
 	keys := tui.DefaultKeyMap()
-	advertised := slices.Concat(bindings(keys), keys.ConnectKeys(), keys.HistoryKeys(), keys.ExportKeys())
+	advertised := slices.Concat(bindings(keys), keys.ConnectKeys(), keys.HistoryKeys(), keys.AccountsKeys(), keys.ExportKeys())
 	grouped := map[string]int{}
 	for _, binding := range advertised {
 		grouped[identity(binding)]++

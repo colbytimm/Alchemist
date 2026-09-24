@@ -51,8 +51,8 @@ type Entry struct {
 // Store records runs and serves them back.
 type Store interface {
 	Append(entry Entry) error
-	// Recent returns at most n entries, newest first.
-	Recent(n int) ([]Entry, error)
+	// Recent returns at most n entries of account, newest first.
+	Recent(account string, n int) ([]Entry, error)
 }
 
 // Compile-time contract checks.
@@ -101,10 +101,10 @@ func (f File) Append(entry Entry) error {
 	return nil
 }
 
-// Recent parses the last n well-formed lines, newest first. The file is
-// read whole: Open holds it to a few thousand lines, so there is no older
-// data worth seeking past.
-func (f File) Recent(n int) ([]Entry, error) {
+// Recent parses the last n well-formed lines recorded for account, newest
+// first. The file is read whole: Open holds it to a few thousand lines, so
+// there is no older data worth seeking past.
+func (f File) Recent(account string, n int) ([]Entry, error) {
 	lines, err := f.lines()
 	if err != nil {
 		return nil, err
@@ -112,7 +112,7 @@ func (f File) Recent(n int) ([]Entry, error) {
 	var entries []Entry
 	for i := len(lines) - 1; i >= 0 && len(entries) < n; i-- {
 		var entry Entry
-		if json.Unmarshal(lines[i], &entry) != nil {
+		if json.Unmarshal(lines[i], &entry) != nil || entry.Profile != account {
 			continue
 		}
 		entries = append(entries, entry)
@@ -190,4 +190,4 @@ type Discard struct{}
 
 func (Discard) Append(Entry) error { return nil }
 
-func (Discard) Recent(int) ([]Entry, error) { return nil, nil }
+func (Discard) Recent(string, int) ([]Entry, error) { return nil, nil }

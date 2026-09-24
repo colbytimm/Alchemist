@@ -174,6 +174,16 @@ func TestMockAdapterLaunchesWithoutAProfile(t *testing.T) {
 	require.ErrorIs(t, err, tea.ErrProgramKilled)
 }
 
+func TestMockAdapterNeedsNoConfigDirectory(t *testing.T) {
+	h := newHarness(t)
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	err := h.launch("--adapter", mock.Name)
+
+	require.ErrorIs(t, err, tea.ErrProgramKilled)
+}
+
 func TestNoProfilesOpensTheConnectScreen(t *testing.T) {
 	err := newHarness(t).launch()
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/log"
@@ -53,7 +54,7 @@ func NewRootCmd(keyring config.Keyring) *cobra.Command {
 			"browse databases and containers, write SQL, and page through results.\n\n" +
 			"Run it with no profile and it asks for the account to connect to; run it with\n" +
 			"one and it connects. alchemist profile does the same from the command line.",
-		Example: "  alchemist                 # the default profile, or the connect screen\n" +
+		Example: "  alchemist                 # the default profile, or the connect form\n" +
 			"  alchemist prod            # the profile called prod\n" +
 			"  alchemist --adapter mock  # fixture data, no profile needed",
 		Version:       fmt.Sprintf("%s (built %s)", app.Version, app.BuildDate),
@@ -98,11 +99,6 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 	if err != nil {
 		return err
 	}
-	if launch.connection != nil {
-		// The session is over by the time this runs; a close failure has no
-		// bearing on the exit path.
-		defer func() { _ = launch.connection.Close() }()
-	}
 
 	stateDir, err := logging.Dir()
 	if err != nil {
@@ -116,27 +112,32 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 	// past the point where anything could act on it.
 	defer func() { _ = logFile.Close() }()
 
-	logger.Info("session started", "profile", launch.profile)
+	logger.Info("session started", "account", launch.name)
 	program := tea.NewProgram(
 		tui.New(tui.Options{
 			Icons:        s.icons(),
-			Connection:   launch.connection,
+			Accounts:     launch.accounts,
+			ListAccounts: launch.list,
+			Launch:       launch.name,
+			Open:         launch.open,
 			Connect:      launch.connect,
 			Manage:       management,
 			Form:         launch.form,
 			Logger:       logger,
 			History:      s.historyStore(logger, stateDir),
-			Profile:      launch.profile,
-			Database:     launch.database,
-			MaxJoinRows:  launch.maxJoinRows,
-			SampleFields: launch.sampleFields && s.sampleFields,
+			SampleFields: s.sampleFields,
 		}),
 		tea.WithAltScreen(),
 		tea.WithContext(cmd.Context()),
 		tea.WithInput(cmd.InOrStdin()),
 		tea.WithOutput(cmd.OutOrStdout()),
 	)
-	_, err = program.Run()
+	final, err := program.Run()
+	// However the program ended — a quit, a signal, a cancelled context — the
+	// connections it holds are closed here; a quit has closed them already.
+	if session, ok := final.(tui.Model); ok {
+		session.CloseConnections()
+	}
 	return err
 }
 
@@ -152,108 +153,111 @@ func management(conn adapter.Connection) tui.Management {
 	return tui.Management{Admin: admin, Throughput: throughput, Inspector: inspector, Sampler: sampler}
 }
 
-// launch is what a session starts with: a live connection, or the connect
-// screen that opens one.
+// launch is what a session starts with: the accounts it knows, the one it
+// starts on — empty on a first run, which opens the connect form — and how
+// to connect them. The TUI opens every connection itself.
 type launch struct {
-	profile      string
-	database     string
-	maxJoinRows  int
-	sampleFields bool
-	connection   adapter.Connection
-	connect      tui.Connector
-	form         panes.ConnectForm
+	accounts []tui.Account
+	list     func() ([]tui.Account, error)
+	name     string
+	open     tui.Opener
+	connect  tui.Connector
+	form     panes.ConnectForm
 }
 
-// resolveLaunch picks the connection: --adapter names an adapter to run with
-// no profile at all; otherwise the profile in args, or the default one.
+// resolveLaunch picks the account: --adapter names an adapter to run with no
+// profile at all; otherwise the profile in args, or the default one.
 func (s sessionFlags) resolveLaunch(ctx context.Context, args []string, keyring config.Keyring) (launch, error) {
 	if s.adapter != "" {
 		if len(args) > 0 {
 			return launch{}, errors.New("cmd: a profile and --adapter are alternatives; pass one or the other")
 		}
-		conn, err := connect(ctx, s.adapter, nil)
-		if err != nil {
-			return launch{}, connectError(err)
-		}
-		return launch{profile: s.adapter, sampleFields: true, connection: conn}, nil
+		return adapterLaunch(ctx, s.adapter, keyring)
+	}
+	store, err := config.DefaultStore()
+	if err != nil {
+		return launch{}, err
 	}
 	var name string
 	if len(args) > 0 {
 		name = args[0]
 	}
-	return profileLaunch(ctx, name, keyring)
+	return profileLaunch(name, Profiles{Store: store, Keyring: keyring})
 }
 
-// profileLaunch connects the named profile, or opens the connect screen when
-// no profile exists yet or the key of this one is nowhere to be found.
-func profileLaunch(ctx context.Context, name string, keyring config.Keyring) (launch, error) {
-	store, cfg, err := loadConfig()
+// adapterLaunch starts a session on one account, named for the adapter, that
+// needs no config. The adapter is tried once here, and the connection
+// dropped, so a backend that cannot connect without a profile says so before
+// the TUI starts. The profiles are reachable too when the config can be
+// found; without it, adding one says why it cannot.
+func adapterLaunch(ctx context.Context, name string, keyring config.Keyring) (launch, error) {
+	conn, err := connect(ctx, name, nil)
+	if err != nil {
+		return launch{}, connectError(err)
+	}
+	// The trial connection only proved the adapter connects; the TUI opens
+	// its own, so how this one closes changes nothing.
+	_ = conn.Close()
+	session := launch{accounts: []tui.Account{{Name: name, SampleFields: true}}, name: name}
+	store, err := config.DefaultStore()
+	if err != nil {
+		session.open = adapterOpener(name, nil)
+		session.connect = func(context.Context, panes.ConnectForm) (adapter.Connection, error) { return nil, err }
+		return session, nil
+	}
+	profiles := Profiles{Store: store, Keyring: keyring}
+	session.open = adapterOpener(name, profiles.Open)
+	session.connect = profiles.Connect
+	session.list = func() ([]tui.Account, error) {
+		accounts, err := profiles.Accounts()
+		// The session's account of that name is the adapter's, whatever a
+		// profile of the same name says.
+		return slices.DeleteFunc(accounts, func(a tui.Account) bool { return a.Name == name }), err
+	}
+	return session, nil
+}
+
+// adapterOpener connects the adapter for its own account and hands every
+// other to profiles, when there are any.
+func adapterOpener(name string, profiles tui.Opener) tui.Opener {
+	return func(ctx context.Context, account string) (adapter.Connection, error) {
+		switch {
+		case account == name:
+			return connect(ctx, name, nil)
+		case profiles == nil:
+			return nil, fmt.Errorf("cmd: account %q: %w", account, config.ErrProfileNotFound)
+		}
+		return profiles(ctx, account)
+	}
+}
+
+// profileLaunch starts on the named profile, or the default one, or opens the
+// connect form when no profile exists yet. An unknown name fails here, before
+// anything is created on disk.
+func profileLaunch(name string, profiles Profiles) (launch, error) {
+	cfg, err := profiles.Store.Load()
 	if err != nil {
 		return launch{}, err
 	}
 	profile, err := cfg.Profile(name)
 	if errors.Is(err, config.ErrNoProfiles) {
-		return setupLaunch(store, keyring, config.Profile{Name: name, Adapter: cosmos.Name}), nil
+		return launch{
+			list:    profiles.Accounts,
+			open:    profiles.Open,
+			connect: profiles.Connect,
+			form:    panes.ConnectForm{Profile: name, StoreKey: true},
+		}, nil
 	}
-	if err != nil {
-		return launch{}, err
-	}
-	secret, err := config.SecretResolver{Keyring: keyring}.Resolve(profile.Name)
-	if errors.Is(err, config.ErrSecretNotFound) {
-		return setupLaunch(store, keyring, profile), nil
-	}
-	if err != nil {
-		return launch{}, err
-	}
-	conn, err := connect(ctx, profile.Adapter, profile.Settings(secret))
 	if err != nil {
 		return launch{}, err
 	}
 	return launch{
-		profile:      profile.Name,
-		database:     profile.Database,
-		maxJoinRows:  profile.MaxJoinRows,
-		sampleFields: profile.SamplesFields(),
-		connection:   conn,
+		accounts: accounts(cfg),
+		list:     profiles.Accounts,
+		name:     profile.Name,
+		open:     profiles.Open,
+		connect:  profiles.Connect,
 	}, nil
-}
-
-// setupLaunch opens the connect screen for profile, which may be no more than
-// a name. What the screen submits is connected and pinged before anything is
-// saved, so an attempt that did not connect leaves nothing behind.
-func setupLaunch(store config.Store, keyring config.Keyring, profile config.Profile) launch {
-	return launch{
-		database:     profile.Database,
-		maxJoinRows:  profile.MaxJoinRows,
-		sampleFields: profile.SamplesFields(),
-		form: panes.ConnectForm{
-			Profile:    profile.Name,
-			Endpoint:   profile.Endpoint,
-			SkipVerify: profile.InsecureSkipVerify,
-			StoreKey:   true,
-		},
-		connect: func(ctx context.Context, form panes.ConnectForm) (adapter.Connection, error) {
-			saved := profile
-			saved.Name, saved.Endpoint, saved.InsecureSkipVerify = form.Profile, form.Endpoint, form.SkipVerify
-			conn, err := connect(ctx, saved.Adapter, saved.Settings(config.Secret{Key: form.Key}))
-			if err != nil {
-				return nil, err
-			}
-			if err := conn.Ping(ctx); err != nil {
-				closeFailed(conn)
-				return nil, err
-			}
-			var key string
-			if form.StoreKey {
-				key = form.Key
-			}
-			if err := config.SaveProfile(store, keyring, saved, key); err != nil {
-				closeFailed(conn)
-				return nil, err
-			}
-			return conn, nil
-		},
-	}
 }
 
 func connect(ctx context.Context, name string, settings map[string]string) (adapter.Connection, error) {

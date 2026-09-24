@@ -76,7 +76,7 @@ func TestAppendThenRecentRoundTripsNewestFirst(t *testing.T) {
 
 	require.NoError(t, log.Append(first))
 	require.NoError(t, log.Append(second))
-	entries, err := log.Recent(10)
+	entries, err := log.Recent("emulator", 10)
 
 	require.NoError(t, err)
 	assert.Equal(t, []history.Entry{second, first}, entries)
@@ -88,7 +88,7 @@ func TestRecentReturnsAtMostNEntries(t *testing.T) {
 		require.NoError(t, log.Append(succeeded(fmt.Sprintf("SELECT %d", i))))
 	}
 
-	entries, err := log.Recent(2)
+	entries, err := log.Recent("emulator", 2)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"SELECT 4", "SELECT 3"}, queries(entries))
@@ -97,7 +97,7 @@ func TestRecentReturnsAtMostNEntries(t *testing.T) {
 func TestRecentOfAnEmptyLogIsEmpty(t *testing.T) {
 	log, _ := openLog(t)
 
-	entries, err := log.Recent(10)
+	entries, err := log.Recent("emulator", 10)
 
 	require.NoError(t, err)
 	assert.Empty(t, entries)
@@ -112,7 +112,7 @@ func TestRecentSkipsLinesItCannotParse(t *testing.T) {
 		`{"ts":"2026-08-27T21:04:05Z","query":"SELEC`,
 	)
 
-	entries, err := log.Recent(10)
+	entries, err := log.Recent("emulator", 10)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"SELECT 2", "SELECT 1"}, queries(entries))
@@ -122,7 +122,7 @@ func TestRecentCountsOnlyTheEntriesItCanParse(t *testing.T) {
 	log, path := openLog(t)
 	writeLines(t, path, line(t, succeeded("SELECT 1")), line(t, succeeded("SELECT 2")), "garbage")
 
-	entries, err := log.Recent(2)
+	entries, err := log.Recent("emulator", 2)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"SELECT 2", "SELECT 1"}, queries(entries), "a corrupt line does not use up a slot")
@@ -152,7 +152,7 @@ func TestAppendCutsALongErrorMessage(t *testing.T) {
 	log, _ := openLog(t)
 
 	require.NoError(t, log.Append(failed("SELECT 1", strings.Repeat("x", 500))))
-	entries, err := log.Recent(1)
+	entries, err := log.Recent("emulator", 1)
 
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
@@ -172,7 +172,7 @@ func TestRecentReportsAFileItCannotRead(t *testing.T) {
 	require.NoError(t, os.Remove(path))
 	require.NoError(t, os.Mkdir(path, 0o700))
 
-	_, err := log.Recent(10)
+	_, err := log.Recent("emulator", 10)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), path, "the message must say which file")
@@ -213,7 +213,7 @@ func TestOpenTrimsALogPastTheThreshold(t *testing.T) {
 			contents, err := os.ReadFile(path)
 			require.NoError(t, err)
 			assert.Len(t, strings.Split(strings.TrimSpace(string(contents)), "\n"), tt.wantLines)
-			newest, err := log.Recent(1)
+			newest, err := log.Recent("emulator", 1)
 			require.NoError(t, err)
 			assert.Equal(t, []string{fmt.Sprintf("SELECT %d", tt.lines-1)}, queries(newest))
 		})
@@ -224,8 +224,51 @@ func TestDiscardRecordsNothing(t *testing.T) {
 	var store history.Store = history.Discard{}
 
 	require.NoError(t, store.Append(succeeded("SELECT 1")))
-	entries, err := store.Recent(10)
+	entries, err := store.Recent("emulator", 10)
 
 	require.NoError(t, err)
 	assert.Empty(t, entries)
+}
+
+func TestRecentListsOnlyTheEntriesOfTheAccountAskedFor(t *testing.T) {
+	log, _ := openLog(t)
+	staging := func(query string) history.Entry {
+		entry := succeeded(query)
+		entry.Profile = "staging"
+		return entry
+	}
+	for _, entry := range []history.Entry{
+		succeeded("SELECT 1"), succeeded("SELECT 2"),
+		staging("SELECT 3"), staging("SELECT 4"), staging("SELECT 5"),
+	} {
+		require.NoError(t, log.Append(entry))
+	}
+
+	entries, err := log.Recent("emulator", 2)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"SELECT 2", "SELECT 1"}, queries(entries))
+}
+
+func TestRecentOfAnAccountWithNoEntriesIsEmpty(t *testing.T) {
+	log, _ := openLog(t)
+	require.NoError(t, log.Append(succeeded("SELECT 1")))
+
+	entries, err := log.Recent("staging", 10)
+
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestAnEntryWithNoAccountBelongsToNone(t *testing.T) {
+	log, _ := openLog(t)
+	anonymous := succeeded("SELECT 1")
+	anonymous.Profile = ""
+	require.NoError(t, log.Append(anonymous))
+
+	for _, account := range []string{"emulator", "staging"} {
+		entries, err := log.Recent(account, 10)
+		require.NoError(t, err)
+		assert.Empty(t, entries, "Recent(%q)", account)
+	}
 }

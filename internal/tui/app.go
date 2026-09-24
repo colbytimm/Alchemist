@@ -6,6 +6,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"slices"
@@ -17,7 +18,6 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
-	"github.com/colbytimm/alchemist/internal/complete"
 	"github.com/colbytimm/alchemist/internal/history"
 	"github.com/colbytimm/alchemist/internal/query"
 	"github.com/colbytimm/alchemist/internal/theme"
@@ -43,6 +43,10 @@ var (
 	errNoQuery = errors.New("nothing to run: type a query in the editor")
 	errNoScope = errors.New("no container in scope: select one in the catalog, or write FROM db.container")
 )
+
+// accountQualifiedParts is the length of a source path whose first part may
+// name an account: account.database.container.
+const accountQualifiedParts = 3
 
 // focus names the pane receiving keys.
 type focus int
@@ -70,6 +74,8 @@ const (
 	overlayForm
 	overlayConfirm
 	overlayInfo
+	overlayAccounts
+	overlayConnect
 )
 
 // runState is how far the current query has got.
@@ -87,27 +93,22 @@ func (s runState) running() bool { return s == runRunning || s == runFetching }
 
 func (s runState) loaded() bool { return s == runLoaded || s == runFetching }
 
-// Options configures a TUI session. Icons are required. With a Connection
-// the session opens on the catalog; without one it opens on the connect
-// screen, seeded from Form, and calls Connect with what the screen submits.
-// A nil Logger discards output, and a nil History records nothing.
-// Database, when set, is expanded in the catalog as soon as the root
-// arrives. MaxJoinRows caps the in-memory side of a cross-container join; zero
-// means query.DefaultMaxJoinRows. A nil Manage leaves the session unable to
-// change anything about the catalog it browses. SampleFields lets field
-// completion read a few items of a container it has not seen queried, which
-// spends request units the user did not ask for.
+// Options configures a TUI session; Icons are required, the rest may be zero.
 type Options struct {
-	Icons        theme.IconSet
-	Connection   adapter.Connection
+	Icons    theme.IconSet
+	Accounts []Account // every profile
+	// ListAccounts reads the profiles afresh each time the switcher opens,
+	// so one added outside the session is listed too. Nil lists Accounts.
+	ListAccounts func() ([]Account, error)
+	Launch       string // empty opens the connect form, as a first run does
+	Open         Opener
 	Connect      Connector
 	Manage       Manager
-	Form         panes.ConnectForm
+	Form         panes.ConnectForm // first run only: no account exists yet
 	Logger       *log.Logger
 	History      history.Store
-	Profile      string
-	Database     string
-	MaxJoinRows  int
+	// SampleFields lets completion read a few items of a container it has not
+	// seen queried, for every account whose profile allows it.
 	SampleFields bool
 }
 
@@ -126,50 +127,41 @@ type Management struct {
 // assertion to a backend's optional interfaces belongs there, never here.
 type Manager func(adapter.Connection) Management
 
-// Connector opens the connection the connect screen asked for. It is called
-// off the main goroutine, once per attempt, never with an incomplete form.
-type Connector func(ctx context.Context, form panes.ConnectForm) (adapter.Connection, error)
-
-// screen is the top-level view a session is on.
-type screen int
-
-const (
-	screenConnect screen = iota
-	screenMain
-)
-
 type Model struct {
-	keys       KeyMap
-	icons      theme.IconSet
-	connection adapter.Connection
-	catalog    adapter.Catalog
-	connect    Connector
-	manage     Manager
-	management Management
-	logger     *log.Logger
-	history    history.Store
+	keys         KeyMap
+	icons        theme.IconSet
+	accounts     accountSet
+	listAccounts func() ([]Account, error)
+	open         Opener
+	connect      Connector
+	manage       Manager
+	logger       *log.Logger
+	history      history.Store
 
-	connectPane  panes.Connect
-	catalogPane  panes.Catalog
-	editor       panes.Editor
-	results      panes.Results
-	detail       panes.Detail
-	historyPane  panes.History
-	exportPrompt panes.ExportPrompt
-	form         panes.Form
-	confirm      panes.Confirm
-	info         panes.Info
-	statusBar    panes.StatusBar
-	help         panes.Help
+	connectPane   panes.Connect
+	accountsPane  panes.Accounts
+	noAccountPane panes.Catalog
+	editor        panes.Editor
+	results       panes.Results
+	detail        panes.Detail
+	historyPane   panes.History
+	exportPrompt  panes.ExportPrompt
+	form          panes.Form
+	confirm       panes.Confirm
+	statusBar     panes.StatusBar
+	help          panes.Help
 
-	// ownsConnection marks a connection the connect screen opened, which the
-	// session closes itself; one it was handed is closed by whoever made it.
-	ownsConnection  bool
-	defaultDatabase string
-	profile         string
-	maxJoinRows     int
+	// lastAttempt numbers the newest attempt to connect an account, by the
+	// Opener or by a connect form. formAttempts are the accounts connect
+	// forms are connecting, with the number of each attempt, and
+	// shownFormAttempt the one the form on screen made, zero before it is
+	// submitted.
+	lastAttempt      int
+	formAttempts     map[string]int
+	shownFormAttempt int
 
-	scope      []string
+	// runAccount is the account the current run went to.
+	runAccount string
 	state      runState
 	run        runID
 	plan       query.Plan
@@ -179,10 +171,8 @@ type Model struct {
 	// simulated marks a run merged client-side from several containers.
 	simulated bool
 
-	// index is what completion offers, fed from the tree and the pages;
-	// samples is how far each container's field sample has got.
-	index        *complete.Index
-	samples      map[string]sampleState
+	// sampleFields is the session's switch for field samples, which each
+	// account's profile may turn off for that account alone.
 	sampleFields bool
 	// completing marks a list wanted at the cursor, computed for
 	// completion; dismissed is the token the user closed it on.
@@ -193,16 +183,12 @@ type Model struct {
 	// once the run has settled one way or the other.
 	historyEntry history.Entry
 
-	// rootLoad is the request for the top of the tree that New issued and
-	// Init hands to the adapter; a constructor cannot return a command.
-	rootLoad panes.Fetch
 	// managing is the operation the open dialog will run, target the node it
 	// runs against, and dialog which opening of it this is.
 	managing string
 	target   []string
 	dialog   dialogID
 
-	screen        screen
 	focus         focus
 	previousFocus focus
 	overlay       overlay
@@ -219,65 +205,56 @@ func New(opts Options) Model {
 	if store == nil {
 		store = history.Discard{}
 	}
+	open := opts.Open
+	if open == nil {
+		open = func(context.Context, string) (adapter.Connection, error) { return nil, ErrCredentialsNeeded }
+	}
 	keys := DefaultKeyMap()
 	m := Model{
-		keys:         keys,
-		icons:        opts.Icons,
-		connection:   opts.Connection,
-		connect:      opts.Connect,
-		manage:       opts.Manage,
-		logger:       logger,
-		history:      store,
-		connectPane:  panes.NewConnect(opts.Icons, opts.Form),
-		catalogPane:  panes.NewCatalog(opts.Icons),
-		editor:       panes.NewEditor(keys.Accept),
-		results:      panes.NewResults(),
-		detail:       panes.NewDetail(),
-		historyPane:  panes.NewHistory(opts.Icons, keys.HistoryKeys()),
-		exportPrompt: panes.NewExportPrompt(append(keys.ExportKeys(), keys.Close)),
-		info:         panes.NewInfo(opts.Icons, keys.InfoKeys()),
-		statusBar:    panes.NewStatusBar(opts.Icons, opts.Profile),
-		help:         panes.NewHelp(keys.HelpSections()),
-
-		defaultDatabase: opts.Database,
-		profile:         opts.Profile,
-		maxJoinRows:     opts.MaxJoinRows,
-		index:           complete.NewIndex(),
-		samples:         map[string]sampleState{},
-		sampleFields:    opts.SampleFields,
-		screen:          screenConnect,
+		keys:          keys,
+		icons:         opts.Icons,
+		open:          open,
+		listAccounts:  opts.ListAccounts,
+		connect:       opts.Connect,
+		manage:        opts.Manage,
+		logger:        logger,
+		history:       store,
+		connectPane:   panes.NewConnect(opts.Icons, opts.Form),
+		accountsPane:  panes.NewAccounts(opts.Icons, append([]key.Binding{keys.Filter}, keys.AccountsKeys()...)),
+		noAccountPane: panes.NewCatalog(opts.Icons).SetError(nil, errNoAccount, 0),
+		editor:        panes.NewEditor(keys.Accept),
+		results:       panes.NewResults(),
+		detail:        panes.NewDetail(),
+		historyPane:   panes.NewHistory(opts.Icons, keys.HistoryKeys()),
+		exportPrompt:  panes.NewExportPrompt(append(keys.ExportKeys(), keys.Close)),
+		statusBar:     panes.NewStatusBar(opts.Icons, ""),
+		help:          panes.NewHelp(keys.HelpSections()),
+		formAttempts:  map[string]int{},
+		sampleFields:  opts.SampleFields,
 	}
-	if opts.Connection != nil {
-		m.catalog = opts.Connection.Catalog()
-		m.screen = screenMain
+	m.accounts = newAccountSet(opts.Accounts, m.blankEntry)
+	if opts.Launch == "" {
+		m.overlay = overlayConnect
+		return m.withManagement(Management{}).setFocus(focusCatalog)
 	}
-	// The tick is discarded because Init, which bubbletea always calls next,
-	// starts the animation; a constructor cannot hand back a command.
-	m.catalogPane, m.rootLoad, _ = m.catalogPane.Reload()
-	return m.withManagement(opts.Connection).setFocus(focusCatalog)
+	return m.startLaunch(opts.Launch).setFocus(focusCatalog)
 }
 
-// Init starts loading the catalog. A session still to connect needs nothing
+// Init connects the account the session starts on. A first run needs nothing
 // until its form is submitted.
 func (m Model) Init() tea.Cmd {
-	if m.screen == screenConnect {
+	entry, ok := m.accounts.get(m.accounts.active)
+	if !ok {
 		return nil
 	}
-	return m.startCatalog()
+	return tea.Batch(entry.pane.SpinnerTick(), m.launchAccount(entry))
 }
 
-func (m Model) startCatalog() tea.Cmd {
-	return tea.Batch(m.catalogPane.SpinnerTick(), m.load(m.rootLoad))
-}
-
-// withManagement records what conn allows and rebuilds the bindings from it,
+// withManagement rebuilds the bindings from what the active account allows,
 // so a session offers nothing its backend cannot carry out.
-func (m Model) withManagement(conn adapter.Connection) Model {
-	if m.manage != nil && conn != nil {
-		m.management = m.manage(conn)
-	}
-	m.keys = DefaultKeyMap().forManagement(m.management)
-	m.help = panes.NewHelp(m.keys.HelpSections())
+func (m Model) withManagement(management Management) Model {
+	m.keys = DefaultKeyMap().forManagement(management)
+	m.help = panes.NewHelp(m.keys.HelpSections()).SetSize(m.width, m.height)
 	return m
 }
 
@@ -288,18 +265,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	case CatalogLoadedMsg:
-		return m.loadCatalog(msg)
+		return m.applyCatalog(msg)
 	case FieldsSampledMsg:
 		return m.fileSample(msg)
 	case CatalogChangedMsg:
 		return m.applyChange(msg)
 	case ThroughputReadMsg:
+		if msg.Account != m.accounts.active {
+			return m, nil
+		}
 		return m.openThroughputForm(msg), nil
 	case DetailsLoadedMsg:
-		m.info = m.info.SetDetails(msg.Path, msg.Details)
-		return m, nil
+		return m.fileDetails(msg), nil
 	case ScopeChangedMsg:
-		return m.setScope(msg.Scope), nil
+		return m.setScope(msg.Account, msg.Scope), nil
 	case PageLoadedMsg:
 		return m.loadPage(msg)
 	case PageAppendedMsg:
@@ -310,11 +289,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.failPage(msg)
 	case ErrMsg:
 		return m.handleErr(msg)
-	case ConnectedMsg:
-		return m.enterSession(msg)
+	case AccountConnectedMsg:
+		if m.formAttempts[msg.Account] == msg.attempt {
+			return m.acceptFormConnection(msg)
+		}
+		return m.acceptConnection(msg)
 	case ConnectFailedMsg:
-		m.connectPane = m.connectPane.Fail(msg.Err)
-		return m, nil
+		return m.failFormConnection(msg)
+	case AccountsListedMsg:
+		return m.mergeAccounts(msg.Accounts)
 	case HistoryLoadedMsg:
 		return m.openHistory(msg), nil
 	case ExportedMsg:
@@ -334,49 +317,62 @@ func (m Model) View() string {
 }
 
 func (m Model) layout() string {
-	switch {
-	case m.screen == screenConnect:
+	switch m.overlay {
+	case overlayConnect:
 		return m.connectPane.View()
-	case m.overlay == overlayHelp:
+	case overlayAccounts:
+		return m.accountsPane.View()
+	case overlayHelp:
 		return m.help.View()
-	case m.overlay == overlayDetail:
+	case overlayDetail:
 		return m.detail.View()
-	case m.overlay == overlayHistory:
+	case overlayHistory:
 		return m.historyPane.View()
-	case m.overlay == overlayExport:
+	case overlayExport:
 		return m.exportPrompt.View()
-	case m.overlay == overlayForm:
+	case overlayForm:
 		return m.form.View()
-	case m.overlay == overlayConfirm:
+	case overlayConfirm:
 		return m.confirm.View()
-	case m.overlay == overlayInfo:
-		return m.info.View()
+	case overlayInfo:
+		return m.activeInfo().View()
 	}
 	right := lipgloss.JoinVertical(lipgloss.Left, m.editor.View(), m.results.View())
-	body := lipgloss.JoinHorizontal(lipgloss.Top, m.catalogPane.View(), right)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, m.catalogPane().View(), right)
 	return lipgloss.JoinVertical(lipgloss.Left, body, m.statusBar.View())
 }
 
 // animate forwards a message no pane owns outright to the ones that run
-// timers of their own.
+// timers of their own. Every account's tree gets it, on screen or not: each
+// spinner answers only to its own ticks.
 func (m Model) animate(msg tea.Msg) (Model, tea.Cmd) {
-	var connectCmd, catalogCmd, infoCmd, statusCmd tea.Cmd
-	m.connectPane, connectCmd = m.connectPane.Update(msg)
-	m.catalogPane, catalogCmd = m.catalogPane.Update(msg)
-	m.info, infoCmd = m.info.Update(msg)
-	m.statusBar, statusCmd = m.statusBar.Update(msg)
-	return m, tea.Batch(connectCmd, catalogCmd, infoCmd, statusCmd)
+	cmds := make([]tea.Cmd, 3, 3+2*len(m.accounts.entries))
+	m.connectPane, cmds[0] = m.connectPane.Update(msg)
+	m.accountsPane, cmds[1] = m.accountsPane.Update(msg)
+	m.statusBar, cmds[2] = m.statusBar.Update(msg)
+	for name, entry := range m.accounts.entries {
+		var paneCmd, infoCmd tea.Cmd
+		entry.pane, paneCmd = entry.pane.Update(msg)
+		entry.info, infoCmd = entry.info.Update(msg)
+		m.accounts.entries[name] = entry
+		cmds = append(cmds, paneCmd, infoCmd)
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) handleErr(msg ErrMsg) (Model, tea.Cmd) {
+	switch msg.Op {
+	case OpConnect:
+		return m.failConnection(msg)
+	case OpCatalogRoot, OpCatalogChildren:
+		return m.failCatalog(msg).refreshSuggestions()
+	}
 	m.logger.Error("operation failed", "op", msg.Op, "error", msg.Err)
 	switch msg.Op {
-	case OpCatalogRoot, OpCatalogChildren:
-		m.catalogPane = m.catalogPane.SetError(msg.Path, msg.Err, msg.Token)
-		return m.refreshSuggestions()
+	case OpListAccounts:
+		return m, nil
 	case OpHistory:
-		m.historyPane = m.historyPane.Fail(msg.Err)
-		m.overlay = overlayHistory
+		return m.failHistory(msg), nil
 	case OpExport:
 		m.exportPrompt = m.exportPrompt.Fail(msg.Err)
 	case OpCreateDatabase, OpCreateContainer, OpSetThroughput, OpDeleteDatabase, OpDeleteContainer:
@@ -384,35 +380,14 @@ func (m Model) handleErr(msg ErrMsg) (Model, tea.Cmd) {
 	case OpReadThroughput:
 		return m.failThroughputRead(msg), nil
 	case OpInspect:
-		m.info = m.info.Fail(msg.Path, msg.Err)
+		return m.failInspect(msg), nil
 	case OpSampleFields:
-		return m.failSample(msg.Path)
+		return m.failSample(msg)
 	}
 	return m, nil
 }
 
-// loadCatalog files what the tree accepted, in the tree and in the
-// completion index alike, so the two never disagree.
-func (m Model) loadCatalog(msg CatalogLoadedMsg) (Model, tea.Cmd) {
-	if !m.catalogPane.Expects(msg.Parent, msg.Token) {
-		return m, nil
-	}
-	m.catalogPane = m.catalogPane.SetChildren(msg.Parent, msg.Nodes, msg.Token)
-	m, refresh := m.fileCatalog(msg)
-	var model Model
-	var cmd tea.Cmd
-	if len(msg.Parent) == 0 && m.defaultDatabase != "" {
-		model, cmd = m.openDefaultDatabase(msg.Nodes)
-	} else {
-		model, cmd = m.prefetch()
-	}
-	return model, tea.Batch(refresh, cmd)
-}
-
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	if m.screen == screenConnect {
-		return m.handleConnectKey(msg)
-	}
 	if m.overlay != overlayNone {
 		return m.handleOverlayKey(msg)
 	}
@@ -441,7 +416,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Run):
 		return m.startRun()
 	case key.Matches(msg, m.keys.History):
-		return m, m.loadHistory()
+		return m.openHistoryOrRefuse()
+	case key.Matches(msg, m.keys.Accounts):
+		return m.openAccounts()
 	}
 	return m.handleFocusedKey(msg)
 }
@@ -467,6 +444,10 @@ func (m Model) handleFocusedKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch m.overlay {
+	case overlayConnect:
+		return m.handleConnectKey(msg)
+	case overlayAccounts:
+		return m.handleAccountsKey(msg)
 	case overlayHistory:
 		return m.handleHistoryKey(msg)
 	case overlayExport:
@@ -493,85 +474,24 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleConnectKey drives the form. Typed characters go to the form itself,
-// which is why q cannot quit here: a profile may be called anything.
-func (m Model) handleConnectKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	if typesIntoBuffer(msg) {
-		return m.connectUpdate(msg)
-	}
-	switch {
-	case key.Matches(msg, m.keys.Quit), key.Matches(msg, m.keys.Close):
-		return m, tea.Quit
-	case key.Matches(msg, m.keys.Connect):
-		return m.submitConnect()
-	case key.Matches(msg, m.keys.NextPane), key.Matches(msg, m.keys.Down):
-		m.connectPane = m.connectPane.NextField()
-		return m, nil
-	case key.Matches(msg, m.keys.PrevPane), key.Matches(msg, m.keys.Up):
-		m.connectPane = m.connectPane.PrevField()
-		return m, nil
-	}
-	return m.connectUpdate(msg)
-}
-
-func (m Model) connectUpdate(msg tea.KeyMsg) (Model, tea.Cmd) {
-	var cmd tea.Cmd
-	m.connectPane, cmd = m.connectPane.Update(msg)
-	return m, cmd
-}
-
-// submitConnect hands the form to the connector, or shows what it still
-// lacks. Enter while an attempt is in flight does nothing.
-func (m Model) submitConnect() (Model, tea.Cmd) {
-	if m.connectPane.Connecting() {
-		return m, nil
-	}
-	form, err := m.connectPane.Form()
-	if err != nil {
-		m.connectPane = m.connectPane.Fail(err)
-		return m, nil
-	}
-	pane, tick := m.connectPane.StartConnecting()
-	m.connectPane = pane
-	return m, tea.Batch(tick, m.openConnection(form))
-}
-
-// enterSession leaves the connect screen for the catalog, on the connection
-// the screen just opened.
-func (m Model) enterSession(msg ConnectedMsg) (Model, tea.Cmd) {
-	m = m.withManagement(msg.Connection)
-	m.connection = msg.Connection
-	m.catalog = msg.Connection.Catalog()
-	m.ownsConnection = true
-	m.profile = msg.Profile
-	m.statusBar = m.statusBar.SetProfile(msg.Profile)
-	m.screen = screenMain
-	m.logger.Info("connected", "profile", msg.Profile)
-	return m, m.startCatalog()
-}
-
-// quit ends the run in progress and closes a connection the session opened
-// itself.
+// quit ends the run in progress and closes every connection the session
+// holds.
 func (m Model) quit() (Model, tea.Cmd) {
 	m = m.endRun()
-	if m.ownsConnection {
-		if err := m.connection.Close(); err != nil {
-			m.logger.Error("close connection", "error", err)
-		}
-	}
+	m.CloseConnections()
 	return m, tea.Quit
 }
 
 func (m Model) handleCatalogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Up):
-		m.catalogPane = m.catalogPane.CursorUp()
+		return m.setCatalogPane(m.catalogPane().CursorUp()), nil
 	case key.Matches(msg, m.keys.Down):
-		m.catalogPane = m.catalogPane.CursorDown()
+		return m.setCatalogPane(m.catalogPane().CursorDown()), nil
 	case key.Matches(msg, m.keys.Select):
-		return m.selectNode()
+		return m.selectNode(m.accounts.active)
 	case key.Matches(msg, m.keys.Refresh):
-		return m.refreshNode()
+		return m.refreshNode(m.accounts.active)
 	case key.Matches(msg, m.keys.NewDatabase):
 		return m.openDatabaseForm(), nil
 	case key.Matches(msg, m.keys.NewContainer):
@@ -645,8 +565,13 @@ func (m Model) startRun() (Model, tea.Cmd) {
 	m.run++
 	m.stats = adapter.Stats{}
 	m.simulated = false
-	m.results = m.results.Clear()
+	m.runAccount = m.accounts.active
+	m.results = m.results.Clear().SetSource(m.runAccount)
 
+	account, connected := m.activeConnection()
+	if !connected {
+		return m.showFailure(m.whyNoConnection(), runFailed)
+	}
 	plan, err := m.resolvePlan()
 	if err != nil {
 		return m.refuseRun(err)
@@ -657,8 +582,9 @@ func (m Model) startRun() (Model, tea.Cmd) {
 	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 	m.cancel = cancel
 	m.state = runRunning
+	engine := query.Engine{Connection: account.connection, MaxJoinRows: account.account.MaxJoinRows}
 	model, cmd := m.syncStatusBar()
-	return model, tea.Batch(cmd, model.runPlan(ctx, plan))
+	return model, tea.Batch(cmd, model.runPlan(ctx, engine, plan))
 }
 
 // refuseRun reports a run that never reached the adapter. It is recorded like
@@ -669,7 +595,7 @@ func (m Model) refuseRun(err error) (Model, tea.Cmd) {
 	if errors.Is(err, errNoQuery) {
 		return model, cmd
 	}
-	model.historyEntry = model.newHistoryEntry(model.scope)
+	model.historyEntry = model.newHistoryEntry(model.activeScope())
 	return model, tea.Batch(cmd, model.recordFailure(err))
 }
 
@@ -695,11 +621,14 @@ func (m Model) resolvePlan() (query.Plan, error) {
 	if strings.TrimSpace(text) == "" {
 		return query.Plan{}, errNoQuery
 	}
+	if err := m.checkNoAccountNamed(text); err != nil {
+		return query.Plan{}, err
+	}
 	plan, err := query.BuildPlan(text)
 	if err != nil {
 		return query.Plan{}, err
 	}
-	plan = plan.WithDefaultScope(m.scope)
+	plan = plan.WithDefaultScope(m.activeScope())
 	if len(plan.Scope()) == 0 {
 		return query.Plan{}, errNoScope
 	}
@@ -764,6 +693,34 @@ func (m Model) showFailure(err error, next runState) (Model, tea.Cmd) {
 	return m.syncStatusBar()
 }
 
+// checkNoAccountNamed refuses a source whose first part names an account of
+// this session: a query runs on the account the session is on, and nowhere
+// else. FROM prod.sales.orders is valid Cosmos SQL, so the refusal answers
+// what would otherwise come back as a baffling service error.
+func (m Model) checkNoAccountNamed(text string) error {
+	for _, path := range query.SourcePaths(text) {
+		if len(path) >= accountQualifiedParts && m.accounts.known(path[0]) {
+			return fmt.Errorf("FROM %s: %w", strings.Join(path, "."), errAccountInQuery)
+		}
+	}
+	return nil
+}
+
+// abandonRun lets go of a run whose account is going away. A page still in
+// flight is discarded, and its cursor closed, on arrival; the rows already on
+// screen stay there.
+func (m Model) abandonRun() (Model, tea.Cmd) {
+	m = m.endRun()
+	m.run++
+	switch m.state {
+	case runRunning:
+		return m.showFailure(errRunAbandoned, runFailed)
+	case runFetching:
+		m.state = runLoaded
+	}
+	return m.syncStatusBar()
+}
+
 // endRun stops what the current run left running. Its cursor is closed only
 // when the model still holds it: a fetch in flight owns the cursor instead
 // and hands it back through a message the run number then discards.
@@ -789,13 +746,6 @@ func (m Model) hasMore() bool {
 		return true
 	}
 	return m.pageCursor != nil && m.pageCursor.HasMore()
-}
-
-func (m Model) setScope(scope []string) Model {
-	m.scope = scope
-	m.index.SetScope(scope)
-	m.statusBar = m.statusBar.SetScope(scope)
-	return m
 }
 
 // syncStatusBar also drops the notice: every caller has just changed the run
@@ -835,78 +785,130 @@ func totalLeafCharges(total, page map[string]float64) map[string]float64 {
 	return sum
 }
 
+// applyCatalog files a response in the tree of the account it was made for,
+// on screen or not. One for an account no longer connected is dropped.
+func (m Model) applyCatalog(msg CatalogLoadedMsg) (Model, tea.Cmd) {
+	entry, ok := m.accounts.get(msg.Account)
+	if !ok || !entry.connected() {
+		return m, nil
+	}
+	if !entry.pane.Expects(msg.Parent, msg.Token) {
+		return m, nil
+	}
+	entry.pane = entry.pane.SetChildren(msg.Parent, msg.Nodes, msg.Token)
+	m.accounts.put(entry)
+	m, refresh := m.fileCatalog(entry, msg)
+	var cmd tea.Cmd
+	if len(msg.Parent) == 0 && entry.pendingDatabase != "" {
+		m, cmd = m.openDefaultDatabase(entry, msg.Nodes)
+	} else {
+		m, cmd = m.prefetch(msg.Account)
+	}
+	return m, tea.Batch(refresh, cmd)
+}
+
+func (m Model) failCatalog(msg ErrMsg) Model {
+	entry, ok := m.accounts.get(msg.Account)
+	if !ok || !entry.connected() {
+		return m
+	}
+	m.logger.Error("catalog load failed", "account", msg.Account, "op", msg.Op, "error", msg.Err)
+	entry.pane = entry.pane.SetError(msg.Path, msg.Err, msg.Token)
+	m.accounts.put(entry)
+	return m
+}
+
 // selectNode also republishes the scope when the selected node is a
 // container, which toggling alone cannot know to do.
-func (m Model) selectNode() (Model, tea.Cmd) {
-	node, ok := m.catalogPane.SelectedNode()
+func (m Model) selectNode(account string) (Model, tea.Cmd) {
+	entry, ok := m.accounts.get(account)
+	if !ok || !entry.connected() {
+		return m, nil
+	}
+	node, ok := entry.pane.SelectedNode()
 	if !ok {
 		return m, nil
 	}
-	pane, fetch, tick := m.catalogPane.Toggle()
-	m.catalogPane = pane
+	pane, fetch, tick := entry.pane.Toggle()
+	entry.pane = pane
+	m.accounts.put(entry)
 
 	cmds := []tea.Cmd{tick}
 	if node.Kind == adapter.NodeContainer {
-		cmds = append(cmds, scopeChanged(node.Path))
+		cmds = append(cmds, scopeChanged(account, node.Path))
 	}
 	if fetch.Needed {
-		cmds = append(cmds, m.load(fetch))
+		cmds = append(cmds, m.load(entry, fetch))
 	}
-	m, chevrons := m.prefetch() // the rows this opened onto are new to the screen
+	m, chevrons := m.prefetch(account) // the rows this opened onto are new to the screen
 	return m, tea.Batch(append(cmds, chevrons)...)
 }
 
 // openDefaultDatabase expands the database the profile names, so its
 // containers are on screen from the first frame. It runs once: a reload later
 // leaves the tree as the user arranged it.
-func (m Model) openDefaultDatabase(roots []adapter.Node) (Model, tea.Cmd) {
-	name := m.defaultDatabase
-	m.defaultDatabase = ""
+func (m Model) openDefaultDatabase(entry accountEntry, roots []adapter.Node) (Model, tea.Cmd) {
+	name := entry.pendingDatabase
+	entry.pendingDatabase = ""
+	m.accounts.put(entry)
 	row := slices.IndexFunc(roots, func(n adapter.Node) bool { return n.Name == name })
 	if row < 0 {
-		m.logger.Warn("default database is not in the catalog", "database", name)
-		return m.prefetch()
+		m.logger.Warn("default database is not in the catalog", "account", entry.account.Name, "database", name)
+		return m.prefetch(entry.account.Name)
 	}
 	for range row {
-		m.catalogPane = m.catalogPane.CursorDown()
+		entry.pane = entry.pane.CursorDown()
 	}
-	return m.selectNode()
+	m.accounts.put(entry)
+	return m.selectNode(entry.account.Name)
 }
 
 // prefetch loads the children of the rows a response just put on screen, so
 // their chevrons stop guessing. It runs behind the tree rather than ahead of
 // it: the catalog paints as soon as the root arrives, and each answer settles
 // one more row.
-func (m Model) prefetch() (Model, tea.Cmd) {
-	pane, fetches, tick := m.catalogPane.Prefetch()
-	m.catalogPane = pane
+func (m Model) prefetch(account string) (Model, tea.Cmd) {
+	entry, ok := m.accounts.get(account)
+	if !ok || !entry.connected() {
+		return m, nil
+	}
+	pane, fetches, tick := entry.pane.Prefetch()
+	entry.pane = pane
+	m.accounts.put(entry)
 
 	cmds := make([]tea.Cmd, 0, len(fetches)+1)
 	if tick != nil {
 		cmds = append(cmds, tick)
 	}
 	for _, fetch := range fetches {
-		cmds = append(cmds, m.load(fetch))
+		cmds = append(cmds, m.load(entry, fetch))
 	}
 	return m, tea.Batch(cmds...)
 }
 
-func (m Model) refreshNode() (Model, tea.Cmd) {
-	pane, fetch, tick := m.catalogPane.Refresh()
-	m.catalogPane = pane
+// refreshNode reloads the node under the cursor of account, and no other
+// account's.
+func (m Model) refreshNode(account string) (Model, tea.Cmd) {
+	entry, ok := m.accounts.get(account)
+	if !ok || !entry.connected() {
+		return m, nil
+	}
+	pane, fetch, tick := entry.pane.Refresh()
+	entry.pane = pane
+	m.accounts.put(entry)
 	if !fetch.Needed {
 		return m, nil
 	}
-	return m, tea.Batch(tick, m.load(fetch))
+	return m, tea.Batch(tick, m.load(entry, fetch))
 }
 
-// load issues fetch: the children of its node, or the top level when that
-// node has no path.
-func (m Model) load(fetch panes.Fetch) tea.Cmd {
+// load issues fetch against entry's catalog: the children of its node, or the
+// top level when that node has no path.
+func (m Model) load(entry accountEntry, fetch panes.Fetch) tea.Cmd {
 	if len(fetch.Node.Path) == 0 {
-		return m.loadRoot(fetch.Token)
+		return loadRoot(entry.account.Name, entry.catalog, fetch.Token)
 	}
-	return m.loadChildren(fetch.Node, fetch.Token)
+	return loadChildren(entry.account.Name, entry.catalog, fetch.Node, fetch.Token)
 }
 
 func (m Model) setFocus(f focus) Model {
@@ -915,12 +917,12 @@ func (m Model) setFocus(f focus) Model {
 	}
 	m.focus = f
 	m = m.closeSuggestions()
-	m.catalogPane = m.catalogPane.Blur()
+	m = m.setCatalogPane(m.catalogPane().Blur())
 	m.editor = m.editor.Blur()
 	m.results = m.results.Blur()
 	switch f {
 	case focusCatalog:
-		m.catalogPane = m.catalogPane.Focus()
+		m = m.setCatalogPane(m.catalogPane().Focus())
 	case focusEditor:
 		m.editor = m.editor.Focus()
 	case focusResults:
@@ -929,14 +931,22 @@ func (m Model) setFocus(f focus) Model {
 	return m
 }
 
+// resize sizes every account's tree, not only the one on screen, so a switch
+// needs no layout pass.
 func (m Model) resize(width, height int) Model {
 	m.width, m.height = width, height
-	catalogWidth := fitCatalogWidth(width)
-	bodyHeight := max(height-statusBarHeight, minPaneHeight)
+	catalogWidth, bodyHeight := m.catalogSize()
 	editorHeight := max(bodyHeight/editorHeightDivisor, minPaneHeight)
 
 	m.connectPane = m.connectPane.SetSize(width, height)
-	m.catalogPane = m.catalogPane.SetSize(catalogWidth, bodyHeight)
+	m.accountsPane = m.accountsPane.SetSize(width, height)
+	m.noAccountPane = m.noAccountPane.SetSize(catalogWidth, bodyHeight)
+	for _, name := range m.accounts.names() {
+		entry, _ := m.accounts.get(name)
+		entry.pane = entry.pane.SetSize(catalogWidth, bodyHeight)
+		entry.info = entry.info.SetSize(width, height)
+		m.accounts.put(entry)
+	}
 	m.editor = m.editor.SetSize(width-catalogWidth, editorHeight)
 	m.results = m.results.SetSize(width-catalogWidth, bodyHeight-editorHeight)
 	m.statusBar = m.statusBar.SetWidth(width)
@@ -946,8 +956,11 @@ func (m Model) resize(width, height int) Model {
 	m.exportPrompt = m.exportPrompt.SetSize(width, height)
 	m.form = m.form.SetSize(width, height)
 	m.confirm = m.confirm.SetSize(width, height)
-	m.info = m.info.SetSize(width, height)
 	return m
+}
+
+func (m Model) catalogSize() (width, height int) {
+	return fitCatalogWidth(m.width), max(m.height-statusBarHeight, minPaneHeight)
 }
 
 // fitCatalogWidth keeps the catalog at its preferred width while the rest of
