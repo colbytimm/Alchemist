@@ -53,8 +53,10 @@ emulator-down:
 	docker compose -f test/integration/docker-compose.yml down -v
 
 ## test-integration: run integration tests against the emulator
+# One package at a time: every package shares the one emulator, and one that
+# creates and drops databases changes what another reads back mid-test.
 test-integration:
-	go test -tags integration -count=1 -timeout 10m ./internal/adapter/cosmos/test/... ./test/integration/...
+	go test -tags integration -count=1 -p 1 -timeout 10m ./internal/adapter/cosmos/test/... ./test/integration/...
 
 ## test-coverage: run unit tests, writing coverage.out
 test-coverage:
