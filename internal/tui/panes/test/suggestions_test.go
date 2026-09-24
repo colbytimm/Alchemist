@@ -178,16 +178,21 @@ func TestDockingAndUndockingKeepTheCursorLineOnScreen(t *testing.T) {
 	assert.Contains(t, view, "AND c.b")
 }
 
-func TestARefreshKeepsTheSelectedRow(t *testing.T) {
+func TestARefreshKeepsTheSelectedRowButTypingSelectsTheBestMatch(t *testing.T) {
 	editor := focusedEditor("SELECT c.").SetSuggestions(fields("customerId", "currency", "customer"), "").NextSuggestion()
 
-	refreshed := editor.SetSuggestions(fields("customerId", "currency", "customer", "created"), "sampling orders…")
+	refreshed := editor.RefreshSuggestions(fields("customerId", "currency", "customer", "created"), "sampling orders…")
 	selected, ok := refreshed.Selected()
 	require.True(t, ok)
 	assert.Equal(t, "currency", selected.Text)
 
-	gone := refreshed.SetSuggestions(fields("customerId", "created"), "")
+	gone := refreshed.RefreshSuggestions(fields("customerId", "created"), "")
 	selected, ok = gone.Selected()
 	require.True(t, ok)
 	assert.Equal(t, "customerId", selected.Text, "a row no longer listed hands the selection to the first")
+
+	narrowed := refreshed.SetSuggestions(fields("customer", "currency"), "")
+	selected, ok = narrowed.Selected()
+	require.True(t, ok)
+	assert.Equal(t, "customer", selected.Text, "what the user typed ranks first")
 }

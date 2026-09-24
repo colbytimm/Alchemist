@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/complete"
 	"github.com/colbytimm/alchemist/internal/query"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
@@ -53,7 +54,7 @@ func (m Model) editorEdit(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.closeSuggestions(), cmd
 	}
 	m.completing = true
-	model, refresh := m.refreshSuggestions()
+	model, refresh := m.suggest()
 	return model, tea.Batch(cmd, refresh)
 }
 
@@ -109,13 +110,25 @@ func (m Model) chooseSuggestion(editor panes.Editor) Model {
 func (m Model) openSuggestions() (Model, tea.Cmd) {
 	m.dismissed = dismissal{}
 	m.completing = true
-	return m.refreshSuggestions()
+	return m.suggest()
 }
 
-// refreshSuggestions recomputes the list for the cursor, asking for the
-// containers or the sample it still lacks. A dismissal holds until the
-// cursor is on another token, then is forgotten.
+// suggest computes the list for what the user just typed, selecting the
+// best match.
+func (m Model) suggest() (Model, tea.Cmd) {
+	return m.settleSuggestions(panes.Editor.SetSuggestions)
+}
+
+// refreshSuggestions recomputes the list after something arrived for it,
+// leaving a row the user chose chosen.
 func (m Model) refreshSuggestions() (Model, tea.Cmd) {
+	return m.settleSuggestions(panes.Editor.RefreshSuggestions)
+}
+
+// settleSuggestions computes the list for the cursor, asks for the
+// containers or the sample it still lacks, and shows it through show. A
+// dismissal holds until the cursor is on another token, then is forgotten.
+func (m Model) settleSuggestions(show func(panes.Editor, []complete.Suggestion, string) panes.Editor) (Model, tea.Cmd) {
 	if !m.completing || m.focus != focusEditor {
 		return m, nil
 	}
@@ -127,7 +140,7 @@ func (m Model) refreshSuggestions() (Model, tea.Cmd) {
 	m.dismissed = dismissal{}
 	m.completion = c
 	model, cmd := m.fetchFor(c)
-	model.editor = model.editor.SetSuggestions(model.index.Suggest(c), model.note(c))
+	model.editor = show(model.editor, model.index.Suggest(c), model.note(c))
 	return model, cmd
 }
 

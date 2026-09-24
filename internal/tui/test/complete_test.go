@@ -2,6 +2,7 @@ package tui_test
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -43,7 +44,7 @@ func editorLines(view string) []string {
 // which is where a suggestion appears and where buffer text never does.
 func listed(view, text string) bool {
 	for _, line := range editorLines(view) {
-		if strings.Contains(line, "▸ "+text) || strings.Contains(line, "  "+text+" ") {
+		if strings.Contains(line, "▸ "+text+" ") || strings.Contains(line, "  "+text+" ") {
 			return true
 		}
 	}
@@ -453,6 +454,16 @@ func TestASampleLandingKeepsTheChosenRow(t *testing.T) {
 	assert.Contains(t, plain(m.View()), "2 of 5", "the sample changed nothing and moved nothing")
 }
 
+func TestTypingAfterChoosingSelectsTheBestMatchAgain(t *testing.T) {
+	m := runQuery(t, selectContainer(t, newTallModel(t, newConnection(t))), "SELECT * FROM c")
+	m = pressAll(t, m, keyText(" WHERE c."), keyMsg(tea.KeyDown), keyMsg(tea.KeyDown))
+	require.Contains(t, plain(m.View()), "▸ pk ")
+
+	m = pressAll(t, m, keyText("a"))
+
+	assert.Contains(t, plain(m.View()), "▸ amount ", "the prefix match, not the row chosen before")
+}
+
 func TestADismissalIsForgottenOnceTheCursorLeavesTheToken(t *testing.T) {
 	m := typeQuery(t, newTallModel(t, newConnection(t)), "SEL")
 	m = pressAll(t, m, keyMsg(tea.KeyEscape))
@@ -478,4 +489,25 @@ func TestARecreatedContainerIsSampledAgain(t *testing.T) {
 	pressAll(t, m, keyRune('e'), keyText("id = 1 AND o."))
 
 	assert.Equal(t, [][]string{{firstDatabase, firstContainer}, {firstDatabase, firstContainer}}, conn.sampled)
+}
+
+// BenchmarkTypingWithTheListOpen is the checklist's "typing at speed in a
+// 200-line buffer": one keystroke narrowing an open list, buffer included.
+func BenchmarkTypingWithTheListOpen(b *testing.B) {
+	t := &testing.T{}
+	lines := make([]string, 0, 200)
+	for i := range 200 {
+		lines = append(lines, fmt.Sprintf("  OR c.n = %d", i))
+	}
+	m := typeQuery(t, selectContainer(t, newTallModel(t, newConnection(t))), "SELECT * FROM c WHERE c.a = 1\n"+strings.Join(lines, "\n")+"\nAND c.")
+	if !listed(m.View(), "customerId") {
+		b.Fatal("the list should be open")
+	}
+
+	b.ResetTimer()
+	for range b.N {
+		typed, _ := m.Update(keyRune('c'))
+		_ = typed.View()
+		m, _ = typed.Update(keyMsg(tea.KeyBackspace))
+	}
 }
