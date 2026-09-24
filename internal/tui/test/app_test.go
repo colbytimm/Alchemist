@@ -163,7 +163,7 @@ func TestViewFillsTheMinimumTerminal(t *testing.T) {
 }
 
 func TestViewIsEmptyBeforeTheFirstResize(t *testing.T) {
-	m := tui.New(tui.Options{Icons: theme.Icons(), Connection: newConnection(t)})
+	m := tui.New(tui.Options{Icons: theme.Icons(), Accounts: []tui.Account{{Name: mock.Name}}, Launch: mock.Name})
 
 	assert.Empty(t, m.View())
 }

@@ -46,6 +46,15 @@ func clampScroll(offset, count, height int) int {
 	return min(max(offset, 0), max(count-height, 0))
 }
 
+// accountTitle names the account a pane's content belongs to beside its
+// title.
+func accountTitle(title, account string) string {
+	if account == "" {
+		return title
+	}
+	return title + " · " + account
+}
+
 func styleAll(style lipgloss.Style, lines []string) []string {
 	styled := make([]string, 0, len(lines))
 	for _, line := range lines {

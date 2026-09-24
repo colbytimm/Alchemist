@@ -44,12 +44,13 @@ func plain(view string) string {
 // recordingConnection wraps a mock connection, and serves as its own catalog,
 // so a test can see everything the model asked of the backend in one place:
 // how often each node's children were fetched, which queries ran, how many
-// page reads reached it, whether a cursor it walked away from was closed,
+// page reads reached it, whether a cursor it walked away from was closed
+// (closed), how often it was pinged and closed itself (closes),
 // and — by keeping the contexts it was handed, which only a recorder has any
-// business doing — whether a replaced run was cancelled. failRoot, failQuery
-// and failPage fail that many calls before the fixture answers, which is how
-// a test gets a failure the next attempt recovers from; failChildren does
-// the same for every child listing. Management calls pass
+// business doing — whether a replaced run was cancelled. failRoot, failQuery,
+// failPage and failPing fail that many calls before the fixture answers,
+// which is how a test gets a failure the next attempt recovers from;
+// failChildren does the same for every child listing. Management calls pass
 // straight through to the mock, keeping the specs so a test can see what the
 // dialogs assembled, and inspections and field samples keep the path they
 // were asked about.
@@ -71,7 +72,10 @@ type recordingConnection struct {
 	failChildren int
 	failQuery    int
 	failPage     int
+	failPing     int
+	pings        int
 	closed       int
+	closes       int
 }
 
 func newConnection(t *testing.T, opts ...mock.Option) *recordingConnection {
@@ -157,9 +161,19 @@ func (c *recordingConnection) Query(ctx context.Context, q adapter.Query) (adapt
 	return &recordingCursor{Cursor: cursor, connection: c}, nil
 }
 
-func (c *recordingConnection) Ping(ctx context.Context) error { return c.inner.Ping(ctx) }
+func (c *recordingConnection) Ping(ctx context.Context) error {
+	c.pings++
+	if c.failPing > 0 {
+		c.failPing--
+		return errors.New("ping: 503 Service Unavailable")
+	}
+	return c.inner.Ping(ctx)
+}
 
-func (c *recordingConnection) Close() error { return c.inner.Close() }
+func (c *recordingConnection) Close() error {
+	c.closes++
+	return c.inner.Close()
+}
 
 // recordingCursor tallies its close on the connection that opened it, and
 // fails the pages that connection was told to fail.
@@ -196,15 +210,20 @@ func managed(conn adapter.Connection) tui.Management {
 // default.
 func newModel(t *testing.T, connection adapter.Connection) tea.Model {
 	t.Helper()
-	return newModelWith(t, tui.Options{Connection: connection, Manage: managed, SampleFields: true})
+	return newModelWith(t, connection, tui.Options{Manage: managed, SampleFields: true})
 }
 
-// newModelWith builds a model from opts, with the icons and profile every
-// test shares filled in, sized to the minimum supported terminal.
-func newModelWith(t *testing.T, opts tui.Options) tea.Model {
+// newModelWith builds a model from opts, sized to the minimum supported
+// terminal, whose session starts on one account served by connection: the
+// first of opts.Accounts, or one called mock when opts lists none.
+func newModelWith(t *testing.T, connection adapter.Connection, opts tui.Options) tea.Model {
 	t.Helper()
 	opts.Icons = theme.Icons()
-	opts.Profile = mock.Name
+	if len(opts.Accounts) == 0 {
+		opts.Accounts = []tui.Account{{Name: mock.Name, SampleFields: true}}
+	}
+	opts.Launch = opts.Accounts[0].Name
+	opts.Open = func(context.Context, string) (adapter.Connection, error) { return connection, nil }
 	m := tui.New(opts)
 	model, _ := m.Update(tea.WindowSizeMsg{Width: testWidth, Height: testHeight})
 	return model

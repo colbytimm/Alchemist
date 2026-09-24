@@ -181,7 +181,7 @@ func TestSaveProfileWithoutAKeyLeavesTheKeyringAlone(t *testing.T) {
 	assert.Empty(t, keyring.secrets)
 }
 
-func TestSaveProfileKeepsTheProfileWhenTheKeychainRefuses(t *testing.T) {
+func TestSaveProfileSavesNothingWhenTheKeychainRefuses(t *testing.T) {
 	store := tempStore(t)
 
 	err := config.SaveProfile(store, &fakeKeyring{err: errNoKeychain}, emulatorProfile(), "key")
@@ -189,5 +189,31 @@ func TestSaveProfileKeepsTheProfileWhenTheKeychainRefuses(t *testing.T) {
 	require.ErrorIs(t, err, errNoKeychain)
 	cfg, loadErr := store.Load()
 	require.NoError(t, loadErr)
-	assert.Equal(t, []string{"emulator"}, cfg.Names())
+	assert.Empty(t, cfg.Profiles)
+}
+
+func TestSaveProfileFilesNoKeyForAProfileTheConfigRefuses(t *testing.T) {
+	store := tempStore(t)
+	keyring := newFakeKeyring()
+	require.NoError(t, config.SaveProfile(store, keyring, prodProfile(), "prod-key"))
+	shouting := prodProfile()
+	shouting.Name = "Prod"
+
+	err := config.SaveProfile(store, keyring, shouting, "other-key")
+
+	require.ErrorIs(t, err, config.ErrProfileExists)
+	assert.Equal(t, map[string]string{"prod": "prod-key"}, keyring.secrets)
+}
+
+// A file written before names were kept distinct by case still loads, so the
+// profile commands that could tidy it up are not locked out.
+func TestLoadAcceptsNamesDifferingOnlyInCase(t *testing.T) {
+	store := tempStore(t)
+	writeConfig(t, store, "[profiles.a]\nadapter = \"cosmos\"\nendpoint = \"https://x\"\n"+
+		"[profiles.A]\nadapter = \"cosmos\"\nendpoint = \"https://x\"\n")
+
+	cfg, err := store.Load()
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"A", "a"}, cfg.Names())
 }

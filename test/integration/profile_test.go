@@ -43,7 +43,7 @@ func TestIntegrationProfileLaunch(t *testing.T) {
 	require.NoError(t, err)
 	profile, err := loaded.Profile("")
 	require.NoError(t, err)
-	secret, err := config.SecretResolver{Keyring: emptyKeyring{}}.Resolve(profile.Name)
+	secret, err := config.SecretResolver{Keyring: emptyKeyring{}}.Resolve(profile)
 	require.NoError(t, err)
 	assert.Equal(t, "$ALCHEMIST_EMULATOR_KEY", secret.Source)
 
