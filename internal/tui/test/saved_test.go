@@ -13,6 +13,7 @@ import (
 
 	"github.com/colbytimm/alchemist/internal/adapter/mock"
 	"github.com/colbytimm/alchemist/internal/saved"
+	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui"
 )
 
@@ -318,13 +319,18 @@ func TestDThenYDeletesTheQuery(t *testing.T) {
 	assert.Contains(t, editorText(m), "SELECT 2", "the cursor moved to the neighbor")
 }
 
-func TestDThenAnyOtherKeyKeepsTheQuery(t *testing.T) {
+func TestDThenAnyOtherKeyKeepsTheQueryAndIsSpentOnTheAnswer(t *testing.T) {
 	store := newSavedStore(t)
 	create(t, store, mock.Name, saved.Query{Name: "alpha", Text: "SELECT 1"})
+	create(t, store, mock.Name, saved.Query{Name: "beta", Text: "SELECT 2"})
 	m := pressAll(t, openSaved(t, newSavedModel(t, newConnection(t), store)), keyRune('d'), keyRune('j'))
 
-	assert.Equal(t, "alpha", only(t, store, mock.Name).Name)
+	listing, err := store.List(mock.Name)
+	require.NoError(t, err)
+	assert.Len(t, listing.Queries, 2)
 	assert.NotContains(t, plain(m.View()), `delete "alpha"?`)
+	m = pressAll(t, m, keyMsg(tea.KeyEnter))
+	assert.Contains(t, editorText(m), "SELECT 1", "j answered the question and did not move the cursor")
 }
 
 func TestRRenamesThroughThePromptAndReturnsToTheOverlay(t *testing.T) {
@@ -490,4 +496,95 @@ func TestASessionWithNoStoreSaysWhyOnSave(t *testing.T) {
 	m = saveAs(t, typeQuery(t, selectContainer(t, m), "SELECT 1"), "q")
 
 	assert.Contains(t, plain(m.View()), "no store was configured")
+}
+
+// switchableStore lists from a Dir until told to fail.
+type switchableStore struct {
+	saved.Dir
+	failList *error
+}
+
+func (s switchableStore) List(account string) (saved.Listing, error) {
+	if *s.failList != nil {
+		return saved.Listing{}, *s.failList
+	}
+	return s.Dir.List(account)
+}
+
+func TestCtrlLOpensFromTheEditorAndTypesNothing(t *testing.T) {
+	m := typeQuery(t, newSavedModel(t, newConnection(t), newSavedStore(t)), "SELECT 1")
+
+	m = pressAll(t, m, keyMsg(tea.KeyCtrlL))
+
+	assert.Contains(t, plain(m.View()), savedTitle)
+	m = pressAll(t, m, keyMsg(tea.KeyEscape))
+	assert.Contains(t, editorText(m), "SELECT 1")
+	assert.NotContains(t, editorText(m), "SELECT 1l")
+}
+
+func TestThePromptHoldsWhileTheSaveIsInFlight(t *testing.T) {
+	store := newSavedStore(t)
+	m := typeQuery(t, newSavedModel(t, newConnection(t), store), "SELECT 1")
+	m = pressAll(t, m, keyMsg(tea.KeyCtrlS), keyText("q"))
+
+	m, write := m.Update(keyMsg(tea.KeyEnter))
+	m = pressAll(t, m, keyMsg(tea.KeyEscape), keyText("zz"))
+
+	assert.Contains(t, plain(m.View()), promptTitle, "esc waits for the outcome")
+	m, _ = settle(m, write)
+	assert.NotContains(t, plain(m.View()), promptTitle)
+	assert.Equal(t, "q", only(t, store, mock.Name).Name, "nothing typed meanwhile reached the name")
+}
+
+func TestAFailedReloadDoesNotReopenAClosedOverlay(t *testing.T) {
+	var failList error
+	store := switchableStore{Dir: newSavedStore(t), failList: &failList}
+	create(t, store, mock.Name, saved.Query{Name: "alpha", Text: "SELECT 1"})
+	create(t, store, mock.Name, saved.Query{Name: "beta", Text: "SELECT 2"})
+	m := pressAll(t, openSaved(t, newSavedModel(t, newConnection(t), store)), keyRune('d'))
+	m, remove := m.Update(keyRune('y'))
+	removed := messages(remove)
+	require.Len(t, removed, 1)
+	m, reload := m.Update(removed[0])
+
+	m = pressAll(t, m, keyMsg(tea.KeyEscape))
+	failList = errors.New("disk gone")
+	m, _ = settle(m, reload)
+
+	assert.NotContains(t, plain(m.View()), savedTitle)
+	assert.NotContains(t, plain(m.View()), "disk gone")
+}
+
+// launchingModel is a session whose launch account is still connecting, with
+// the attempt held back until the test delivers it.
+func launchingModel(t *testing.T, o *opener, store saved.Store) (tea.Model, tea.Cmd) {
+	t.Helper()
+	m, _ := tui.New(tui.Options{
+		Icons:    theme.Icons(),
+		Accounts: fixtureAccounts(),
+		Launch:   "prod",
+		Open:     o.open,
+		Manage:   managed,
+		Saved:    store,
+	}).Update(tea.WindowSizeMsg{Width: testWidth, Height: testHeight})
+	return m, m.Init()
+}
+
+func TestTheOverlayUnderTheRenamePromptFollowsTheAccountAway(t *testing.T) {
+	store := newSavedStore(t)
+	create(t, store, "prod", saved.Query{Name: "alpha", Text: "SELECT 1"})
+	o := newOpener(t)
+	o.failOpen["prod"] = errors.New("unreachable")
+	m, launch := launchingModel(t, o, store)
+	m = pressAll(t, openSaved(t, m), keyRune('r'))
+	require.Contains(t, plain(m.View()), renameTitle)
+
+	m, _ = settle(m, launch)
+
+	assert.Contains(t, plain(m.View()), renameTitle, "the prompt stays up")
+	back := pressAll(t, m, keyMsg(tea.KeyEscape))
+	assert.Contains(t, plain(back.View()), "no account connected: ctrl+g to choose one")
+	renamed := pressAll(t, m, keyMsg(tea.KeyCtrlU), keyText("beta"), keyMsg(tea.KeyEnter))
+	assert.Equal(t, "beta", only(t, store, "prod").Name, "the rename went to the account it was opened for")
+	assert.Contains(t, plain(renamed.View()), "no account connected: ctrl+g to choose one")
 }

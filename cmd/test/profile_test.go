@@ -250,3 +250,16 @@ func TestProfileRemoveLeavesOtherAccountsQueries(t *testing.T) {
 	require.NoError(t, err)
 	assert.DirExists(t, queries.AccountPath("prod"))
 }
+
+func TestProfileRemoveCountsFilesTheOverlaySkips(t *testing.T) {
+	h := newHarness(t)
+	h.addProfile(t, "staging")
+	queries := saveQueries(t, "staging")
+	require.NoError(t, os.MkdirAll(queries.AccountPath("staging"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(queries.AccountPath("staging"), "empty.sql"), nil, 0o600))
+
+	out, err := h.run("", "profile", "remove", "staging")
+
+	require.NoError(t, err)
+	assert.Contains(t, out, "kept 1 saved query in "+queries.AccountPath("staging"))
+}

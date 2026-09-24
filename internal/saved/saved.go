@@ -45,6 +45,11 @@ type Listing struct {
 	Skipped []Skipped
 }
 
+// Files counts every query file the directory held, listed or skipped.
+func (l Listing) Files() int {
+	return len(l.Queries) + len(l.Skipped)
+}
+
 // Skipped is a file in an account directory that could not be listed.
 type Skipped struct {
 	File string

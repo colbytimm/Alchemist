@@ -388,6 +388,8 @@ func (m Model) handleErr(msg ErrMsg) (Model, tea.Cmd) {
 		return m.failHistory(msg), nil
 	case OpSavedList:
 		return m.failSaved(msg), nil
+	case OpSavedReload:
+		return m.failSavedReload(msg), nil
 	case OpSaveQuery:
 		return m.failSave(msg.Err), nil
 	case OpRemoveQuery:

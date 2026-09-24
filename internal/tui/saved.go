@@ -158,10 +158,7 @@ func (m Model) finishSave(msg QuerySavedMsg) (Model, tea.Cmd) {
 	}
 	m.logger.Info(notice, "account", msg.Account)
 	m, expiry := m.notify(notice)
-	if m.overlay != overlaySaved {
-		return m, expiry
-	}
-	return m, tea.Batch(expiry, m.reloadSaved(msg.Name))
+	return m, tea.Batch(expiry, m.reloadSavedOnScreen(msg.Name))
 }
 
 // openSavedOrRefuse asks for the active account's saved queries. With no
@@ -172,13 +169,23 @@ func (m Model) openSavedOrRefuse() (Model, tea.Cmd) {
 		m.overlay = overlaySaved
 		return m, nil
 	}
-	return m, loadSaved(m.saved, m.accounts.active, false, "")
+	return m, loadSaved(m.saved, m.accounts.active)
 }
 
-// reloadSaved lists the active account's saved queries again for the overlay
-// on screen, with the cursor on selectName when it is listed.
-func (m Model) reloadSaved(selectName string) tea.Cmd {
-	return loadSaved(m.saved, m.accounts.active, true, selectName)
+// savedOnScreen reports whether the saved queries overlay is showing, or is
+// what the save prompt on screen returns to.
+func (m Model) savedOnScreen() bool {
+	return m.overlay == overlaySaved || m.overlay == overlaySavePrompt && m.promptReturn == overlaySaved
+}
+
+// reloadSavedOnScreen lists the active account's saved queries again for the
+// overlay, when it is on screen and there is an account to list, with the
+// cursor on selectName when it is listed.
+func (m Model) reloadSavedOnScreen(selectName string) tea.Cmd {
+	if !m.savedOnScreen() || m.accounts.active == "" {
+		return nil
+	}
+	return reloadSaved(m.saved, m.accounts.active, selectName)
 }
 
 // applySaved shows a listing that is still the active account's. The overlay
@@ -192,7 +199,7 @@ func (m Model) applySaved(msg SavedLoadedMsg) Model {
 		m.logger.Warn("saved query skipped", "file", skipped.File, "error", skipped.Err)
 	}
 	switch {
-	case m.overlay == overlaySaved:
+	case m.savedOnScreen():
 	case !msg.reload && m.overlay == overlayNone:
 		m.savedPane = m.savedPane.SetAccount(msg.Account)
 		m.overlay = overlaySaved
@@ -206,15 +213,24 @@ func (m Model) applySaved(msg SavedLoadedMsg) Model {
 	return m
 }
 
+// failSaved opens the overlay on why the listing a key press asked for could
+// not be read, when nothing else has been opened meanwhile.
 func (m Model) failSaved(msg ErrMsg) Model {
-	if msg.Account != m.accounts.active || m.overlay != overlaySaved && m.overlay != overlayNone {
+	if msg.Account != m.accounts.active || m.overlay != overlayNone {
 		return m
 	}
-	if m.overlay == overlayNone {
-		m.savedPane = m.savedPane.SetAccount(msg.Account)
+	m.savedPane = m.savedPane.SetAccount(msg.Account).Fail(msg.Err)
+	m.overlay = overlaySaved
+	return m
+}
+
+// failSavedReload shows why a reload could not be read, in an overlay still
+// on screen; a closed one stays closed.
+func (m Model) failSavedReload(msg ErrMsg) Model {
+	if msg.Account != m.accounts.active || !m.savedOnScreen() {
+		return m
 	}
 	m.savedPane = m.savedPane.Fail(msg.Err)
-	m.overlay = overlaySaved
 	return m
 }
 
@@ -289,10 +305,7 @@ func (m Model) finishRemove(msg QueryRemovedMsg) (Model, tea.Cmd) {
 		m.recalledName = ""
 	}
 	m, expiry := m.notify(notice)
-	if m.overlay != overlaySaved {
-		return m, expiry
-	}
-	return m, tea.Batch(expiry, m.reloadSaved(""))
+	return m, tea.Batch(expiry, m.reloadSavedOnScreen(""))
 }
 
 // recallSaved mirrors recall: the text goes to the editor, and the scope is
@@ -326,13 +339,13 @@ func (m Model) followActiveAccount(account string) (Model, tea.Cmd) {
 	m.recalledName = ""
 	m.savedPane = m.savedPane.SetAccount(account)
 	switch {
-	case m.overlay != overlaySaved:
+	case !m.savedOnScreen():
 		return m, nil
 	case account == "":
 		m.savedPane = m.savedPane.Fail(errNoAccount)
 		return m, nil
 	}
-	return m, m.reloadSaved("")
+	return m, m.reloadSavedOnScreen("")
 }
 
 func (m Model) notify(notice string) (Model, tea.Cmd) {
@@ -341,13 +354,23 @@ func (m Model) notify(notice string) (Model, tea.Cmd) {
 	return m, expiry
 }
 
-func loadSaved(store saved.Store, account string, reload bool, selectName string) tea.Cmd {
+func loadSaved(store saved.Store, account string) tea.Cmd {
 	return func() tea.Msg {
 		listing, err := store.List(account)
 		if err != nil {
 			return ErrMsg{Account: account, Op: OpSavedList, Err: err}
 		}
-		return SavedLoadedMsg{Account: account, Listing: listing, reload: reload, selectName: selectName}
+		return SavedLoadedMsg{Account: account, Listing: listing}
+	}
+}
+
+func reloadSaved(store saved.Store, account, selectName string) tea.Cmd {
+	return func() tea.Msg {
+		listing, err := store.List(account)
+		if err != nil {
+			return ErrMsg{Account: account, Op: OpSavedReload, Err: err}
+		}
+		return SavedLoadedMsg{Account: account, Listing: listing, reload: true, selectName: selectName}
 	}
 }
 

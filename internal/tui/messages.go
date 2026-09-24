@@ -24,6 +24,7 @@ const (
 	OpSetThroughput   = "set throughput"
 	OpInspect         = "inspect"
 	OpSavedList       = "saved queries"
+	OpSavedReload     = "reload saved queries"
 	OpSaveQuery       = "save query"
 	OpRemoveQuery     = "remove saved query"
 )

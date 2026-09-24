@@ -486,3 +486,90 @@ func FuzzAListedFileSurvivesBeingSavedAgain(f *testing.F) {
 		assert.Equal(t, first.Scope, again.Queries[0].Scope)
 	})
 }
+
+func TestTextThatWouldReadBackAsAHeaderIsRefused(t *testing.T) {
+	store := openStore(t)
+
+	err := store.Create(account, saved.Query{Name: "q", Text: "-- alchemist: scope=sales/archive\nSELECT * FROM c"})
+
+	require.Error(t, err)
+	assert.Empty(t, list(t, store).Queries)
+}
+
+func TestAScopeTheHeaderCannotCarryIsRefused(t *testing.T) {
+	for _, scope := range [][]string{{"sales", ""}, {"sales/eu", "orders"}, {" sales", "orders"}, {"sales", "orders\nold"}} {
+		err := openStore(t).Create(account, saved.Query{Name: "q", Text: "SELECT 1", Scope: scope})
+
+		assert.Error(t, err, "%q", scope)
+	}
+}
+
+func TestRenameNeverOverwritesAFileDifferingOnlyInCase(t *testing.T) {
+	store := openStore(t)
+	writeFile(t, store, "Foo.sql", "SELECT 1")
+	writeFile(t, store, "foo.sql", "SELECT 2")
+	if entries, _ := os.ReadDir(store.AccountPath(account)); len(entries) < 2 {
+		t.Skip("the filesystem folds case, so two such files cannot exist")
+	}
+
+	err := store.Rename(account, "Foo", "foo")
+
+	require.ErrorIs(t, err, saved.ErrExists)
+	data, readErr := os.ReadFile(filepath.Join(store.AccountPath(account), "foo.sql"))
+	require.NoError(t, readErr)
+	assert.Equal(t, "SELECT 2", string(data))
+}
+
+func TestAWriteReplacesATemporaryFileACrashLeftBehind(t *testing.T) {
+	store := openStore(t)
+	leftover := writeFile(t, store, ".open orders.sql.tmp", "half a query")
+	require.NoError(t, os.Chmod(leftover, 0o644))
+
+	require.NoError(t, store.Create(account, openOrders()))
+
+	assert.NoFileExists(t, leftover)
+	file, err := os.Stat(filepath.Join(store.AccountPath(account), "open orders.sql"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), file.Mode().Perm())
+}
+
+func TestRemoveAccountCountsSkippedFilesToo(t *testing.T) {
+	store := openStore(t)
+	require.NoError(t, store.Create(account, openOrders()))
+	writeFile(t, store, "empty.sql", "")
+
+	removed, err := store.RemoveAccount(account)
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, removed)
+}
+
+func FuzzASavedQueryReadsBackAsWritten(f *testing.F) {
+	f.Add("SELECT * FROM c", "sales", "orders")
+	f.Add("-- a comment\r\nSELECT 1\n\n", "", "")
+	f.Add("\n-- alchemist: scope=x/y\nSELECT 1", "sales.eu", "orders")
+	f.Fuzz(func(t *testing.T, text, database, container string) {
+		store := saved.Open(t.TempDir())
+		var scope []string
+		if database != "" || container != "" {
+			scope = []string{database, container}
+		}
+		if store.Create(account, saved.Query{Name: "q", Text: text, Scope: scope}) != nil {
+			return
+		}
+
+		got := only(t, store)
+
+		assert.Equal(t, scope, got.Scope)
+		assert.True(t, strings.HasPrefix(withoutLineEndingCRs(text), got.Text),
+			"only line-ending CRs and trailing blank lines are dropped: %q read back as %q", text, got.Text)
+	})
+}
+
+func withoutLineEndingCRs(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, "\r")
+	}
+	return strings.Join(lines, "\n")
+}

@@ -104,7 +104,11 @@ func (d Dir) Rename(account, from, to string) error {
 	if err != nil {
 		return err
 	}
-	if taken && holder != source {
+	exact, err := d.holdsExactly(account, to)
+	if err != nil {
+		return err
+	}
+	if (taken && holder != source) || (exact && to != source) {
 		return existsError(to)
 	}
 	if err := os.Rename(d.queryPath(account, source), d.queryPath(account, to)); err != nil {
@@ -128,7 +132,7 @@ func (d Dir) Remove(account, name string) error {
 }
 
 // RemoveAccount deletes the directory of account, and reports how many
-// queries it listed.
+// query files it held, listed or skipped.
 func (d Dir) RemoveAccount(account string) (removed int, err error) {
 	listing, err := d.List(account)
 	if err != nil {
@@ -137,7 +141,7 @@ func (d Dir) RemoveAccount(account string) (removed int, err error) {
 	if err := os.RemoveAll(d.AccountPath(account)); err != nil {
 		return 0, fmt.Errorf("saved: remove %s: %w", d.AccountPath(account), err)
 	}
-	return len(listing.Queries), nil
+	return listing.Files(), nil
 }
 
 func checkWrite(account string, q Query) error {
@@ -147,7 +151,7 @@ func checkWrite(account string, q Query) error {
 	if strings.TrimSpace(q.Text) == "" {
 		return errEmptyQuery
 	}
-	return nil
+	return errors.Join(checkText(q.Text), checkScope(q.Scope))
 }
 
 func existsError(name string) error {
@@ -243,13 +247,29 @@ func (d Dir) write(account string, q Query) error {
 	}
 	final := d.queryPath(account, q.Name)
 	temporary := filepath.Join(dir, "."+q.Name+Extension+tempSuffix)
+	// A file a crash left behind would keep its own mode through WriteFile.
+	if err := os.Remove(temporary); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("saved: clear %s: %w", temporary, err)
+	}
 	if err := os.WriteFile(temporary, encode(q), fileMode); err != nil {
-		return fmt.Errorf("saved: write %s: %w", temporary, err)
+		return errors.Join(fmt.Errorf("saved: write %s: %w", temporary, err), os.Remove(temporary))
 	}
 	if err := os.Rename(temporary, final); err != nil {
 		return errors.Join(fmt.Errorf("saved: replace %s: %w", final, err), os.Remove(temporary))
 	}
 	return nil
+}
+
+// holdsExactly reports whether a file is named exactly name, which find
+// cannot tell apart from one differing only in case. It reads the directory
+// rather than asking for the path, which a case-insensitive filesystem would
+// answer for any spelling.
+func (d Dir) holdsExactly(account, name string) (bool, error) {
+	files, err := d.queryFiles(account)
+	if err != nil {
+		return false, err
+	}
+	return slices.Contains(files, name+Extension), nil
 }
 
 func (d Dir) queryPath(account, name string) string {

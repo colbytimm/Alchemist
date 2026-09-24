@@ -20,9 +20,11 @@ const (
 )
 
 var (
-	errTooLarge   = fmt.Errorf("saved: over %d bytes", maxFileSize)
-	errNotUTF8    = errors.New("saved: not UTF-8 text")
-	errEmptyQuery = fmt.Errorf("saved: %w", ErrEmptyQuery)
+	errHeaderInText = fmt.Errorf("saved: a query cannot start with %q, which marks the store's own header", headerPrefix)
+	errBadScope     = errors.New("saved: a scope segment is empty, padded, not UTF-8, or holds a / or a line break")
+	errTooLarge     = fmt.Errorf("saved: over %d bytes", maxFileSize)
+	errNotUTF8      = errors.New("saved: not UTF-8 text")
+	errEmptyQuery   = fmt.Errorf("saved: %w", ErrEmptyQuery)
 )
 
 // encode writes q as its file: the header line when q has a scope, then the
@@ -46,7 +48,7 @@ func decode(name string, data []byte) (Query, error) {
 		return Query{}, errNotUTF8
 	}
 	q := Query{Name: name}
-	rest := strings.ReplaceAll(string(data), "\r\n", "\n")
+	rest := string(data)
 	for {
 		line, after, found := strings.Cut(rest, "\n")
 		if !strings.HasPrefix(line, headerPrefix) {
@@ -66,27 +68,49 @@ func decode(name string, data []byte) (Query, error) {
 }
 
 // headerScope reads the scope a header line sets, keeping current when the
-// line sets none. A scope with an empty segment is no scope.
+// line sets none. A scope the store would refuse to write is no scope.
 func headerScope(line string, current []string) []string {
 	key, value, _ := strings.Cut(strings.TrimSpace(strings.TrimPrefix(line, headerPrefix)), "=")
 	if strings.TrimSpace(key) != scopeKey {
 		return current
 	}
 	scope := strings.Split(strings.TrimSpace(value), scopeSeparator)
-	for _, segment := range scope {
-		if segment == "" {
-			return nil
-		}
+	if checkScope(scope) != nil {
+		return nil
 	}
 	return scope
 }
 
-// normalizeText drops trailing blank lines, and a carriage return ending the
-// text, which would otherwise read back as half of a CRLF.
+// checkText refuses text whose first line decode would read as a header.
+func checkText(text string) error {
+	switch {
+	case !utf8.ValidString(text):
+		return errNotUTF8
+	case strings.HasPrefix(text, headerPrefix):
+		return errHeaderInText
+	}
+	return nil
+}
+
+// checkScope refuses a scope the header line could not carry back intact.
+func checkScope(scope []string) error {
+	for _, segment := range scope {
+		if segment == "" || !utf8.ValidString(segment) || segment != strings.TrimSpace(segment) || strings.ContainsAny(segment, scopeSeparator+"\r\n") {
+			return errBadScope
+		}
+	}
+	return nil
+}
+
+// normalizeText ends every line at its newline, dropping the carriage returns
+// before it, and drops trailing blank lines; nothing else is touched.
 func normalizeText(text string) string {
-	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, "\r")
+	}
 	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
 		lines = lines[:len(lines)-1]
 	}
-	return strings.TrimRight(strings.Join(lines, "\n"), "\r")
+	return strings.Join(lines, "\n")
 }

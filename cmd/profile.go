@@ -252,11 +252,11 @@ func reportKeptQueries(cmd *cobra.Command, queries saved.Dir, name string) error
 	if err != nil {
 		return fmt.Errorf("removed profile %s, but could not look for its saved queries: %w", name, err)
 	}
-	if len(listing.Queries) == 0 {
+	if listing.Files() == 0 {
 		return say(cmd, "removed profile %s", name)
 	}
 	return say(cmd, "removed profile %s\nkept %s in %s\nremove them too with: alchemist profile remove %s --purge",
-		name, countQueries(len(listing.Queries)), queries.AccountPath(name), name)
+		name, countQueries(listing.Files()), queries.AccountPath(name), name)
 }
 
 func purgeQueries(cmd *cobra.Command, queries saved.Dir, name string) error {

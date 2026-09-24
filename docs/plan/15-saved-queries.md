@@ -765,18 +765,33 @@ Landed. Where the code settled differently from the text above:
 - `ctrl+l` reads "open saved" in help: "saved queries" pushed the Results column of
   the help overlay past 80 columns.
 - `NewSaved(icons, keys, confirm)` takes the binding its delete question names.
-  `Saved.Select(name)` places the cursor; `SavedLoadedMsg` carries unexported `reload`
-  and `selectName`, so a reload never reopens an overlay the person closed, and a
-  rename lands the cursor on the new name. A listing opens the overlay only over the
-  main layout.
+  `Saved.Select(name)` places the cursor. A reload is its own command: its listing
+  carries unexported `reload` and `selectName`, and its failure is `OpSavedReload`, so
+  neither reopens an overlay the person closed, and a rename lands the cursor on the
+  new name. A listing opens the overlay only over the main layout. The overlay counts
+  as on screen while the save prompt it opened is over it, so an account change
+  under a rename still shows `errNoAccount` or the new account's list, and no reload
+  runs for no account.
 - `QuerySavedMsg.From` is set by a rename, whose notice is `renamed "a" to "b"`; the
   recalled name follows a rename and is forgotten on a delete. A delete says
   `deleted "a" from prod`.
-- The codec also drops a carriage return ending the text: the fuzz target found that
-  `"0\r"` read back as `"0"` once written. `ErrEmptyQuery` reads "empty query", since it
-  names a skipped file as well as a refused save.
+- The codec drops the carriage returns ending each line rather than replacing
+  `\r\n`, which the fuzz targets showed was not stable (`"\r\r\n"`). A save refuses
+  text that starts with `-- alchemist:`, which would read back as a header, text that
+  is not UTF-8, and a scope the header line could not carry back (an empty or padded
+  segment, a `/`, a line break); a header holding such a scope reads as none. The
+  plan's fuzz target runs both ways: a file listed and saved again, and a query saved
+  and listed. `ErrEmptyQuery` reads "empty query", since it names a skipped file as
+  well as a refused save.
+- `Rename` also refuses a name held by a second file differing from the source only
+  in case, which a case-sensitive filesystem allows. It reads exact names from the
+  directory, so a case-only rename still works on a case-insensitive one.
+- A write removes a temporary file a crash left behind before writing its own, so
+  the new file is `0o600`, and removes its own when the write fails.
 - `saved.Unavailable{}` without an `Err` still refuses every write.
-- `Dir.RemoveAccount` counts the queries the directory listed, not skipped files.
+- `Dir.RemoveAccount` and `profile remove` count every query file, listed or skipped
+  (`Listing.Files`): a file the overlay skips is still something removal keeps or
+  deletes.
 - 13 and 17 have not landed: nothing checks `query.IsBatch`, and there is no
   suggestion list to close.
 - `profile remove` still stops at a keychain that cannot be reached, before it says
