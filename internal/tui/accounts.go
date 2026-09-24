@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/complete"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
 
@@ -22,6 +23,9 @@ type Account struct {
 	SkipVerify  bool
 	Database    string // expanded when the account's root first arrives
 	MaxJoinRows int    // query.DefaultMaxJoinRows when zero
+	// SampleFields lets completion read a few items of this account's
+	// containers, when the session allows it too.
+	SampleFields bool
 }
 
 // Opener connects the saved account called name.
@@ -50,6 +54,10 @@ type accountEntry struct {
 	pane       panes.Catalog
 	info       panes.Info
 	scope      []string
+	// index is what completion offers for this account, and samples how far
+	// each of its containers' field samples has got.
+	index   *complete.Index
+	samples map[string]sampleState
 	// pendingDatabase is the database still to expand once the root arrives.
 	pendingDatabase string
 	// attempt is the number of the attempt connecting the account, which a
@@ -174,7 +182,12 @@ func (s accountSet) rows() []panes.AccountRow {
 
 // blankEntry is an account the session has not connected yet.
 func (m Model) blankEntry() accountEntry {
-	return accountEntry{pane: m.newCatalogPane(), info: m.newInfoPane()}
+	return accountEntry{
+		pane:    m.newCatalogPane(),
+		info:    m.newInfoPane(),
+		index:   complete.NewIndex(),
+		samples: map[string]sampleState{},
+	}
 }
 
 func (m Model) newInfoPane() panes.Info {
@@ -231,7 +244,7 @@ func (m Model) setActive(account string) (Model, tea.Cmd) {
 	}
 	entry, _ := m.accounts.get(account)
 	m.statusBar = m.statusBar.SetAccount(account).SetScope(entry.scope)
-	m = m.withManagement(entry.management).setFocus(m.focus)
+	m = m.closeSuggestions().withManagement(entry.management).setFocus(m.focus)
 	if !changed {
 		return m, nil
 	}
@@ -241,6 +254,7 @@ func (m Model) setActive(account string) (Model, tea.Cmd) {
 func (m Model) setScope(account string, scope []string) Model {
 	if entry, ok := m.accounts.get(account); ok {
 		entry.scope = scope
+		entry.index.SetScope(scope)
 		m.accounts.put(entry)
 	}
 	if account == m.accounts.active {
@@ -432,7 +446,9 @@ func (m Model) disconnectSelected() (Model, tea.Cmd) {
 	if m.runAccount == row.Name && entry.connected() {
 		m, abandon = m.abandonRun()
 	}
-	m.accounts.put(accountEntry{account: entry.account, pane: entry.pane.Forget(), info: m.newInfoPane()})
+	blank := m.blankEntry()
+	blank.account, blank.pane = entry.account, entry.pane.Forget()
+	m.accounts.put(blank)
 	m.accounts = m.accounts.forget(row.Name)
 	if m.accounts.active == row.Name {
 		m, follow = m.setActive(m.accounts.fallback())
@@ -473,6 +489,7 @@ func (m Model) attach(entry accountEntry, conn adapter.Connection) (Model, tea.C
 		entry.management = m.manage(conn)
 	}
 	entry.pendingDatabase = entry.account.Database
+	entry.index, entry.samples = complete.NewIndex(), map[string]sampleState{}
 	pane, fetch, tick := entry.pane.Forget().Reload()
 	entry.pane = pane
 	m.accounts.put(entry)

@@ -33,8 +33,8 @@ func TestSourcePaths(t *testing.T) {
 		{name: "three-part path", input: "SELECT * FROM staging.sales.customers c", want: [][]string{{"staging", "sales", "customers"}}},
 		{
 			name:  "source inside a subquery",
-			input: "SELECT * FROM (SELECT * FROM inner.things) outer",
-			want:  [][]string{{"inner", "things"}},
+			input: "SELECT * FROM (SELECT * FROM sub.things) outer",
+			want:  [][]string{{"sub", "things"}},
 		},
 		{name: "path inside a string literal", input: `SELECT * FROM c WHERE c.note = "FROM a.b.c"`, want: [][]string{{"c"}}},
 		{name: "no source", input: "SELECT 1"},

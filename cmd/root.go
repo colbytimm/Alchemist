@@ -76,10 +76,11 @@ func NewRootCmd(keyring config.Keyring) *cobra.Command {
 
 // sessionFlags configure one TUI session.
 type sessionFlags struct {
-	adapter string
-	ascii   bool
-	verbose bool
-	history bool
+	adapter      string
+	ascii        bool
+	verbose      bool
+	history      bool
+	sampleFields bool
 }
 
 func (s *sessionFlags) bind(flags *pflag.FlagSet) {
@@ -89,6 +90,8 @@ func (s *sessionFlags) bind(flags *pflag.FlagSet) {
 	flags.BoolVar(&s.verbose, "verbose", false, "log at debug level")
 	flags.BoolVar(&s.history, "history", true,
 		fmt.Sprintf("record every query run to %s in the state directory", history.FileName))
+	flags.BoolVar(&s.sampleFields, "sample-fields", true,
+		"let autocomplete read a few items of a container for its fields (spends request units)")
 }
 
 // run resolves what to connect to before touching the filesystem, so an
@@ -124,6 +127,7 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 			Form:         launch.form,
 			Logger:       logger,
 			History:      s.historyStore(logger, stateDir),
+			SampleFields: s.sampleFields,
 			Saved:        savedStore(logger),
 		}),
 		tea.WithAltScreen(),
@@ -148,7 +152,8 @@ func management(conn adapter.Connection) tui.Management {
 	admin, _ := conn.(adapter.CatalogAdmin)
 	throughput, _ := conn.(adapter.ThroughputEditor)
 	inspector, _ := conn.(adapter.Inspector)
-	return tui.Management{Admin: admin, Throughput: throughput, Inspector: inspector}
+	sampler, _ := conn.(adapter.FieldSampler)
+	return tui.Management{Admin: admin, Throughput: throughput, Inspector: inspector, Sampler: sampler}
 }
 
 // launch is what a session starts with: the accounts it knows, the one it
@@ -196,7 +201,7 @@ func adapterLaunch(ctx context.Context, name string, keyring config.Keyring) (la
 	// The trial connection only proved the adapter connects; the TUI opens
 	// its own, so how this one closes changes nothing.
 	_ = conn.Close()
-	session := launch{accounts: []tui.Account{{Name: name}}, name: name}
+	session := launch{accounts: []tui.Account{{Name: name, SampleFields: true}}, name: name}
 	store, err := config.DefaultStore()
 	if err != nil {
 		session.open = adapterOpener(name, nil)

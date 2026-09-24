@@ -14,8 +14,9 @@ It also queries across containers, which the service cannot: unions and two-cont
 joins are [simulated client-side](#querying-across-containers).
 
 > **Status: early development.** Browsing, querying, cross-container queries,
-> catalog management, profiles, history, saved queries, and export work today. Release builds are
-> still to come; the [implementation plan](docs/plan/00-overview.md) tracks them.
+> catalog management, autocomplete, profiles, history, saved queries, and export work today.
+> Release builds are still to come; the
+> [implementation plan](docs/plan/00-overview.md) tracks them.
 
 ## Getting started
 
@@ -83,12 +84,44 @@ the catalog and queries run against it, or name one in the query itself with
 | `h/←`, `l/→` | results | scroll left, scroll right |
 | `m` | results | fetch more |
 | `ctrl+e` | results | export to file |
+| `ctrl+space` | editor | complete |
+| `tab` | editor, list open | accept suggestion |
+| `↑/↓`, `esc` | editor, list open | choose, dismiss |
 | `r` | saved queries | rename |
 | `d`, then `y` | saved queries | delete |
 
 While the editor has the keyboard, plain letters are text; `ctrl+c` always quits.
-Once the editor loses focus it shows the query with keywords, strings, and numbers
-colored.
+Once the editor loses focus it shows the query with keywords, strings, numbers, and
+`--` comments colored.
+
+## Autocomplete
+
+Type in the editor and a list docks to the bottom of the pane with what can come
+next: clause keywords where a clause may open, Cosmos system functions with their
+signatures in an expression, databases after `FROM`, `JOIN`, or a list comma,
+containers after `db.`, and fields after `alias.`, nested paths included. Aliases
+resolve the way the planner reads them, so in a cross-container query each side
+completes its own container's fields, a union alias completes the fields of every
+listed container, and `JOIN t IN c.tags` completes `t.` from the array's elements.
+Nothing is offered that the planner would refuse: no outer join before `JOIN`, and no
+`ORDER BY`, `GROUP BY`, or `OFFSET` once a cross-container join is in the query.
+
+The list opens by itself after an identifier character or a dot, narrows as you type,
+and closes on whitespace. `tab` accepts the selected suggestion, `↑`/`↓` choose,
+`esc` dismisses it until the next word, and `enter` is always a newline. With the list
+closed `tab` moves panes as usual. `ctrl+space` opens the list on demand, even on an
+empty prefix; some terminals swallow it, and nothing depends on it. Keywords take the
+case you are typing in (`sel` → `select`); field names are inserted exactly as
+observed, in bracket form when they are not plain identifiers (`c["order-id"]`).
+
+Cosmos has no schema, so fields are what the session has seen: the partition key from
+the catalog, the fields of every page a query returned, and a sample. The first time a
+container's fields are completed, Alchemist runs `SELECT TOP 20 * FROM c` against it,
+once per container per session, and files what it finds. That spends a few request
+units you did not ask for, so the hint line says `sampling orders…` while it runs, the
+log records the charge, and it can be turned off with `sample_fields = false` on the
+[profile](#profiles) or `--sample-fields=false` for one session. A failed sample is
+logged and not retried; completion carries on with what it has.
 
 ## Querying across containers
 
@@ -223,6 +256,7 @@ insecure_skip_verify = true      # emulator self-signed cert only
 database = "sales"               # opened in the catalog on start
 page_size = 100
 max_join_rows = 5000             # cross-container joins; 10000 when unset
+sample_fields = false            # autocomplete never queries a container for its fields
 
 [profiles.prod]
 adapter = "cosmos"

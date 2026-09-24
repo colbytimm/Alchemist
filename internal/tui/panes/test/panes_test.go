@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
@@ -21,6 +22,10 @@ const (
 	paneHeight  = 12
 	statusWidth = 80
 )
+
+// accept is the binding the editor's suggestion list names for taking a
+// suggestion.
+var accept = key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "accept"))
 
 // TestMain pins a color profile. Without a TTY lipgloss renders everything
 // unstyled, which erases the focus and selection differences these tests exist
@@ -39,7 +44,7 @@ func plain(view string) string {
 
 func TestEditorAndResultsFillTheirFrames(t *testing.T) {
 	panels := map[string]string{
-		"editor":  panes.NewEditor().SetSize(paneWidth, paneHeight).View(),
+		"editor":  panes.NewEditor(accept).SetSize(paneWidth, paneHeight).View(),
 		"results": panes.NewResults().SetSize(paneWidth, paneHeight).View(),
 	}
 	for name, view := range panels {
@@ -51,8 +56,8 @@ func TestEditorAndResultsFillTheirFrames(t *testing.T) {
 }
 
 func TestFocusChangesThePaneBorder(t *testing.T) {
-	blurred := panes.NewEditor().SetSize(paneWidth, paneHeight).View()
-	focused := panes.NewEditor().SetSize(paneWidth, paneHeight).Focus().View()
+	blurred := panes.NewEditor(accept).SetSize(paneWidth, paneHeight).View()
+	focused := panes.NewEditor(accept).SetSize(paneWidth, paneHeight).Focus().View()
 
 	assert.NotEqual(t, blurred, focused, "focus must be visible in the border")
 	assert.Equal(t, lipgloss.Width(blurred), lipgloss.Width(focused))

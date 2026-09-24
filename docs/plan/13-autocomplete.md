@@ -332,13 +332,76 @@ of scalars, a field whose kind varies across documents, `null`, empty document.
 nested paths of the seed documents and a non-zero request charge.
 
 **Manual checklist:**
-- [ ] Against the emulator: complete a database, a container, and a nested field in one
-      query, then run it.
-- [ ] Against the seeded `sales` database: write the iteration 10 join example using
+- [x] Against the emulator: complete a database, a container, and a nested field in one
+      query, then run it. Driven through the model in
+      `test/integration/complete_test.go`, which is where the join example and the
+      `sample_fields = false` check live too.
+- [x] Against the seeded `sales` database: write the iteration 10 join example using
       completion for both containers, both aliases' fields, and `ON`; run it.
-- [ ] Typing at speed in a 200-line buffer stays responsive with the list open.
+- [x] Typing at speed in a 200-line buffer stays responsive with the list open.
+      `BenchmarkTypingWithTheListOpen` measures one keystroke narrowing an open list,
+      buffer redraw included, at about 10 ms.
 - [ ] `ctrl+space` behavior noted for Terminal.app, iTerm2, and one Linux terminal.
-- [ ] With `sample_fields = false` the log shows no sampling query.
+- [x] With `sample_fields = false` the log shows no sampling query.
+
+## As built
+
+Decisions the sections above left open, recorded once the code settled them:
+
+- **`Editor.Replace` rebuilds the buffer.** Of the two spike variants, `SetValue` with
+  the cursor walked back won: `CursorUp` until `Line()` reaches the target row, then
+  `SetCursor` at the rune column. It is a dozen lines, and passes the multi-line and
+  wide-rune cases; synthesizing backspace messages would have needed one message per
+  rune and a way to move the cursor to the range first. The textarea scrolls to its
+  cursor on the next key, as it already did after a history recall.
+- **The list shows as many rows as the buffer can spare, up to six.** The buffer keeps
+  two rows (`minBufferRows`); the one-line form appears only when not even one list row
+  fits above them. At the minimum terminal the editor's five inner rows hold two
+  suggestions and the hint line. `Suggest` returns every match ranked; the pane windows
+  them around the selection, so the hint's `2 of 14` counts everything that matched.
+- **A field's detail is its kind** (`string · partition key`, `object`, `array`), or
+  `field` when no item has shown it or items disagree. A union alias appends the
+  containers a field was seen in when it was not seen in all of them.
+- **Fields are sampled only after `alias.`.** An expression position lists the fields
+  already observed as `alias.field`, but does not spend request units until the user
+  has asked for a container's fields by name.
+- **The `c` shortcut is offered after `FROM` only.** When the catalog has a scope, the
+  first source position lists it after the databases as `c · scope · sales.orders`; a
+  list comma or `JOIN` lists databases alone.
+- **A run or a change of focus closes the list.** `ctrl+r` with the list open runs the
+  query and takes the list down, so the `tab` that follows moves panes.
+- **`sample_fields` is a `*bool`** so that an unset key means true; `--sample-fields`
+  on the root command can only turn it off for a session.
+- **The help overlay wraps its columns** onto a second row when the terminal is too
+  narrow for all four side by side, which the minimum terminal is.
+- **Comments color as hints.** `SpanComment` joins the span kinds, so a `--` comment is
+  dimmed in the blurred editor and its apostrophes no longer open a string. `INNER`
+  joined the keyword list too: completion offers it, so it has to color and to count
+  as a keyword when the context reads back over it.
+- **A name the user is inventing is never replaced.** Right after a source path, a
+  joined path, `JOIN x`, or a SELECT item, the word under the cursor may be an alias,
+  and `tab` on an auto-opened list would have overwritten it with `ORDER BY` or `AS`.
+  Those positions offer nothing while a word is being typed; the keywords come back
+  after a space. Directly after `JOIN` the word is taken for a database, as the table
+  says, which a one-letter `JOIN t IN` alias can still collide with.
+- **A number opens no list.** The list auto-opens only at the end of an identifier or
+  a dot, so a `tab` after `= 1` moves panes rather than gluing `AND` to the number.
+- **Only whole items are observed.** A page is filed as fields of its container only
+  when its leaf query is `SELECT [TOP n] * FROM …`; a projection names what the query
+  made of the items, not what they hold. A join side is the exception the plan makes,
+  minus any column an `AS` renamed. `Plan.LeafItems` undoes the union tag and the
+  join pairing in `query`, beside the code that applies them.
+- **The tree's failures and loads are respected.** Completion asks for a database's
+  containers through `Catalog.LoadPath`, which asks nothing for a node the tree has
+  listed, is listing, or has a failure on record for, so a failing listing is not
+  retried on every keystroke; the hint says `loading …` only while a request is out.
+- **A dismissal ends when the cursor leaves the token**, and covers only the word it
+  was typed against, so a new word at an old offset opens again.
+- **A refresh keeps the selection.** A sample or a listing landing while the list is
+  open re-ranks the rows but stays on the one chosen, when it is still there.
+- **Sample state follows the catalog.** A container the tree drops loses its sample
+  record with its fields, so a container recreated under the same name is sampled
+  afresh and a sample landing after the delete is discarded.
 
 ## Acceptance criteria
 

@@ -5,6 +5,7 @@ package cosmos_test
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -117,9 +118,10 @@ func seedFixture(t *testing.T, client *azcosmos.Client) {
 	for i := 0; i < seedCount; i++ {
 		pk := fmt.Sprintf("pk-%d", i%3)
 		item, err := json.Marshal(map[string]any{
-			"id": fmt.Sprintf("item-%03d", i),
-			"pk": pk,
-			"n":  i,
+			"id":   fmt.Sprintf("item-%03d", i),
+			"pk":   pk,
+			"n":    i,
+			"meta": map[string]any{"batch": i % 2, "tags": []string{"seed"}},
 		})
 		require.NoError(t, err)
 		_, err = container.CreateItem(ctx, azcosmos.NewPartitionKeyString(pk), item, nil)
@@ -264,6 +266,24 @@ func TestIntegration(t *testing.T) {
 			Text: `SELECT * FROM c WHERE c.pk = "pk-1"`, Scope: []string{itDatabase, itContainer}, PageSize: 10,
 		})
 		assert.Equal(t, itemsInPartition(1), total, "only the pinned partition's items")
+	})
+
+	t.Run("sample fields", func(t *testing.T) {
+		sampler, ok := conn.(adapter.FieldSampler)
+		require.True(t, ok, "the cosmos connection samples fields")
+
+		sample, err := sampler.SampleFields(context.Background(), adapter.Node{
+			Kind: adapter.NodeContainer, Name: itContainer, Path: []string{itDatabase, itContainer},
+		})
+		require.NoError(t, err)
+
+		paths := make([]string, 0, len(sample.Fields))
+		for _, field := range sample.Fields {
+			paths = append(paths, field.Path)
+		}
+		assert.Subset(t, paths, []string{"id", "pk", "n", "meta", "meta.batch", "meta.tags", "meta.tags[]", "_ts"})
+		assert.Greater(t, sample.Stats.RequestCharge, 0.0)
+		assert.LessOrEqual(t, sample.Stats.RowCount, 20)
 	})
 
 	t.Run("bad sql returns service error", func(t *testing.T) {
@@ -436,6 +456,50 @@ func TestIntegrationInspectCountsSeededDocuments(t *testing.T) {
 	assert.Equal(t, strconv.Itoa(seedCount), documents)
 }
 
+// createWithOwnOffer creates spec's container so that its offer is not its
+// database's. The vNext emulator numbers databases and containers from separate
+// counters and keys offers by that number, so a container that draws its
+// database's number takes over the database's offer. Containers with no
+// throughput of their own draw numbers harmlessly, so they advance the counter
+// past the database's first.
+func createWithOwnOffer(t *testing.T, admin adapter.CatalogAdmin, spec adapter.ContainerSpec) {
+	t.Helper()
+	database, err := seedClient(t).NewDatabase(spec.Database)
+	require.NoError(t, err)
+	read, err := database.Read(context.Background(), nil)
+	require.NoError(t, err)
+	if databaseNumber, ok := emulatorNumber(read.DatabaseProperties.ResourceID); ok {
+		drawContainerNumbersThrough(t, admin, database, databaseNumber)
+	}
+	require.NoError(t, admin.CreateContainer(context.Background(), spec))
+}
+
+func drawContainerNumbersThrough(t *testing.T, admin adapter.CatalogAdmin, database *azcosmos.DatabaseClient, last int) {
+	t.Helper()
+	for i := 0; ; i++ {
+		spacer := adapter.ContainerSpec{Database: database.ID(), Name: fmt.Sprintf("spacer_%d", i), PartitionKeys: []string{"/id"}}
+		require.NoError(t, admin.CreateContainer(context.Background(), spacer))
+		container, err := database.NewContainer(spacer.Name)
+		require.NoError(t, err)
+		read, err := container.Read(context.Background(), nil)
+		require.NoError(t, err)
+		if drawn, ok := emulatorNumber(read.ContainerProperties.ResourceID); !ok || drawn >= last {
+			return
+		}
+	}
+}
+
+// emulatorNumber reads a vNext emulator resource id, the base64 of a
+// zero-padded decimal; ok is false for any other account's ids.
+func emulatorNumber(resourceID string) (int, bool) {
+	decoded, err := base64.StdEncoding.DecodeString(resourceID)
+	if err != nil {
+		return 0, false
+	}
+	number, err := strconv.Atoi(string(decoded))
+	return number, err == nil
+}
+
 func catalogAdmin(t *testing.T, conn adapter.Connection) adapter.CatalogAdmin {
 	t.Helper()
 	admin, ok := conn.(adapter.CatalogAdmin)
@@ -503,12 +567,12 @@ func TestIntegrationCatalogManagement(t *testing.T) {
 	require.Contains(t, rootNames(t, conn), itManagedDatabase)
 
 	manual := adapter.Throughput{Mode: adapter.ThroughputManual, RUs: 400}
-	require.NoError(t, admin.CreateContainer(ctx, adapter.ContainerSpec{
+	createWithOwnOffer(t, admin, adapter.ContainerSpec{
 		Database:      itManagedDatabase,
 		Name:          itDedicated,
 		PartitionKeys: []string{"/tenantId", "/customerId"},
 		Throughput:    manual,
-	}))
+	})
 	require.NoError(t, admin.CreateContainer(ctx, adapter.ContainerSpec{
 		Database:      itManagedDatabase,
 		Name:          itShared,

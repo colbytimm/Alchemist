@@ -165,6 +165,29 @@ func (c Catalog) Reload() (Catalog, Fetch, tea.Cmd) {
 	return c.RefreshPath(nil)
 }
 
+// LoadPath asks for the children of the node at path unless the tree holds
+// them, has asked already, or has a failure on record for them, so a caller
+// outside the tree gets them into the tree's own cache with no second request
+// and no retry loop. An unknown path asks for nothing.
+func (c Catalog) LoadPath(path []string) (Catalog, Fetch, tea.Cmd) {
+	node, ok := c.nodeAt(path)
+	if !ok || len(path) == 0 || c.failures[pathKey(path)] != nil {
+		return c, Fetch{}, nil
+	}
+	return c.fetch(node)
+}
+
+// Loading reports whether a request for the children of path is in flight.
+func (c Catalog) Loading(path []string) bool {
+	return c.loading[pathKey(path)]
+}
+
+// Expects reports whether token is the request for parent the pane is
+// waiting on, which is what SetChildren would accept.
+func (c Catalog) Expects(parent []string, token Token) bool {
+	return token == c.tokens[pathKey(parent)]
+}
+
 // Forget drops everything the tree holds and supersedes every request in
 // flight, so no response to one made before can land in what comes after.
 func (c Catalog) Forget() Catalog {

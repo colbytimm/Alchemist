@@ -110,16 +110,21 @@ type Options struct {
 	Form         panes.ConnectForm // first run only: no account exists yet
 	Logger       *log.Logger
 	History      history.Store
+	// SampleFields lets completion read a few items of a container it has not
+	// seen queried, for every account whose profile allows it.
+	SampleFields bool
 	Saved        saved.Store // nil keeps nothing and says why on save
 }
 
 // Management is what a session may do with the catalog beyond browsing it:
-// change it, and read the metadata behind one node. A nil field is a backend
-// that cannot do that, and its bindings are removed.
+// change it, read the metadata behind one node, and look at a container's
+// items for their fields. A nil field is a backend that cannot do that, and
+// its bindings are removed.
 type Management struct {
 	Admin      adapter.CatalogAdmin
 	Throughput adapter.ThroughputEditor
 	Inspector  adapter.Inspector
+	Sampler    adapter.FieldSampler
 }
 
 // Manager reports what a connection allows. cmd/ supplies it: every type
@@ -172,11 +177,21 @@ type Model struct {
 	runAccount string
 	state      runState
 	run        runID
+	plan       query.Plan
 	pageCursor adapter.Cursor
 	cancel     context.CancelFunc
 	stats      adapter.Stats
 	// simulated marks a run merged client-side from several containers.
 	simulated bool
+
+	// sampleFields is the session's switch for field samples, which each
+	// account's profile may turn off for that account alone.
+	sampleFields bool
+	// completing marks a list wanted at the cursor, computed for
+	// completion; dismissed is the token the user closed it on.
+	completing bool
+	completion query.Completion
+	dismissed  dismissal
 	// historyEntry is the record of the current run, appended to the log
 	// once the run has settled one way or the other.
 	historyEntry history.Entry
@@ -225,7 +240,7 @@ func New(opts Options) Model {
 		connectPane:   panes.NewConnect(opts.Icons, opts.Form),
 		accountsPane:  panes.NewAccounts(opts.Icons, append([]key.Binding{keys.Filter}, keys.AccountsKeys()...)),
 		noAccountPane: panes.NewCatalog(opts.Icons).SetError(nil, errNoAccount, 0),
-		editor:        panes.NewEditor(),
+		editor:        panes.NewEditor(keys.Accept),
 		results:       panes.NewResults(),
 		detail:        panes.NewDetail(),
 		historyPane:   panes.NewHistory(opts.Icons, append(keys.HistoryKeys(), keys.SaveQuery)),
@@ -236,6 +251,7 @@ func New(opts Options) Model {
 		statusBar:    panes.NewStatusBar(opts.Icons, ""),
 		help:         panes.NewHelp(keys.HelpSections()),
 		formAttempts: map[string]int{},
+		sampleFields: opts.SampleFields,
 	}
 	m.accounts = newAccountSet(opts.Accounts, m.blankEntry)
 	if opts.Launch == "" {
@@ -271,6 +287,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	case CatalogLoadedMsg:
 		return m.applyCatalog(msg)
+	case FieldsSampledMsg:
+		return m.fileSample(msg)
 	case CatalogChangedMsg:
 		return m.applyChange(msg)
 	case ThroughputReadMsg:
@@ -378,7 +396,7 @@ func (m Model) handleErr(msg ErrMsg) (Model, tea.Cmd) {
 	case OpConnect:
 		return m.failConnection(msg)
 	case OpCatalogRoot, OpCatalogChildren:
-		return m.failCatalog(msg), nil
+		return m.failCatalog(msg).refreshSuggestions()
 	}
 	m.logger.Error("operation failed", "op", msg.Op, "error", msg.Err)
 	switch msg.Op {
@@ -402,6 +420,8 @@ func (m Model) handleErr(msg ErrMsg) (Model, tea.Cmd) {
 		return m.failThroughputRead(msg), nil
 	case OpInspect:
 		return m.failInspect(msg), nil
+	case OpSampleFields:
+		return m.failSample(msg)
 	}
 	return m, nil
 }
@@ -411,11 +431,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleOverlayKey(msg)
 	}
 	if m.focus == focusEditor && typesIntoBuffer(msg) {
-		return m.editorUpdate(msg)
+		return m.editorEdit(msg)
+	}
+	if m.focus == focusEditor && m.editor.Suggesting() {
+		if model, handled := m.handleSuggestionKey(msg); handled {
+			return model, nil
+		}
 	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		return m.quit()
+	case m.focus == focusEditor && key.Matches(msg, m.keys.Complete):
+		return m.openSuggestions()
 	case key.Matches(msg, m.keys.Help):
 		m.overlay = overlayHelp
 		return m, nil
@@ -530,7 +557,7 @@ func (m Model) handleEditorKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if key.Matches(msg, m.keys.Close) {
 		return m.setFocus(m.previousFocus), nil
 	}
-	return m.editorUpdate(msg)
+	return m.editorEdit(msg)
 }
 
 func (m Model) handleResultsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -578,9 +605,10 @@ func (m Model) openDetail() Model {
 }
 
 // startRun replaces whatever is on screen with a fresh run of the editor
-// buffer. A refusal to run is reported the same way a service error is.
+// buffer, and takes down a completion list the buffer has outrun. A refusal
+// to run is reported the same way a service error is.
 func (m Model) startRun() (Model, tea.Cmd) {
-	m = m.endRun()
+	m = m.closeSuggestions().endRun()
 	m.run++
 	m.stats = adapter.Stats{}
 	m.simulated = false
@@ -596,6 +624,7 @@ func (m Model) startRun() (Model, tea.Cmd) {
 		return m.refuseRun(err)
 	}
 	m.simulated = plan.Simulated()
+	m.plan = plan
 	m.historyEntry = m.newHistoryEntry(plan.Scope())
 	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 	m.cancel = cancel
@@ -660,6 +689,7 @@ func (m Model) loadPage(msg PageLoadedMsg) (Model, tea.Cmd) {
 	}
 	m.stats = msg.Page.Stats
 	m.results = m.results.Load(msg.Page)
+	m.observePage(msg.Page)
 	model, cmd := m.acceptPage(msg.cursor)
 	return model, tea.Batch(cmd, model.recordSuccess(msg.Page.Stats))
 }
@@ -671,6 +701,7 @@ func (m Model) appendPage(msg PageAppendedMsg) (Model, tea.Cmd) {
 	}
 	m.stats = totalStats(m.stats, msg.Page.Stats)
 	m.results = m.results.Append(msg.Page)
+	m.observePage(msg.Page)
 	return m.acceptPage(msg.cursor)
 }
 
@@ -808,12 +839,19 @@ func (m Model) applyCatalog(msg CatalogLoadedMsg) (Model, tea.Cmd) {
 	if !ok || !entry.connected() {
 		return m, nil
 	}
+	if !entry.pane.Expects(msg.Parent, msg.Token) {
+		return m, nil
+	}
 	entry.pane = entry.pane.SetChildren(msg.Parent, msg.Nodes, msg.Token)
 	m.accounts.put(entry)
+	m, refresh := m.fileCatalog(entry, msg)
+	var cmd tea.Cmd
 	if len(msg.Parent) == 0 && entry.pendingDatabase != "" {
-		return m.openDefaultDatabase(entry, msg.Nodes)
+		m, cmd = m.openDefaultDatabase(entry, msg.Nodes)
+	} else {
+		m, cmd = m.prefetch(msg.Account)
 	}
-	return m.prefetch(msg.Account)
+	return m, tea.Batch(refresh, cmd)
 }
 
 func (m Model) failCatalog(msg ErrMsg) Model {
@@ -925,6 +963,7 @@ func (m Model) setFocus(f focus) Model {
 		m.previousFocus = m.focus
 	}
 	m.focus = f
+	m = m.closeSuggestions()
 	m = m.setCatalogPane(m.catalogPane().Blur())
 	m.editor = m.editor.Blur()
 	m.results = m.results.Blur()

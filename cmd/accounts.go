@@ -38,11 +38,12 @@ func accounts(cfg config.Config) []tui.Account {
 
 func account(profile config.Profile) tui.Account {
 	return tui.Account{
-		Name:        profile.Name,
-		Endpoint:    profile.Endpoint,
-		SkipVerify:  profile.InsecureSkipVerify,
-		Database:    profile.Database,
-		MaxJoinRows: profile.MaxJoinRows,
+		Name:         profile.Name,
+		Endpoint:     profile.Endpoint,
+		SkipVerify:   profile.InsecureSkipVerify,
+		Database:     profile.Database,
+		MaxJoinRows:  profile.MaxJoinRows,
+		SampleFields: profile.SamplesFields(),
 	}
 }
 

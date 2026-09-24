@@ -55,6 +55,17 @@ type JoinColumn struct {
 	As    string // the name `AS` gave it, if any
 }
 
+// WholeItems reports whether the leaf's rows are items as stored, which a
+// SELECT list other than * projects into something else.
+func (l Leaf) WholeItems() bool {
+	toks := code(lex(l.Query.Text))
+	i := 1
+	if keywordAt(toks, i, "TOP") {
+		i += 2
+	}
+	return keywordAt(toks, 0, "SELECT") && i < len(toks) && isSymbol(toks[i], "*") && keywordAt(toks, i+1, "FROM")
+}
+
 // Simulated reports whether the plan is merged client-side rather than run
 // as-is by the service.
 func (p Plan) Simulated() bool {

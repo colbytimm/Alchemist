@@ -31,8 +31,8 @@ func TestAccountsListsEveryProfileInOrder(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []tui.Account{
-		{Name: "emulator", Endpoint: "https://localhost:8081", SkipVerify: true},
-		{Name: "staging", Endpoint: "https://localhost:8081"},
+		{Name: "emulator", Endpoint: "https://localhost:8081", SkipVerify: true, SampleFields: true},
+		{Name: "staging", Endpoint: "https://localhost:8081", SampleFields: true},
 	}, accounts)
 }
 
@@ -89,7 +89,7 @@ func TestConnectCompletesAProfileWithNoKey(t *testing.T) {
 	assert.Equal(t, "typed-key", h.keyring.secrets["dev"])
 	accounts, err := h.profiles(t).Accounts()
 	require.NoError(t, err)
-	assert.Equal(t, []tui.Account{{Name: "dev", Endpoint: "https://elsewhere"}}, accounts)
+	assert.Equal(t, []tui.Account{{Name: "dev", Endpoint: "https://elsewhere", SampleFields: true}}, accounts)
 }
 
 func TestConnectAddsAnyOtherNameOnlyOnceItConnects(t *testing.T) {

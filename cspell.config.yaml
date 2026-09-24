@@ -41,6 +41,13 @@ words:
   - partitionkey
   - populatequerymetrics
   - STARTSWITH
+  - ENDSWITH
+  - STRINGEQUALS
+  - REGEXMATCH
+  - ISVALID
+  - ISVALIDDETAILED
+  - LTRIM
+  - RTRIM
   - upserts
   - vnext
   # Go tooling and linters
@@ -106,7 +113,11 @@ words:
   - lintable
   - misparse
   - parallelizable
+  - unaliased
+  - undocked
+  - unpair
   - unpunctuated
+  - unrequested
   - unwritable
   - uppercased
 
@@ -115,6 +126,14 @@ ignoreWords:
   - SELEC
   # Truncated pane label inside an ASCII mockup.
   - custome
+  # Words typed part-way in the autocomplete tests, and the fixture they name.
+  - SELE
+  - STARTSW
+  - CUSTOMERI
+  - stomer
+  - cust
+  - zcomp
+  - zcomplete
 
 import: []
 

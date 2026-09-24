@@ -110,11 +110,14 @@ func newProfileAddCmd(keyring config.Keyring) *cobra.Command {
 
 // addFlags are the inputs of profile add.
 type addFlags struct {
-	profile     config.Profile
-	makeDefault bool
+	profile      config.Profile
+	makeDefault  bool
+	sampleFields bool
 }
 
 func (a *addFlags) bind(flags *pflag.FlagSet) {
+	flags.BoolVar(&a.sampleFields, "sample-fields", true,
+		"let autocomplete read a few items of a container for its fields (spends request units)")
 	flags.StringVar(&a.profile.Adapter, "adapter", cosmos.Name, "adapter the profile connects with")
 	flags.StringVar(&a.profile.Endpoint, "endpoint", "", "account endpoint URL")
 	flags.BoolVar(&a.profile.InsecureSkipVerify, "insecure-skip-verify", false,
@@ -131,6 +134,9 @@ func (a *addFlags) bind(flags *pflag.FlagSet) {
 func (a addFlags) run(cmd *cobra.Command, keyring config.Keyring) error {
 	if _, err := adapter.Get(a.profile.Adapter); err != nil {
 		return err
+	}
+	if !a.sampleFields {
+		a.profile.SampleFields = &a.sampleFields
 	}
 	store, cfg, err := loadConfig()
 	if err != nil {

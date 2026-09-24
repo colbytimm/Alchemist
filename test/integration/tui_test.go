@@ -171,7 +171,7 @@ func newModel(t *testing.T, conn adapter.Connection) tea.Model {
 func newSession(t *testing.T, conn adapter.Connection, opts tui.Options) tea.Model {
 	t.Helper()
 	opts.Icons = theme.Icons()
-	opts.Accounts = []tui.Account{{Name: cosmos.Name}}
+	opts.Accounts = []tui.Account{{Name: cosmos.Name, SampleFields: true}}
 	opts.Launch = cosmos.Name
 	opts.Open = func(context.Context, string) (adapter.Connection, error) { return conn, nil }
 	m := tui.New(opts)

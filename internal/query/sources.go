@@ -5,11 +5,7 @@ func SourcePaths(text string) [][]string {
 	p := parse(text)
 	var paths [][]string
 	for _, s := range p.sources {
-		path := make([]string, 0, len(s.path))
-		for _, part := range s.path {
-			path = append(path, part.text)
-		}
-		paths = append(paths, path)
+		paths = append(paths, pathText(s.path))
 	}
 	return paths
 }

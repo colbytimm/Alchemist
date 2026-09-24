@@ -48,29 +48,34 @@ func plain(view string) string {
 // (closed), how often it was pinged and closed itself (closes),
 // and — by keeping the contexts it was handed, which only a recorder has any
 // business doing — whether a replaced run was cancelled. failRoot, failQuery,
-// failPage and failPing fail that many calls before the fixture answers, which is how
-// a test gets a failure the next attempt recovers from. Management calls pass
+// failPage and failPing fail that many calls before the fixture answers,
+// which is how a test gets a failure the next attempt recovers from;
+// failChildren does the same for every child listing. Management calls pass
 // straight through to the mock, keeping the specs so a test can see what the
-// dialogs assembled, and inspections keep the path they were asked about.
+// dialogs assembled, and inspections and field samples keep the path they
+// were asked about.
 type recordingConnection struct {
-	inner      adapter.Connection
-	admin      adapter.CatalogAdmin
-	editor     adapter.ThroughputEditor
-	inspector  adapter.Inspector
-	calls      map[string]int
-	queries    []adapter.Query
-	contexts   []context.Context
-	containers []adapter.ContainerSpec
-	provisions []adapter.Throughput
-	inspected  [][]string
-	pageReads  int
-	failRoot   int
-	failQuery  int
-	failPage   int
-	failPing   int
-	pings      int
-	closed     int
-	closes     int
+	inner        adapter.Connection
+	admin        adapter.CatalogAdmin
+	editor       adapter.ThroughputEditor
+	inspector    adapter.Inspector
+	sampler      adapter.FieldSampler
+	calls        map[string]int
+	queries      []adapter.Query
+	contexts     []context.Context
+	containers   []adapter.ContainerSpec
+	provisions   []adapter.Throughput
+	inspected    [][]string
+	sampled      [][]string
+	pageReads    int
+	failRoot     int
+	failChildren int
+	failQuery    int
+	failPage     int
+	failPing     int
+	pings        int
+	closed       int
+	closes       int
 }
 
 func newConnection(t *testing.T, opts ...mock.Option) *recordingConnection {
@@ -82,12 +87,18 @@ func newConnection(t *testing.T, opts ...mock.Option) *recordingConnection {
 	conn.admin, _ = inner.(adapter.CatalogAdmin)
 	conn.editor, _ = inner.(adapter.ThroughputEditor)
 	conn.inspector, _ = inner.(adapter.Inspector)
+	conn.sampler, _ = inner.(adapter.FieldSampler)
 	return conn
 }
 
 func (c *recordingConnection) Inspect(ctx context.Context, n adapter.Node) (adapter.Details, error) {
 	c.inspected = append(c.inspected, n.Path)
 	return c.inspector.Inspect(ctx, n)
+}
+
+func (c *recordingConnection) SampleFields(ctx context.Context, n adapter.Node) (adapter.FieldSample, error) {
+	c.sampled = append(c.sampled, n.Path)
+	return c.sampler.SampleFields(ctx, n)
 }
 
 func (c *recordingConnection) CreateDatabase(ctx context.Context, spec adapter.DatabaseSpec) error {
@@ -129,6 +140,10 @@ func (c *recordingConnection) Root(ctx context.Context) ([]adapter.Node, error) 
 
 func (c *recordingConnection) Children(ctx context.Context, n adapter.Node) ([]adapter.Node, error) {
 	c.calls[n.Name]++
+	if c.failChildren > 0 {
+		c.failChildren--
+		return nil, errors.New("container list unreachable")
+	}
 	return c.inner.Catalog().Children(ctx, n)
 }
 
@@ -186,14 +201,16 @@ func managed(conn adapter.Connection) tui.Management {
 	admin, _ := conn.(adapter.CatalogAdmin)
 	throughput, _ := conn.(adapter.ThroughputEditor)
 	inspector, _ := conn.(adapter.Inspector)
-	return tui.Management{Admin: admin, Throughput: throughput, Inspector: inspector}
+	sampler, _ := conn.(adapter.FieldSampler)
+	return tui.Management{Admin: admin, Throughput: throughput, Inspector: inspector, Sampler: sampler}
 }
 
 // newModel builds a model sized to the minimum supported terminal, managing
-// whatever its connection allows.
+// whatever its connection allows and sampling fields, as a profile does by
+// default.
 func newModel(t *testing.T, connection adapter.Connection) tea.Model {
 	t.Helper()
-	return newModelWith(t, connection, tui.Options{Manage: managed})
+	return newModelWith(t, connection, tui.Options{Manage: managed, SampleFields: true})
 }
 
 // newModelWith builds a model from opts, sized to the minimum supported
@@ -203,7 +220,7 @@ func newModelWith(t *testing.T, connection adapter.Connection, opts tui.Options)
 	t.Helper()
 	opts.Icons = theme.Icons()
 	if len(opts.Accounts) == 0 {
-		opts.Accounts = []tui.Account{{Name: mock.Name}}
+		opts.Accounts = []tui.Account{{Name: mock.Name, SampleFields: true}}
 	}
 	opts.Launch = opts.Accounts[0].Name
 	opts.Open = func(context.Context, string) (adapter.Connection, error) { return connection, nil }

@@ -23,6 +23,7 @@ const (
 	OpReadThroughput  = "read throughput"
 	OpSetThroughput   = "set throughput"
 	OpInspect         = "inspect"
+	OpSampleFields    = "sample fields"
 	OpSavedList       = "saved queries"
 	OpSavedReload     = "reload saved queries"
 	OpSaveQuery       = "save query"
@@ -74,6 +75,14 @@ type DetailsLoadedMsg struct {
 	Details adapter.Details
 	// attempt is the connection of Account the details were read on.
 	attempt int
+}
+
+// FieldsSampledMsg delivers what one look at the container at Path in
+// Account found.
+type FieldsSampledMsg struct {
+	Account string
+	Path    []string
+	Sample  adapter.FieldSample
 }
 
 // ScopeChangedMsg announces the container queries on Account should target

@@ -502,8 +502,8 @@ History is scoped to the account the session is on. `ctrl+o` lists the entries w
 - **15, saved queries.** Builds on "Contract for iteration 15", including its table of
   what moved.
 
-11 and 12 landed before this iteration, so their messages carry the account (see
-"Implementation notes"); 13 has not landed. Whichever lands after this iteration adopts the account field from
+11, 12 and 13 landed before this iteration, so their messages carry the account (see
+"Implementation notes"). Whichever lands after this iteration adopts the account field from
 the start.
 
 ## Steps
@@ -725,3 +725,9 @@ Landed. Where the code settled differently from the text above:
 - Iteration 12 had landed too: `Inspector` travels in the per-account `Management`,
   each account keeps its own `panes.Info` (so its cache is keyed by account and path),
   and `DetailsLoadedMsg` and `OpInspect` failures carry the account.
+- Iteration 13 had landed too: each account keeps its own `complete.Index` and field
+  samples, made anew on every connect. Suggestions come from the active account's
+  index, pages feed the index of `runAccount`, and catalog responses and
+  `FieldsSampledMsg` feed the account they carry. `Account.SampleFields` is the
+  profile's `sample_fields`; `Options.SampleFields`, the `--sample-fields` flag, still
+  turns sampling off for the whole session. A switch closes an open suggestion list.

@@ -883,3 +883,25 @@ func TestInfoReadOnAClosedConnectionIsDroppedAfterAReconnect(t *testing.T) {
 
 	assert.Len(t, o.last("prod").inspected, 1, "the new connection reads the node itself")
 }
+
+func TestEachAccountCompletesFromWhatItHasSeen(t *testing.T) {
+	o := newOpener(t)
+	accounts := fixtureAccounts()
+	for i := range accounts {
+		accounts[i].SampleFields = true
+	}
+	m, _ := tui.New(tui.Options{
+		Icons: theme.Icons(), Accounts: accounts, Launch: "prod", Open: o.open, Manage: managed, SampleFields: true,
+	}).Update(tea.WindowSizeMsg{Width: testWidth, Height: testHeight})
+	m, _ = settle(m, m.Init())
+	fieldsOnOrders := func(m tea.Model) tea.Model {
+		return pressAll(t, m, keyRune('e'), keyMsg(tea.KeyCtrlU), keyText("SELECT * FROM sales.orders o WHERE o."))
+	}
+
+	m = fieldsOnOrders(m)
+	require.Len(t, o.last("prod").sampled, 1)
+	fieldsOnOrders(switchTo(t, m, "staging"))
+
+	assert.Len(t, o.last("staging").sampled, 1, "staging samples its own orders, not reusing prod's")
+	assert.Len(t, o.last("prod").sampled, 1)
+}
