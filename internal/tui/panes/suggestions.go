@@ -56,10 +56,17 @@ func (s Suggestions) Open() bool {
 	return len(s.items) > 0 || s.note != ""
 }
 
-// Set replaces the rows and the note. The selection stays on the row it was
-// on when that row is still listed, since a refresh the user did not ask for
-// must not move it; otherwise it returns to the first row.
+// Set replaces the rows and the note, selecting the first row: the best
+// match for what was typed.
 func (s Suggestions) Set(items []complete.Suggestion, note string) Suggestions {
+	s.items, s.note, s.cursor = items, note, 0
+	return s
+}
+
+// Refresh replaces the rows and the note without moving a selection the
+// user made, when its row is still listed. It is for rows that arrive on
+// their own, since a fetch landing must not change what tab would insert.
+func (s Suggestions) Refresh(items []complete.Suggestion, note string) Suggestions {
 	selected, _ := s.Selected()
 	s.items, s.note = items, note
 	s.cursor = max(slices.IndexFunc(items, func(item complete.Suggestion) bool { return item.Text == selected.Text }), 0)

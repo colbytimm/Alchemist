@@ -126,11 +126,14 @@ ignoreWords:
   - SELEC
   # Truncated pane label inside an ASCII mockup.
   - custome
-  # Words typed part-way in the autocomplete tests.
+  # Words typed part-way in the autocomplete tests, and the fixture they name.
   - SELE
   - STARTSW
   - CUSTOMERI
   - stomer
+  - cust
+  - zcomp
+  - zcomplete
 
 import: []
 
