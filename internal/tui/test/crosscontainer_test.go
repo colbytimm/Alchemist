@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/adapter/mock"
 	"github.com/colbytimm/alchemist/internal/tui"
 )
 
@@ -17,9 +19,9 @@ const (
 
 // newWideModel is sized so the status bar has room for every field of a
 // simulated run.
-func newWideModel(t *testing.T, opts tui.Options) tea.Model {
+func newWideModel(t *testing.T, conn adapter.Connection, opts tui.Options) tea.Model {
 	t.Helper()
-	m, _ := newModelWith(t, opts).Update(tea.WindowSizeMsg{Width: 3 * testWidth, Height: testHeight})
+	m, _ := newModelWith(t, conn, opts).Update(tea.WindowSizeMsg{Width: 3 * testWidth, Height: testHeight})
 	model, _ := settle(m, m.Init())
 	return model
 }
@@ -27,7 +29,7 @@ func newWideModel(t *testing.T, opts tui.Options) tea.Model {
 func TestAContainerListRunsAgainstEachContainerAndTagsTheRows(t *testing.T) {
 	conn := newConnection(t)
 
-	m := runQuery(t, newWideModel(t, tui.Options{Connection: conn}), "SELECT * FROM sales.orders, sales.customers")
+	m := runQuery(t, newWideModel(t, conn, tui.Options{}), "SELECT * FROM sales.orders, sales.customers")
 
 	view := m.View()
 	assert.Contains(t, view, "_container")
@@ -39,7 +41,7 @@ func TestAContainerListRunsAgainstEachContainerAndTagsTheRows(t *testing.T) {
 
 func TestFetchingMoreOfAUnionCrossesIntoTheNextContainer(t *testing.T) {
 	conn := newConnection(t)
-	m := runQuery(t, newWideModel(t, tui.Options{Connection: conn}), "SELECT * FROM sales.orders, sales.customers")
+	m := runQuery(t, newWideModel(t, conn, tui.Options{}), "SELECT * FROM sales.orders, sales.customers")
 
 	m = pressAll(t, focusResults(t, m), keyRune('m'), keyRune('m'), keyRune('m'))
 
@@ -50,7 +52,7 @@ func TestFetchingMoreOfAUnionCrossesIntoTheNextContainer(t *testing.T) {
 }
 
 func TestAJoinReportsTheSummedChargeOfBothContainers(t *testing.T) {
-	m := runQuery(t, newWideModel(t, tui.Options{Connection: newConnection(t)}), mockJoin)
+	m := runQuery(t, newWideModel(t, newConnection(t), tui.Options{}), mockJoin)
 
 	view := m.View()
 	assert.Contains(t, view, "o.id")
@@ -63,7 +65,7 @@ func TestAJoinReportsTheSummedChargeOfBothContainers(t *testing.T) {
 func TestAJoinOverTheRowCapFailsWithTheFixAndRendersNothing(t *testing.T) {
 	conn := newConnection(t)
 
-	m := runQuery(t, newWideModel(t, tui.Options{Connection: conn, MaxJoinRows: 5}), mockJoin)
+	m := runQuery(t, newWideModel(t, conn, tui.Options{Accounts: []tui.Account{{Name: mock.Name, MaxJoinRows: 5}}}), mockJoin)
 
 	view := plain(m.View())
 	assert.Contains(t, view, "WHERE filter")
@@ -72,7 +74,7 @@ func TestAJoinOverTheRowCapFailsWithTheFixAndRendersNothing(t *testing.T) {
 }
 
 func TestASingleContainerRunClearsTheSimulatedBadge(t *testing.T) {
-	m := runQuery(t, newWideModel(t, tui.Options{Connection: newConnection(t)}), mockJoin)
+	m := runQuery(t, newWideModel(t, newConnection(t), tui.Options{}), mockJoin)
 
 	m = runAnother(t, m, "SELECT * FROM sales.orders")
 

@@ -27,7 +27,8 @@ endpoint = "https://myaccount.documents.azure.com:443/"
 **No secrets in TOML.** Key resolution order for profile `<name>`:
 1. OS keychain via `zalando/go-keyring` — service `alchemist`, account `<name>`.
 2. Env var `ALCHEMIST_<NAME>_KEY` (name upper-cased, dashes → underscores);
-   generic `COSMOS_CONNECTION_STRING` honored as a last resort for ad-hoc use.
+   generic `COSMOS_CONNECTION_STRING` honored as a last resort for ad-hoc use —
+   since iteration 14, only for a profile on the account the string names.
 3. Interactive prompt on TUI start (masked input), with "store in keychain? (y/n)".
 
 ## Scope

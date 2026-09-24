@@ -9,6 +9,8 @@ import (
 // Operations named by ErrMsg.Op, and by CatalogChangedMsg.Op for the ones
 // that change the catalog.
 const (
+	OpConnect         = "connect"
+	OpListAccounts    = "list accounts"
 	OpCatalogRoot     = "catalog root"
 	OpCatalogChildren = "catalog children"
 	OpHistory         = "history"
@@ -34,44 +36,55 @@ type runID int
 // are the same kind of dialog on different nodes.
 type dialogID int
 
-// CatalogLoadedMsg carries the nodes fetched for Parent under the token the
-// pane issued. An empty Parent means the top level of the tree.
+// CatalogLoadedMsg carries the nodes fetched for Parent in Account's tree,
+// under the token that tree issued. An empty Parent means the top level.
 type CatalogLoadedMsg struct {
-	Parent []string
-	Nodes  []adapter.Node
-	Token  panes.Token
+	Account string
+	Parent  []string
+	Nodes   []adapter.Node
+	Token   panes.Token
 }
 
-// CatalogChangedMsg reports a completed mutation: Parent is the subtree to
-// reload, and Target the node the change was about.
+// CatalogChangedMsg reports a completed mutation in Account: Parent is the
+// subtree to reload, and Target the node the change was about.
 type CatalogChangedMsg struct {
-	Op     string
-	Target []string
-	Parent []string
-	dialog dialogID
+	Account string
+	Op      string
+	Target  []string
+	Parent  []string
+	dialog  dialogID
 }
 
 // ThroughputReadMsg delivers the capacity the throughput dialog opens on.
 type ThroughputReadMsg struct {
+	Account    string
 	Path       []string
 	Throughput adapter.Throughput
 }
 
-// DetailsLoadedMsg delivers what the adapter knows about the node at Path.
+// DetailsLoadedMsg delivers what the adapter knows about the node at Path in
+// Account.
 type DetailsLoadedMsg struct {
+	Account string
 	Path    []string
 	Details adapter.Details
+	// attempt is the connection of Account the details were read on.
+	attempt int
 }
 
-// FieldsSampledMsg delivers what one look at the container at Path found.
+// FieldsSampledMsg delivers what one look at the container at Path in
+// Account found.
 type FieldsSampledMsg struct {
-	Path   []string
-	Sample adapter.FieldSample
+	Account string
+	Path    []string
+	Sample  adapter.FieldSample
 }
 
-// ScopeChangedMsg announces the container queries should target by default.
+// ScopeChangedMsg announces the container queries on Account should target
+// by default.
 type ScopeChangedMsg struct {
-	Scope []string
+	Account string
+	Scope   []string
 }
 
 // PageLoadedMsg delivers the first page of a run, handing the cursor that
@@ -104,31 +117,44 @@ type PageFailedMsg struct {
 	run runID
 }
 
-// ErrMsg reports a failed operation. Path names the catalog node the failure
-// belongs to so it can be rendered under that node; it is empty when the
-// failure has no place in the tree.
+// ErrMsg reports a failed operation on Account. Path names the catalog node
+// the failure belongs to so it can be rendered under that node; it is empty
+// when the failure has no place in the tree.
 type ErrMsg struct {
-	Op     string
-	Path   []string
-	Token  panes.Token
-	Err    error
-	dialog dialogID
+	Account string
+	Op      string
+	Path    []string
+	Token   panes.Token
+	Err     error
+	dialog  dialogID
+	// attempt is the number of a failed attempt to connect Account.
+	attempt int
 }
 
-// ConnectedMsg delivers the connection the connect screen opened, and the
-// name of the profile it belongs to.
-type ConnectedMsg struct {
+type AccountConnectedMsg struct {
+	Account    string
 	Connection adapter.Connection
-	Profile    string
+	// attempt is the number of the attempt that connected it.
+	attempt int
+	// submitted is what the connect form said of the account it connected.
+	submitted Account
 }
 
-// ConnectFailedMsg reports why the connect screen's attempt did not connect.
+// AccountsListedMsg carries the profiles as they stand now.
+type AccountsListedMsg struct {
+	Accounts []Account
+}
+
+// ConnectFailedMsg reports why a connect form's attempt did not connect.
 type ConnectFailedMsg struct {
-	Err error
+	Err     error
+	account string
+	attempt int
 }
 
-// HistoryLoadedMsg delivers the recorded runs, newest first.
+// HistoryLoadedMsg delivers the runs recorded on Account, newest first.
 type HistoryLoadedMsg struct {
+	Account string
 	Entries []history.Entry
 }
 

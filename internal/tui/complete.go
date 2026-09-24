@@ -129,18 +129,19 @@ func (m Model) refreshSuggestions() (Model, tea.Cmd) {
 // containers or the sample it still lacks, and shows it through show. A
 // dismissal holds until the cursor is on another token, then is forgotten.
 func (m Model) settleSuggestions(show func(panes.Editor, []complete.Suggestion, string) panes.Editor) (Model, tea.Cmd) {
-	if !m.completing || m.focus != focusEditor {
+	entry, ok := m.accounts.get(m.accounts.active)
+	if !m.completing || m.focus != focusEditor || !ok {
 		return m, nil
 	}
 	text, offset := m.editor.Cursor()
-	c := query.Context(text, offset).WithDefaultScope(m.scope)
+	c := query.Context(text, offset).WithDefaultScope(entry.scope)
 	if m.dismissed.covers(c) {
 		return m.closeSuggestions(), nil
 	}
 	m.dismissed = dismissal{}
 	m.completion = c
 	model, cmd := m.fetchFor(c)
-	model.editor = show(model.editor, model.index.Suggest(c), model.note(c))
+	model.editor = show(model.editor, entry.index.Suggest(c), model.note(c))
 	return model, cmd
 }
 
@@ -170,44 +171,52 @@ func (m Model) closeSuggestions() Model {
 	return m
 }
 
-// fetchFor issues what the context needs and the session lacks: the
-// containers of a database the tree has not listed, through the tree's own
+// fetchFor issues what the context needs and the active account lacks: the
+// containers of a database its tree has not listed, through the tree's own
 // request so the two cannot disagree, and one sample per container the
 // first time a field of it is completed.
 func (m Model) fetchFor(c query.Completion) (Model, tea.Cmd) {
+	entry, ok := m.activeConnection()
+	if !ok {
+		return m, nil
+	}
 	switch c.Kind {
 	case query.CompleteContainer:
-		if m.index.HasContainers(c.Database) {
+		if entry.index.HasContainers(c.Database) {
 			return m, nil
 		}
-		pane, fetch, tick := m.catalogPane.LoadPath([]string{c.Database})
-		m.catalogPane = pane
+		pane, fetch, tick := entry.pane.LoadPath([]string{c.Database})
+		entry.pane = pane
+		m.accounts.put(entry)
 		if !fetch.Needed {
 			return m, tick
 		}
-		return m, tea.Batch(tick, m.load(fetch))
+		return m, tea.Batch(tick, m.load(entry, fetch))
 	case query.CompleteField:
-		return m.sampleFor(c.Aliases)
+		return m, m.sampleFor(entry, c.Aliases)
 	}
 	return m, nil
 }
 
-func (m Model) sampleFor(aliases []query.Alias) (Model, tea.Cmd) {
-	if !m.sampleFields || m.management.Sampler == nil {
-		return m, nil
+// sampleFor asks for the fields of every container the aliases range over
+// that the account has not sampled yet. The samples map is shared with the
+// account's entry, so marking one pending here is seen there.
+func (m Model) sampleFor(entry accountEntry, aliases []query.Alias) tea.Cmd {
+	if !m.sampleFields || !entry.account.SampleFields || entry.management.Sampler == nil {
+		return nil
 	}
 	var cmds []tea.Cmd
 	for _, alias := range aliases {
 		for _, scope := range alias.Scopes {
 			key := scopeKey(scope)
-			if m.samples[key] != sampleUnrequested {
+			if entry.samples[key] != sampleUnrequested {
 				continue
 			}
-			m.samples[key] = samplePending
-			cmds = append(cmds, m.sampleContainer(adapter.Node{Kind: adapter.NodeContainer, Name: scope[len(scope)-1], Path: scope}))
+			entry.samples[key] = samplePending
+			cmds = append(cmds, sampleContainer(entry, adapter.Node{Kind: adapter.NodeContainer, Name: scope[len(scope)-1], Path: scope}))
 		}
 	}
-	return m, tea.Batch(cmds...)
+	return tea.Batch(cmds...)
 }
 
 // note is what the hint line says while something the list needs is still
@@ -215,13 +224,14 @@ func (m Model) sampleFor(aliases []query.Alias) (Model, tea.Cmd) {
 func (m Model) note(c query.Completion) string {
 	switch c.Kind {
 	case query.CompleteContainer:
-		if m.catalogPane.Loading([]string{c.Database}) {
+		if m.catalogPane().Loading([]string{c.Database}) {
 			return "loading " + c.Database + "…"
 		}
 	case query.CompleteField:
+		entry, _ := m.accounts.get(m.accounts.active)
 		for _, alias := range c.Aliases {
 			for _, scope := range alias.Scopes {
-				if m.samples[scopeKey(scope)] == samplePending {
+				if entry.samples[scopeKey(scope)] == samplePending {
 					return "sampling " + scope[len(scope)-1] + "…"
 				}
 			}
@@ -230,30 +240,37 @@ func (m Model) note(c query.Completion) string {
 	return ""
 }
 
-// fileSample keeps what a sample found, unless the container was dropped
-// from the catalog while the sample was out: its fields would describe a
-// container that no longer exists, or a new one of the same name.
+// fileSample keeps what a sample found in the account it was taken on,
+// unless the container was dropped from the catalog while the sample was out,
+// or the account disconnected: either way nothing is pending for it any more,
+// since a reconnect starts the account's samples over.
 func (m Model) fileSample(msg FieldsSampledMsg) (Model, tea.Cmd) {
+	entry, ok := m.accounts.get(msg.Account)
 	key := scopeKey(msg.Path)
-	if m.samples[key] != samplePending {
+	if !ok || entry.samples[key] != samplePending {
 		return m, nil
 	}
-	m.samples[key] = sampleDone
-	m.index.AddFields(msg.Path, msg.Sample.Fields)
-	m.logger.Info("sampled fields", "container", strings.Join(msg.Path, "."),
+	entry.samples[key] = sampleDone
+	entry.index.AddFields(msg.Path, msg.Sample.Fields)
+	m.logger.Info("sampled fields", "account", msg.Account, "container", strings.Join(msg.Path, "."),
 		"fields", len(msg.Sample.Fields), "ru", fmt.Sprintf("%.2f", msg.Sample.Stats.RequestCharge))
 	return m.refreshSuggestions()
 }
 
-func (m Model) failSample(path []string) (Model, tea.Cmd) {
-	m.samples[scopeKey(path)] = sampleFailed
+func (m Model) failSample(msg ErrMsg) (Model, tea.Cmd) {
+	entry, ok := m.accounts.get(msg.Account)
+	key := scopeKey(msg.Path)
+	if !ok || entry.samples[key] != samplePending {
+		return m, nil
+	}
+	entry.samples[key] = sampleFailed
 	return m.refreshSuggestions()
 }
 
-// fileCatalog feeds the index what the tree just accepted, forgets the
+// fileCatalog feeds entry's index what its tree just accepted, forgets the
 // samples of containers that went with it, then settles a list that was
 // waiting for it.
-func (m Model) fileCatalog(msg CatalogLoadedMsg) (Model, tea.Cmd) {
+func (m Model) fileCatalog(entry accountEntry, msg CatalogLoadedMsg) (Model, tea.Cmd) {
 	var dropped [][]string
 	switch len(msg.Parent) {
 	case 0:
@@ -261,12 +278,12 @@ func (m Model) fileCatalog(msg CatalogLoadedMsg) (Model, tea.Cmd) {
 		for _, node := range msg.Nodes {
 			names = append(names, node.Name)
 		}
-		dropped = m.index.SetDatabases(names)
+		dropped = entry.index.SetDatabases(names)
 	case 1:
-		dropped = m.index.SetContainers(msg.Parent[0], msg.Nodes)
+		dropped = entry.index.SetContainers(msg.Parent[0], msg.Nodes)
 	}
 	for _, container := range dropped {
-		delete(m.samples, scopeKey(container))
+		delete(entry.samples, scopeKey(container))
 	}
 	return m.refreshSuggestions()
 }
@@ -277,6 +294,10 @@ func (m Model) fileCatalog(msg CatalogLoadedMsg) (Model, tea.Cmd) {
 // projected half still holds top-level fields of its container, apart from
 // one the SELECT list renamed.
 func (m Model) observePage(page adapter.Page) {
+	entry, ok := m.accounts.get(m.runAccount)
+	if !ok || !entry.connected() {
+		return
+	}
 	for side, items := range m.plan.LeafItems(page.Raw) {
 		leaf := m.plan.Leaves[side]
 		if m.plan.Merge != query.HashJoin && !leaf.WholeItems() {
@@ -288,7 +309,7 @@ func (m Model) observePage(page adapter.Page) {
 				fields = slices.DeleteFunc(fields, func(f adapter.Field) bool { return f.Path == column.As })
 			}
 		}
-		m.index.AddFields(leaf.Query.Scope, fields)
+		entry.index.AddFields(leaf.Query.Scope, fields)
 	}
 }
 

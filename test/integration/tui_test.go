@@ -163,14 +163,17 @@ func freshDatabase(t *testing.T, client *azcosmos.Client, name string) *azcosmos
 
 func newModel(t *testing.T, conn adapter.Connection) tea.Model {
 	t.Helper()
-	return newSession(t, tui.Options{Connection: conn})
+	return newSession(t, conn, tui.Options{})
 }
 
-// newSession builds a model from opts, with the icons and profile every test
-// shares filled in, and lets its catalog load.
-func newSession(t *testing.T, opts tui.Options) tea.Model {
+// newSession builds a model from opts on one account, served by conn, with
+// the icons every test shares filled in, and lets its catalog load.
+func newSession(t *testing.T, conn adapter.Connection, opts tui.Options) tea.Model {
 	t.Helper()
-	opts.Icons, opts.Profile = theme.Icons(), cosmos.Name
+	opts.Icons = theme.Icons()
+	opts.Accounts = []tui.Account{{Name: cosmos.Name, SampleFields: true}}
+	opts.Launch = cosmos.Name
+	opts.Open = func(context.Context, string) (adapter.Connection, error) { return conn, nil }
 	m := tui.New(opts)
 	model, _ := m.Update(tea.WindowSizeMsg{Width: testWidth, Height: testHeight})
 	return settle(model, model.Init())
@@ -359,7 +362,7 @@ func TestIntegrationQueryHistory(t *testing.T) {
 	dir := t.TempDir()
 	store, err := history.Open(dir)
 	require.NoError(t, err)
-	m := selectFixtureContainer(t, newSession(t, tui.Options{Connection: conn, History: store}), conn)
+	m := selectFixtureContainer(t, newSession(t, conn, tui.Options{History: store}), conn)
 
 	m = runQuery(t, m, "SELECT * FROM c")
 	m = runAnother(t, m, "SELEC * FRM c")

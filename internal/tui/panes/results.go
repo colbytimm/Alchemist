@@ -56,6 +56,13 @@ func (r Results) Blur() Results {
 	return r
 }
 
+// SetSource names the account the rows on screen came from, which a switch
+// to another account leaves standing.
+func (r Results) SetSource(account string) Results {
+	r.frame.title = accountTitle(resultsTitle, account)
+	return r
+}
+
 // Clear empties the pane for a new run.
 func (r Results) Clear() Results {
 	return Results{frame: r.frame}
