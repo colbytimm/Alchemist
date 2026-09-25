@@ -653,3 +653,38 @@ func TestTheConnectFormNeverLoosensReadOnlyOnANewEndpoint(t *testing.T) {
 	require.Equal(t, "https://prod.documents.azure.com:443/", c.forms[0].Endpoint)
 	assert.Contains(t, statusBar(m), "emulator ▪ read-only")
 }
+
+// completeStaging connects staging, which has no key, through the form with
+// its endpoint as the fixture lists it.
+func completeStaging(t *testing.T, c *connector, opts tui.Options) tea.Model {
+	t.Helper()
+	o := newOpener(t)
+	o.failOpen["staging"] = tui.ErrCredentialsNeeded
+	opts.Connect = c.connect
+	m := switchTo(t, newAccountsModel(t, o, opts), "staging")
+	m = pressAll(t, m, keyText("typed-key"), keyMsg(tea.KeyEnter))
+	onAccount(t, m, "staging")
+	return m
+}
+
+func TestAFormConnectKeepsWhatTheSavedProfileAllows(t *testing.T) {
+	writable := false
+	c := &connector{t: t, readOnly: &writable}
+	staging := tui.Account{Name: "staging", Endpoint: "https://staging.documents.azure.com:443/"}
+
+	m := completeStaging(t, c, tui.Options{ListAccounts: func() ([]tui.Account, error) { return []tui.Account{staging}, nil }})
+
+	assert.NotContains(t, statusBar(m), "read-only", "read_only = false holds after the form")
+	m = pressAll(t, m, keyMsg(tea.KeyCtrlG), keyMsg(tea.KeyEscape))
+	assert.NotContains(t, statusBar(m), "read-only", "and after the profiles are read again")
+	m = runQuery(t, m, `BEGIN BATCH sales.orders PARTITION "c01"; CREATE {"id": "o9", "customerId": "c01"}; COMMIT`)
+	assert.Contains(t, plain(m.View()), reviewTitle)
+}
+
+func TestTheSessionFlagStillAppliesToAFormConnect(t *testing.T) {
+	writable := false
+
+	m := completeStaging(t, &connector{t: t, readOnly: &writable}, tui.Options{ReadOnly: true})
+
+	assert.Contains(t, statusBar(m), "staging ▪ read-only")
+}

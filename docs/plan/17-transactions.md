@@ -901,16 +901,17 @@ What landed differs from the text above in these ways:
   paths, not by `CheckBatch`, which knows no catalog. A lookup waiting on the tree shows
   nothing until the review opens or the batch is refused.
 - `--read-only` reaches the TUI as `Options.ReadOnly` and is ORed into every account,
-  so an account a connect form adds obeys it too; a new account from the form takes
-  `config.Profile{Endpoint: …}.IsReadOnly()`. Read-only removes `Admin`, `Throughput`
+  so an account a connect form adds obeys it too. Read-only removes `Admin`, `Throughput`
   and `Drafter` from what the account permits, which takes `n`, `c`, `d`, `t` and
   `ctrl+b` out of the keymap and the help overlay; `Model.batcher` refuses the writes.
 - `ctrl+b` drafts only from a `SELECT *` run of one container (`Leaf.WholeItems`), and
   the Cosmos `DraftReplace` also refuses an item lacking `_rid`, `_etag` or `_ts`: a
   replace written from a projection would erase every field it left out.
-- A connect form that completes an existing account only ever tightens its
-  read-only state, since the form may have changed the endpoint. A batch waiting on
-  the tree is dropped by any new run and by a switch of account.
+- The saved profile is the one source of read-only. `tui.Connector` reports the
+  account as `cmd` saved it, so a form connect takes the profile's `IsReadOnly()` (and
+  the session flag) like any listed account. A form that changes a profile's endpoint
+  clears its `read_only`, which is then derived again from the new endpoint. A batch
+  waiting on the tree is dropped by any new run and by a switch of account.
 - `mock.WithBatchFailure` takes the status as an `int`. The mock's patch ignores the
   condition: it has no query engine.
 - Iterations 18, 19, 21 and 22 have not landed: there is no job slot to consult and no

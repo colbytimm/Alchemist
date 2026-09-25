@@ -159,8 +159,9 @@ type AccountConnectedMsg struct {
 	Connection adapter.Connection
 	// attempt is the number of the attempt that connected it.
 	attempt int
-	// submitted is what the connect form said of the account it connected.
-	submitted Account
+	// saved is the account a connect form connected, as its profile was
+	// saved.
+	saved Account
 }
 
 // AccountsListedMsg carries the profiles as they stand now.

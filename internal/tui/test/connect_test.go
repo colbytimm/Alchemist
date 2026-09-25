@@ -10,26 +10,32 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/config"
 	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
 
 // connector records what the connect screen submits and answers with a
-// fixture connection, after failing the first failFirst attempts.
+// fixture connection, after failing the first failFirst attempts. The
+// account it reports saved is read-only as a new profile's would be, unless
+// readOnly says what the saved profile holds.
 type connector struct {
 	t         *testing.T
 	forms     []panes.ConnectForm
 	failFirst int
+	readOnly  *bool
 }
 
-func (c *connector) connect(_ context.Context, form panes.ConnectForm) (adapter.Connection, error) {
+func (c *connector) connect(_ context.Context, form panes.ConnectForm) (tui.Account, adapter.Connection, error) {
 	c.forms = append(c.forms, form)
 	if c.failFirst > 0 {
 		c.failFirst--
-		return nil, errors.New("cosmos: ping: 401 Unauthorized")
+		return tui.Account{}, nil, errors.New("cosmos: ping: 401 Unauthorized")
 	}
-	return newConnection(c.t), nil
+	saved := config.Profile{Endpoint: form.Endpoint, ReadOnly: c.readOnly}
+	account := tui.Account{Name: form.Profile, Endpoint: form.Endpoint, SkipVerify: form.SkipVerify, ReadOnly: saved.IsReadOnly()}
+	return account, newConnection(c.t), nil
 }
 
 func newConnectModel(t *testing.T, c *connector, form panes.ConnectForm) tea.Model {
