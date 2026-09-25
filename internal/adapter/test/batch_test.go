@@ -24,6 +24,12 @@ func TestPartitionKeyValues(t *testing.T) {
 		{name: "several paths in path order", item: `{"b":true,"a":null}`, paths: []string{"/a", "/b"}, want: []string{`null`, `true`}},
 		{name: "a missing path", item: `{"a":1}`, paths: []string{"/a", "/b"}, wantErr: adapter.ErrNoPartitionKey},
 		{name: "a path through a scalar", item: `{"a":1}`, paths: []string{"/a/b"}, wantErr: adapter.ErrNoPartitionKey},
+		{name: "three paths in order", item: `{"c":"z","a":"x","b":{"n":"y"}}`, paths: []string{"/a", "/b/n", "/c"}, want: []string{`"x"`, `"y"`, `"z"`}},
+		{name: "a boolean", item: `{"a":false}`, paths: []string{"/a"}, want: []string{`false`}},
+		{name: "an explicit null is a value", item: `{"a":null}`, paths: []string{"/a"}, want: []string{`null`}},
+		{name: "a number past 2^53 keeps its digits", item: `{"a":12345678901234567890}`, paths: []string{"/a"}, want: []string{`12345678901234567890`}},
+		{name: "an object at the path", item: `{"a":{"b":1}}`, paths: []string{"/a"}, wantErr: adapter.ErrNoPartitionKey},
+		{name: "an array at the path", item: `{"a":[1]}`, paths: []string{"/a"}, wantErr: adapter.ErrNoPartitionKey},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
