@@ -16,7 +16,7 @@ func (p Plan) LeafItems(items []json.RawMessage) [][]json.RawMessage {
 	case UnionAll:
 		p.untag(items, byLeaf)
 	case HashJoin:
-		p.uncombine(items, byLeaf)
+		p.separate(items, byLeaf)
 	default:
 		if len(byLeaf) > 0 {
 			byLeaf[0] = items
@@ -52,7 +52,7 @@ func untagRaw(item json.RawMessage, label string) (json.RawMessage, bool) {
 	return json.RawMessage("{}"), true
 }
 
-func (p Plan) uncombine(items []json.RawMessage, byLeaf [][]json.RawMessage) {
+func (p Plan) separate(items []json.RawMessage, byLeaf [][]json.RawMessage) {
 	for _, item := range items {
 		var combined map[string]json.RawMessage
 		if err := json.Unmarshal(item, &combined); err != nil {
