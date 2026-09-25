@@ -123,6 +123,9 @@ type Options struct {
 	// ReadOnly refuses every write on every account, whatever its profile
 	// allows.
 	ReadOnly bool
+	// Snapshots is the directory snapshots are kept under; empty turns
+	// them off.
+	Snapshots string
 }
 
 // Management is what a session may do with the catalog beyond browsing it:

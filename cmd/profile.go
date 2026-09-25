@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -17,6 +16,8 @@ import (
 	"github.com/colbytimm/alchemist/internal/config"
 	"github.com/colbytimm/alchemist/internal/query"
 	"github.com/colbytimm/alchemist/internal/saved"
+	"github.com/colbytimm/alchemist/internal/snapshot"
+	"github.com/colbytimm/alchemist/internal/tui/panes"
 	"github.com/colbytimm/alchemist/internal/writers"
 )
 
@@ -69,11 +70,7 @@ func writeProfileTable(w io.Writer, cfg config.Config, resolver config.SecretRes
 		profile := cfg.Profiles[name]
 		fmt.Fprintf(&rows, "%s\t%s\t%s\t%s\n", profileLabel(cfg, name), profile.Adapter, profile.Endpoint, keySource(resolver, profile))
 	}
-	table := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	if _, err := io.WriteString(table, rows.String()); err != nil {
-		return fmt.Errorf("cmd: write profiles: %w", err)
-	}
-	if err := table.Flush(); err != nil {
+	if err := writeTable(w, rows.String()); err != nil {
 		return fmt.Errorf("cmd: write profiles: %w", err)
 	}
 	return nil
@@ -255,10 +252,17 @@ func newProfileRemoveCmd(keyring config.Keyring) *cobra.Command {
 	var purge bool
 	cmd := &cobra.Command{
 		Use:   "remove <name>",
-		Short: "Remove a profile and its keychain entry, keeping its saved queries",
-		Args:  cobra.ExactArgs(1),
+		Short: "Remove a profile and its keychain entry, keeping its saved queries and snapshots",
+		Long: "remove keeps the profile's saved queries and snapshots, and says where: a profile added\n" +
+			"again under the same name picks them back up. --purge deletes them too, since someone\n" +
+			"purging an account expects copies of its data to go with it.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
+			snapshots, err := snapshotRoot(cmd)
+			if err != nil {
+				return err
+			}
 			if err := removeProfile(keyring, name); err != nil {
 				return err
 			}
@@ -267,12 +271,12 @@ func newProfileRemoveCmd(keyring config.Keyring) *cobra.Command {
 				return err
 			}
 			if purge {
-				return purgeQueries(cmd, queries, name)
+				return purgeAccountData(cmd, queries, snapshots, name)
 			}
-			return reportKeptQueries(cmd, queries, name)
+			return reportKeptData(cmd, queries, snapshots, name)
 		},
 	}
-	cmd.Flags().BoolVar(&purge, "purge", false, "delete the profile's saved queries too")
+	cmd.Flags().BoolVar(&purge, "purge", false, "delete the profile's saved queries and snapshots too")
 	return cmd
 }
 
@@ -302,29 +306,61 @@ func savedQueries() (saved.Dir, error) {
 	return saved.Open(filepath.Join(dir, saved.DirName)), nil
 }
 
-// reportKeptQueries says where the profile's saved queries were left, since a
-// profile added again under the same name picks them back up.
-func reportKeptQueries(cmd *cobra.Command, queries saved.Dir, name string) error {
+// reportKeptData says where the profile's saved queries and snapshots were
+// left, since a profile added again under the same name picks them back up.
+func reportKeptData(cmd *cobra.Command, queries saved.Dir, snapshots, name string) error {
 	listing, err := queries.List(name)
 	if err != nil {
 		return fmt.Errorf("removed profile %s, but could not look for its saved queries: %w", name, err)
 	}
-	if listing.Files() == 0 {
-		return say(cmd, "removed profile %s", name)
+	usage, err := snapshot.AccountUsage(snapshots, name)
+	if err != nil {
+		return fmt.Errorf("removed profile %s, but could not look for its snapshots: %w", name, err)
 	}
-	return say(cmd, "removed profile %s\nkept %s in %s\nremove them too with: alchemist profile remove %s --purge",
-		name, countQueries(listing.Files()), queries.AccountPath(name), name)
+	lines := []string{"removed profile " + name}
+	if listing.Files() > 0 {
+		lines = append(lines, fmt.Sprintf("kept %s in %s", countQueries(listing.Files()), queries.AccountPath(name)))
+	}
+	if usage.Snapshots > 0 {
+		lines = append(lines, fmt.Sprintf("kept %s (%s) in %s", countSnapshots(usage.Snapshots), panes.FormatBytes(usage.OnDisk()),
+			snapshot.Location{Root: snapshots, Account: name}.AccountDir()))
+	}
+	if len(lines) > 1 {
+		lines = append(lines, "remove them too with: alchemist profile remove "+name+" --purge")
+	}
+	return say(cmd, "%s", strings.Join(lines, "\n"))
 }
 
-func purgeQueries(cmd *cobra.Command, queries saved.Dir, name string) error {
+func purgeAccountData(cmd *cobra.Command, queries saved.Dir, snapshots, name string) error {
 	removed, err := queries.RemoveAccount(name)
 	if err != nil {
 		return fmt.Errorf("removed profile %s, but not its saved queries: %w", name, err)
 	}
-	if removed == 0 {
+	usage, err := snapshot.AccountUsage(snapshots, name)
+	if err != nil {
+		return fmt.Errorf("removed profile %s, but could not look for its snapshots: %w", name, err)
+	}
+	if err := snapshot.RemoveAccount(snapshots, name); err != nil {
+		return fmt.Errorf("removed profile %s, but not its snapshots: %w", name, err)
+	}
+	var purged []string
+	if removed > 0 {
+		purged = append(purged, countQueries(removed))
+	}
+	if usage.Snapshots > 0 {
+		purged = append(purged, countSnapshots(usage.Snapshots))
+	}
+	if len(purged) == 0 {
 		return say(cmd, "removed profile %s", name)
 	}
-	return say(cmd, "removed profile %s and its %s", name, countQueries(removed))
+	return say(cmd, "removed profile %s and its %s", name, strings.Join(purged, " and "))
+}
+
+func countSnapshots(n int) string {
+	if n == 1 {
+		return "1 snapshot"
+	}
+	return fmt.Sprintf("%d snapshots", n)
 }
 
 func countQueries(n int) string {

@@ -28,7 +28,11 @@ type Account struct {
 	// containers, when the session allows it too.
 	SampleFields bool
 	// ReadOnly refuses every write the session could make on the account.
+	// A snapshot writes nothing to the account, so it is taken either way.
 	ReadOnly bool
+	// SnapshotMaxItems refuses a snapshot of a larger container;
+	// snapshot.DefaultMaxItems when zero.
+	SnapshotMaxItems int64
 }
 
 // Opener connects the saved account called name.
