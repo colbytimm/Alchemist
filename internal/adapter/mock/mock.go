@@ -76,6 +76,9 @@ type container struct {
 	partitionKeys []string
 	throughput    adapter.Throughput
 	storage       storage
+	// policies is the definition the container was created from; nil is
+	// defaultPolicies.
+	policies json.RawMessage
 }
 
 type database struct {
@@ -134,8 +137,11 @@ type Adapter struct {
 	pages   int
 
 	batchFailure batchFailure
+	unknownSize  bool
+	upserts      upsertGauge
 
 	mu        sync.Mutex
+	faults    writeFaults
 	databases []database
 	// items holds each container's documents under its path; etags counts
 	// the versions the store has handed out.
@@ -145,7 +151,13 @@ type Adapter struct {
 
 // New builds a mock adapter with the given options applied.
 func New(opts ...Option) *Adapter {
-	a := &Adapter{errOps: map[string]bool{}, pages: 3, databases: newFixture(), items: map[string][]storedItem{}}
+	a := &Adapter{
+		errOps:    map[string]bool{},
+		pages:     3,
+		databases: newFixture(),
+		items:     map[string][]storedItem{},
+		faults:    writeFaults{throttles: map[string]throttle{}, failures: map[string]bool{}},
+	}
 	for _, opt := range opts {
 		opt(a)
 	}
@@ -245,7 +257,7 @@ func (a *Adapter) addDatabase(spec adapter.DatabaseSpec) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.indexOf(spec.Name) >= 0 {
-		return fmt.Errorf("mock: create database %q: already exists", spec.Name)
+		return fmt.Errorf("mock: create database %q: %w", spec.Name, adapter.ErrAlreadyExists)
 	}
 	a.databases = append(a.databases, database{name: spec.Name, throughput: spec.Throughput})
 	return nil
@@ -257,6 +269,9 @@ func (a *Adapter) removeDatabase(name string) error {
 	i := a.indexOf(name)
 	if i < 0 {
 		return fmt.Errorf("mock: delete database %q: no such database", name)
+	}
+	for _, c := range a.databases[i].containers {
+		delete(a.items, pathText([]string{name, c.name}))
 	}
 	a.databases = slices.Delete(a.databases, i, i+1)
 	return nil
@@ -270,13 +285,17 @@ func (a *Adapter) addContainer(spec adapter.ContainerSpec) error {
 		return fmt.Errorf("mock: create container %s.%s: no such database", spec.Database, spec.Name)
 	}
 	if containerIndex(a.databases[i].containers, spec.Name) >= 0 {
-		return fmt.Errorf("mock: create container %s.%s: already exists", spec.Database, spec.Name)
+		return fmt.Errorf("mock: create container %s.%s: %w", spec.Database, spec.Name, adapter.ErrAlreadyExists)
+	}
+	if backend := spec.Policies.Backend; backend != "" && backend != Name {
+		return fmt.Errorf("mock: create container %s.%s: policies written by %s: %w", spec.Database, spec.Name, backend, adapter.ErrUnsupported)
 	}
 	a.databases[i].containers = append(a.databases[i].containers, container{
 		name:          spec.Name,
 		partitionKeys: spec.PartitionKeys,
 		throughput:    spec.Throughput,
 		storage:       storage{size: emptySize},
+		policies:      spec.Policies.Raw,
 	})
 	return nil
 }
@@ -289,6 +308,7 @@ func (a *Adapter) removeContainer(path []string) error {
 		return err
 	}
 	a.databases[db].containers = slices.Delete(a.databases[db].containers, i, i+1)
+	delete(a.items, pathText(path))
 	return nil
 }
 

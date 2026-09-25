@@ -100,6 +100,10 @@ type Property struct {
 // one the service refused.
 var ErrUnsupported = errors.New("unsupported")
 
+// ErrAlreadyExists is a create refused because something of that name is
+// already there.
+var ErrAlreadyExists = errors.New("already exists")
+
 type DatabaseSpec struct {
 	Name       string
 	Throughput Throughput // ThroughputNone leaves it without shared throughput
@@ -110,6 +114,9 @@ type ContainerSpec struct {
 	Name          string
 	PartitionKeys []string // "/customerId"; more than one is a hierarchical key
 	Throughput    Throughput
+	// Policies is what else the container is made with; the zero value is
+	// the backend's defaults.
+	Policies PolicyDocument
 }
 
 type ThroughputMode int

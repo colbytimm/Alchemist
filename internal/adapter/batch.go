@@ -92,16 +92,17 @@ type OperationResult struct {
 }
 
 // PartitionKeyValues reads the value item holds at each of paths, written
-// "/customerId" or "/shipTo/region", in order.
-func PartitionKeyValues(item json.RawMessage, paths []string) ([]json.RawMessage, error) {
+// "/customerId" or "/shipTo/region", in order. An object or an array at a
+// path is no key value, and neither is nothing at all.
+func PartitionKeyValues(item json.RawMessage, paths []string) (PartitionKey, error) {
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(item, &root); err != nil {
 		return nil, errNotObject
 	}
-	values := make([]json.RawMessage, 0, len(paths))
+	values := make(PartitionKey, 0, len(paths))
 	for _, path := range paths {
 		value, ok := valueAt(root, path)
-		if !ok {
+		if !ok || !scalar(value) {
 			return nil, fmt.Errorf("adapter: %s: %w", path, ErrNoPartitionKey)
 		}
 		values = append(values, value)
@@ -126,6 +127,10 @@ func valueAt(object map[string]json.RawMessage, path string) (json.RawMessage, b
 		object = nested
 	}
 	return nil, false
+}
+
+func scalar(value json.RawMessage) bool {
+	return len(value) > 0 && value[0] != '{' && value[0] != '['
 }
 
 func compact(value json.RawMessage) json.RawMessage {
