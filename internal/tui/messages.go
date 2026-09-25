@@ -19,6 +19,7 @@ const (
 	OpDeleteContainer = "delete container"
 	OpReadThroughput  = "read throughput"
 	OpSetThroughput   = "set throughput"
+	OpInspect         = "inspect"
 )
 
 // runID identifies one query run. Every page and failure carries the run it
@@ -53,6 +54,12 @@ type CatalogChangedMsg struct {
 type ThroughputReadMsg struct {
 	Path       []string
 	Throughput adapter.Throughput
+}
+
+// DetailsLoadedMsg delivers what the adapter knows about the node at Path.
+type DetailsLoadedMsg struct {
+	Path    []string
+	Details adapter.Details
 }
 
 // ScopeChangedMsg announces the container queries should target by default.

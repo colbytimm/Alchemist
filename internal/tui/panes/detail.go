@@ -53,7 +53,7 @@ func (d Detail) View() string {
 
 func (d Detail) scroll(delta int) Detail {
 	_, height := d.frame.inner()
-	d.offset = min(max(d.offset+delta, 0), max(len(d.lines)-height, 0))
+	d.offset = clampScroll(d.offset+delta, len(d.lines), height)
 	return d
 }
 
