@@ -151,6 +151,19 @@ func (m Model) inspect(node adapter.Node) tea.Cmd {
 	}
 }
 
+func (m Model) sampleContainer(container adapter.Node) tea.Cmd {
+	sampler := m.management.Sampler
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
+		defer cancel()
+		sample, err := sampler.SampleFields(ctx, container)
+		if err != nil {
+			return ErrMsg{Op: OpSampleFields, Path: container.Path, Err: err}
+		}
+		return FieldsSampledMsg{Path: container.Path, Sample: sample}
+	}
+}
+
 // runPlan opens a cursor and fetches its first page. ctx belongs to the
 // model, which cancels it when a newer run supersedes this one.
 func (m Model) runPlan(ctx context.Context, plan query.Plan) tea.Cmd {

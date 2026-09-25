@@ -141,6 +141,8 @@ func spanStyle(kind query.SpanKind) lipgloss.Style {
 		return lipgloss.NewStyle().Foreground(theme.Verdigris())
 	case query.SpanNumber:
 		return lipgloss.NewStyle().Foreground(theme.Copper())
+	case query.SpanComment:
+		return theme.HintStyle()
 	}
 	return theme.TextStyle()
 }

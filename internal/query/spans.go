@@ -6,6 +6,7 @@ const (
 	SpanKeyword SpanKind = iota + 1
 	SpanString
 	SpanNumber
+	SpanComment
 )
 
 // Span is a byte range of a query worth telling apart from the text around it.
@@ -15,8 +16,8 @@ type Span struct {
 	End   int
 }
 
-// Spans lists the keywords, string literals, and numbers of text in the
-// order they appear.
+// Spans lists the keywords, string literals, numbers, and comments of text in
+// the order they appear.
 func Spans(text string) []Span {
 	var spans []Span
 	previous := tokOther
@@ -39,6 +40,8 @@ func spanKind(tok token, previous int) (SpanKind, bool) {
 		return SpanString, true
 	case tok.kind == tokNumber:
 		return SpanNumber, true
+	case tok.kind == tokComment:
+		return SpanComment, true
 	}
 	return 0, false
 }
