@@ -419,6 +419,7 @@ func TestMultiWayShapesThatCannotBeSimulatedAreRefusedByName(t *testing.T) {
 		{name: "property join before the container joins", input: "SELECT * FROM sales.orders o JOIN l IN o.lines JOIN sales.customers cu ON o.customerId = cu.id", shape: "JOIN ... IN"},
 		{name: "property join between the container joins", input: pair + " JOIN l IN o.lines JOIN sales.products p ON o.sku = p.id", shape: "JOIN ... IN"},
 		{name: "property join after the container joins", input: pair + " JOIN l IN o.lines", shape: "JOIN ... IN"},
+		{name: "inner property join after the container joins", input: pair + " INNER JOIN l IN o.lines", shape: "JOIN ... IN"},
 		{name: "a list before a join", input: "SELECT * FROM a.b, c.d JOIN e.f ON b.x = f.y", shape: "a container list mixed with a join"},
 		{name: "a list after a join", input: pair + ", sales.archive", shape: "a container list mixed with a join"},
 		{name: "a list between joins", input: pair + ", sales.archive a JOIN sales.products p ON a.sku = p.id", shape: "a container list mixed with a join"},

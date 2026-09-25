@@ -356,6 +356,18 @@ func TestCancellingAMultiWayJoinMidStreamClosesEveryLeafCursor(t *testing.T) {
 	assert.Equal(t, 3, conn.closed, "closing again closes nothing twice")
 }
 
+func TestAJoinClosedBeforeItsFirstPageOpensNothing(t *testing.T) {
+	conn := starContainers(t)
+	cursor := execute(t, conn, starQuery)
+
+	require.NoError(t, cursor.Close())
+
+	assert.False(t, cursor.HasMore())
+	_, err := cursor.NextPage(context.Background())
+	require.Error(t, err)
+	assert.Zero(t, conn.opened)
+}
+
 func TestAJoinPlanWhoseStepsDoNotFitItsLeavesIsRefused(t *testing.T) {
 	leaves := plan(t, starQuery).Leaves
 	step := query.JoinStep{LeftKey: []string{"k"}, RightKey: []string{"k"}}

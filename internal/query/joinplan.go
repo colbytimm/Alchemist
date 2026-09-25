@@ -1,6 +1,7 @@
 package query
 
 import (
+	"maps"
 	"slices"
 	"strings"
 
@@ -16,15 +17,20 @@ const (
 )
 
 var (
-	// whereBreakers are the keywords that decide how a join's WHERE clause
-	// can be divided between its sides.
-	whereBreakers = map[string]bool{
-		"AND": true, "OR": true, "BETWEEN": true,
-		"ORDER": true, "GROUP": true, "OFFSET": true, "LIMIT": true,
-	}
 	// trailingClauses may follow a WHERE clause, or stand in for one.
 	trailingClauses = map[string]bool{"ORDER": true, "GROUP": true, "OFFSET": true, "LIMIT": true}
+	// whereBreakers are the keywords that decide how a join's WHERE clause
+	// can be divided between its sides.
+	whereBreakers = withKeys(trailingClauses, "AND", "OR", "BETWEEN")
 )
+
+func withKeys(set map[string]bool, keys ...string) map[string]bool {
+	extended := maps.Clone(set)
+	for _, key := range keys {
+		extended[key] = true
+	}
+	return extended
+}
 
 // joinPlanner reads `SELECT list FROM first (JOIN next ON a.x = b.y)+ [WHERE ...]`.
 // A side is the index of its container in written order throughout.
@@ -109,7 +115,7 @@ func (j joinPlanner) parseChain(containers []source) ([]JoinStep, int, error) {
 		steps = append(steps, step)
 		end = next
 	}
-	if keywordAt(j.toks, end, "JOIN") {
+	if keywordAt(j.toks, end, "JOIN") || keywordAt(j.toks, end, "INNER") {
 		return nil, end, unsupported(shapePropertyJoin)
 	}
 	return steps, end, nil
@@ -325,7 +331,6 @@ func (j joinPlanner) topLevelBreakers(toks []token) []int {
 	return breakers
 }
 
-// sidesRead is the set of sides toks read.
 func (j joinPlanner) sidesRead(toks []token) map[int]bool {
 	reads := map[int]bool{}
 	for i, tok := range toks {

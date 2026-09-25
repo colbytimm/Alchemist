@@ -65,6 +65,7 @@ type joinCursor struct {
 	maxRows    int
 	columns    *columnUnion
 	built      bool
+	closed     bool
 	// unplaced are the leaf pages read since the last streamed one: the
 	// merged header lists the sides in written order, whichever was read
 	// first.
@@ -305,10 +306,11 @@ func rawName(column JoinColumn) string {
 }
 
 func (j *joinCursor) HasMore() bool {
-	return !j.built || !j.unserved.empty() || j.sides[j.streamed].cursor != nil
+	return !j.closed && (!j.built || !j.unserved.empty() || j.sides[j.streamed].cursor != nil)
 }
 
 func (j *joinCursor) Close() error {
+	j.closed = true
 	var errs []error
 	for i := range j.sides {
 		errs = append(errs, closeSide(&j.sides[i]))

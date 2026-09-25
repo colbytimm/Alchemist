@@ -86,6 +86,9 @@ func (p pendingRows) empty() bool {
 // has none, so a stretch of unmatched rows never surfaces as an empty page
 // with more to come.
 func (j *joinCursor) nextMatches(ctx context.Context, meter *meter) (adapter.Page, error) {
+	if j.closed {
+		return adapter.Page{}, errExhausted
+	}
 	if !j.built {
 		if err := j.build(ctx, meter); err != nil {
 			return adapter.Page{}, err
