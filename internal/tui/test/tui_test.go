@@ -430,6 +430,20 @@ func press(t *testing.T, m tea.Model, key tea.KeyMsg) (tea.Model, []tea.Msg) {
 	return settle(model, cmd)
 }
 
+// pressWriting is press for a key whose own command writes to disk: that
+// command is waited on however long the write takes, where press would take
+// a slow write for a timer and drop its answer. What the answers start in
+// turn, such as a notice retiring itself, settles as press settles it.
+func pressWriting(t *testing.T, m tea.Model, key tea.KeyMsg) tea.Model {
+	t.Helper()
+	model, cmd := m.Update(key)
+	m = model
+	for _, msg := range answers(cmd) {
+		m, _ = settle(m.Update(msg))
+	}
+	return m
+}
+
 func pressAll(t *testing.T, m tea.Model, keys ...tea.KeyMsg) tea.Model {
 	t.Helper()
 	for _, key := range keys {

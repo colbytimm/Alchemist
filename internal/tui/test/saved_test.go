@@ -50,7 +50,7 @@ func newSavedModel(t *testing.T, conn *recordingConnection, store saved.Store) t
 
 func saveAs(t *testing.T, m tea.Model, name string) tea.Model {
 	t.Helper()
-	return pressAll(t, m, keyMsg(tea.KeyCtrlS), keyText(name), keyMsg(tea.KeyEnter))
+	return pressWriting(t, pressAll(t, m, keyMsg(tea.KeyCtrlS), keyText(name)), keyMsg(tea.KeyEnter))
 }
 
 func openSaved(t *testing.T, m tea.Model) tea.Model {
@@ -145,7 +145,7 @@ func TestATakenNameIsRefusedUntilItEndsWithTheReplaceMark(t *testing.T) {
 	assert.Contains(t, view, `"Open Orders" is already saved for mock: end the name with ! to replace it`)
 	assert.Equal(t, "SELECT 1", only(t, store, mock.Name).Text)
 
-	m = pressAll(t, m, keyRune('!'), keyMsg(tea.KeyEnter))
+	m = pressWriting(t, pressAll(t, m, keyRune('!')), keyMsg(tea.KeyEnter))
 
 	assert.NotContains(t, plain(m.View()), promptTitle)
 	replaced := only(t, store, mock.Name)
@@ -340,7 +340,7 @@ func TestRRenamesThroughThePromptAndReturnsToTheOverlay(t *testing.T) {
 	m := pressAll(t, openSaved(t, newSavedModel(t, newConnection(t), store)), keyRune('r'))
 	assert.Contains(t, plain(m.View()), renameTitle)
 
-	m = pressAll(t, m, keyMsg(tea.KeyCtrlU), keyText("zulu"), keyMsg(tea.KeyEnter))
+	m = pressWriting(t, pressAll(t, m, keyMsg(tea.KeyCtrlU), keyText("zulu")), keyMsg(tea.KeyEnter))
 
 	assert.Contains(t, plain(m.View()), savedTitle)
 	listing, err := store.List(mock.Name)
@@ -356,8 +356,8 @@ func TestRenameRefusesATakenNameAndTheReplaceMark(t *testing.T) {
 	create(t, store, mock.Name, saved.Query{Name: "beta", Text: "SELECT 2"})
 	m := pressAll(t, openSaved(t, newSavedModel(t, newConnection(t), store)), keyRune('r'), keyMsg(tea.KeyCtrlU))
 
-	taken := pressAll(t, m, keyText("beta"), keyMsg(tea.KeyEnter))
-	marked := pressAll(t, m, keyText("beta!"), keyMsg(tea.KeyEnter))
+	taken := pressWriting(t, pressAll(t, m, keyText("beta")), keyMsg(tea.KeyEnter))
+	marked := pressWriting(t, pressAll(t, m, keyText("beta!")), keyMsg(tea.KeyEnter))
 
 	assert.Contains(t, plain(taken.View()), `"beta" is already saved for mock`)
 	assert.Contains(t, plain(marked.View()), `"beta!" is not a name that can be saved`)
@@ -439,7 +439,7 @@ func TestCtrlSInHistorySavesTheEntryAndReturnsToHistory(t *testing.T) {
 
 	m = pressAll(t, m, keyMsg(tea.KeyCtrlS))
 	assert.Contains(t, plain(m.View()), "query    SELECT * FROM c WHERE c.amount > 100")
-	m = pressAll(t, m, keyText("big orders"), keyMsg(tea.KeyEnter))
+	m = pressWriting(t, pressAll(t, m, keyText("big orders")), keyMsg(tea.KeyEnter))
 
 	assert.Contains(t, plain(m.View()), historyTitle, "the history overlay is back")
 	q := only(t, store, mock.Name)
@@ -584,7 +584,7 @@ func TestTheOverlayUnderTheRenamePromptFollowsTheAccountAway(t *testing.T) {
 	assert.Contains(t, plain(m.View()), renameTitle, "the prompt stays up")
 	back := pressAll(t, m, keyMsg(tea.KeyEscape))
 	assert.Contains(t, plain(back.View()), "no account connected: ctrl+g to choose one")
-	renamed := pressAll(t, m, keyMsg(tea.KeyCtrlU), keyText("beta"), keyMsg(tea.KeyEnter))
+	renamed := pressWriting(t, pressAll(t, m, keyMsg(tea.KeyCtrlU), keyText("beta")), keyMsg(tea.KeyEnter))
 	assert.Equal(t, "beta", only(t, store, "prod").Name, "the rename went to the account it was opened for")
 	assert.Contains(t, plain(renamed.View()), "no account connected: ctrl+g to choose one")
 }
