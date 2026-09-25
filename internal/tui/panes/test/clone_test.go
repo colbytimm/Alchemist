@@ -2,6 +2,7 @@ package panes_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,6 +30,26 @@ func surveyed(known bool) clone.Survey {
 			Path:       ordersSource.Path,
 			Definition: adapter.ContainerDefinition{PartitionKeys: []string{"/customerId"}, Size: adapter.SizeEstimate{Items: 30112, Bytes: 43_830_067, Known: true}},
 		}},
+	}
+}
+
+func TestTheFormPromisesAProjectionOnlyForAKnownSize(t *testing.T) {
+	unsized := surveyed(true)
+	unsized.Containers[0].Definition.Size = adapter.SizeEstimate{}
+	tests := []struct {
+		name   string
+		survey clone.Survey
+		want   string
+	}{
+		{name: "a known size", survey: surveyed(true), want: "projected once the first page"},
+		{name: "an unknown size", survey: unsized, want: "counted as it is spent"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			view := ansi.Strip(cloneForm(panes.CloneTarget{Name: "prod", State: panes.AccountConnected}).SetSurvey(tt.survey).View())
+
+			assert.Contains(t, strings.Join(strings.Fields(view), " "), tt.want)
+		})
 	}
 }
 
