@@ -699,20 +699,20 @@ nothing saved neither mentions queries; the session builds its store under
 is the run flow iterations 5, 10 and 14 already cover against the emulator.
 
 **Manual checklist:**
-- [ ] Save a multi-line query from the editor; `cat` the file: header, then the text
+- [x] Save a multi-line query from the editor; `cat` the file: header, then the text
       exactly as typed.
 - [ ] Edit that file in another editor, reopen the overlay: the change is there.
-- [ ] Drop a header-less `.sql` file into the account directory: it lists, recalls, and
+- [x] Drop a header-less `.sql` file into the account directory: it lists, recalls, and
       runs against the current scope.
-- [ ] Drop in `bad name?.sql` and an empty `.sql`: the overlay counts two skipped files
+- [x] Drop in `bad name?.sql` and an empty `.sql`: the overlay counts two skipped files
       and the log names both.
-- [ ] Recall, edit, `ctrl+s`, `!`, `enter`: the file is replaced and `ls -a` shows no
+- [x] Recall, edit, `ctrl+s`, `!`, `enter`: the file is replaced and `ls -a` shows no
       `.tmp` file.
 - [ ] Save a name under `emulator`; `ctrl+g` to `prod`, save the same name there;
       `ctrl+l` on each account lists its own copy under its own title.
 - [ ] Save the iteration 10 join example; recall it with a different container
       selected: the scope does not move and the join runs.
-- [ ] `ctrl+o`, `ctrl+s` on an entry: the file lands in the current account's
+- [x] `ctrl+o`, `ctrl+s` on an entry: the file lands in the current account's
       directory and the history overlay is back afterwards.
 - [ ] `alchemist profile remove` without and with `--purge`; re-add a profile under a
       kept name and find its queries offered again.
@@ -742,3 +742,65 @@ is the run flow iterations 5, 10 and 14 already cover against the emulator.
 - `Update` and `View` never touch the disk; every store call is a `tea.Cmd`.
 - `internal/saved` imports the standard library only; `internal/tui` reaches the disk
   through `saved.Store` alone and still imports no concrete adapter.
+
+## Implementation notes
+
+Landed. Where the code settled differently from the text above:
+
+- The "Which scope is saved" row `… FROM c JOIN sales.customers cu ON …` is wrong about
+  the planner: a join with one bare side plans as a single pass-through leaf on the
+  named container, so the text already names its container and saves with no scope.
+  `NeedsDefaultScope` is tested against the rows that hold.
+- `setActive(account string) (Model, tea.Cmd)`, as 14's contract has it. The hook is
+  `followActiveAccount`, and runs only when the account actually changes, so an account
+  reconnected in place keeps its recalled name.
+- `d` in the overlay is its own binding, `DeleteQuery` ("delete"), not 11's `Delete`:
+  that one is disabled with the catalog's management, and a backend that cannot manage
+  its catalog can still delete a saved query. `Confirm` (`y`, "delete") is grouped
+  alone by `ConfirmKeys()`.
+- `SavedKeys()` is `Rename, DeleteQuery`. `Filter`, `Recall` and `Rerun` are grouped by
+  `HistoryKeys()` and `SaveQuery` by the global keys, so the overlays' hint lines add
+  them rather than the drift guard counting them twice. There is no `SavePromptKeys()`:
+  the prompt's hint line is `Save` and `Close`, both grouped elsewhere.
+- `ctrl+l` reads "open saved" in help: "saved queries" pushed the Results column of
+  the help overlay past 80 columns.
+- `NewSaved(icons, keys, confirm)` takes the binding its delete question names.
+  `Saved.Select(name)` places the cursor. A reload is its own command: its listing
+  carries unexported `reload` and `selectName`, and its failure is `OpSavedReload`, so
+  neither reopens an overlay the person closed, and a rename lands the cursor on the
+  new name. A listing opens the overlay only over the main layout. The overlay counts
+  as on screen while the save prompt it opened is over it, so an account change
+  under a rename still shows `errNoAccount` or the new account's list, and no reload
+  runs for no account.
+- `QuerySavedMsg.From` is set by a rename, whose notice is `renamed "a" to "b"`; the
+  recalled name follows a rename and is forgotten on a delete. A delete says
+  `deleted "a" from prod`.
+- The codec drops the carriage returns ending each line rather than replacing
+  `\r\n`, which the fuzz targets showed was not stable (`"\r\r\n"`). A save refuses
+  text that starts with `-- alchemist:`, which would read back as a header, text that
+  is not UTF-8, and a scope the header line could not carry back (an empty or padded
+  segment, a `/`, a line break); a header holding such a scope reads as none. The
+  plan's fuzz target runs both ways: a file listed and saved again, and a query saved
+  and listed. `ErrEmptyQuery` reads "empty query", since it names a skipped file as
+  well as a refused save.
+- `Rename` also refuses a name held by a second file differing from the source only
+  in case, which a case-sensitive filesystem allows. It reads exact names from the
+  directory, so a case-only rename still works on a case-insensitive one.
+- A write removes a temporary file a crash left behind before writing its own, so
+  the new file is `0o600`, and removes its own when the write fails.
+- `saved.Unavailable{}` without an `Err` still refuses every write.
+- `Dir.RemoveAccount` and `profile remove` count every query file, listed or skipped
+  (`Listing.Files`): a file the overlay skips is still something removal keeps or
+  deletes.
+- 13 landed beneath this iteration (#23). A recall goes through `Editor.SetValue`
+  and ends in `setFocus`, which closes any suggestion list, and `ctrl+s` and `ctrl+l`
+  are not suggestion keys; both are tested. 17 has not landed, so nothing checks
+  `query.IsBatch`.
+- `profile remove` still stops at a keychain that cannot be reached, before it says
+  anything about saved queries, as it did before this iteration.
+
+Exercised against the Cosmos emulator (vnext-preview, seeded with `make emulator-seed`)
+through a real terminal: save, the header on disk, a hand-dropped file, two skipped
+files, filter, recall and run restoring the scope, replace with `!`, rename, delete,
+and saving from history. `profile remove` could not be run there, for want of a
+keychain; `cmd/test/profile_test.go` covers it.

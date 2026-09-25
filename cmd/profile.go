@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/colbytimm/alchemist/internal/adapter/cosmos"
 	"github.com/colbytimm/alchemist/internal/config"
 	"github.com/colbytimm/alchemist/internal/query"
+	"github.com/colbytimm/alchemist/internal/saved"
 )
 
 // noKey is what the profile table shows when no source resolves a key.
@@ -199,17 +201,31 @@ func setKey(cmd *cobra.Command, keyring config.Keyring, name string) error {
 }
 
 func newProfileRemoveCmd(keyring config.Keyring) *cobra.Command {
-	return &cobra.Command{
+	var purge bool
+	cmd := &cobra.Command{
 		Use:   "remove <name>",
-		Short: "Remove a profile and its keychain entry",
+		Short: "Remove a profile and its keychain entry, keeping its saved queries",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return removeProfile(cmd, keyring, args[0])
+			name := args[0]
+			if err := removeProfile(keyring, name); err != nil {
+				return err
+			}
+			queries, err := savedQueries()
+			if err != nil {
+				return err
+			}
+			if purge {
+				return purgeQueries(cmd, queries, name)
+			}
+			return reportKeptQueries(cmd, queries, name)
 		},
 	}
+	cmd.Flags().BoolVar(&purge, "purge", false, "delete the profile's saved queries too")
+	return cmd
 }
 
-func removeProfile(cmd *cobra.Command, keyring config.Keyring, name string) error {
+func removeProfile(keyring config.Keyring, name string) error {
 	store, cfg, err := loadConfig()
 	if err != nil {
 		return err
@@ -224,7 +240,47 @@ func removeProfile(cmd *cobra.Command, keyring config.Keyring, name string) erro
 	if err := keyring.Delete(name); err != nil && !errors.Is(err, config.ErrSecretNotFound) {
 		return fmt.Errorf("removed profile %s, but not its keychain entry: %w", name, err)
 	}
-	return say(cmd, "removed profile %s", name)
+	return nil
+}
+
+func savedQueries() (saved.Dir, error) {
+	dir, err := config.Dir()
+	if err != nil {
+		return saved.Dir{}, err
+	}
+	return saved.Open(filepath.Join(dir, saved.DirName)), nil
+}
+
+// reportKeptQueries says where the profile's saved queries were left, since a
+// profile added again under the same name picks them back up.
+func reportKeptQueries(cmd *cobra.Command, queries saved.Dir, name string) error {
+	listing, err := queries.List(name)
+	if err != nil {
+		return fmt.Errorf("removed profile %s, but could not look for its saved queries: %w", name, err)
+	}
+	if listing.Files() == 0 {
+		return say(cmd, "removed profile %s", name)
+	}
+	return say(cmd, "removed profile %s\nkept %s in %s\nremove them too with: alchemist profile remove %s --purge",
+		name, countQueries(listing.Files()), queries.AccountPath(name), name)
+}
+
+func purgeQueries(cmd *cobra.Command, queries saved.Dir, name string) error {
+	removed, err := queries.RemoveAccount(name)
+	if err != nil {
+		return fmt.Errorf("removed profile %s, but not its saved queries: %w", name, err)
+	}
+	if removed == 0 {
+		return say(cmd, "removed profile %s", name)
+	}
+	return say(cmd, "removed profile %s and its %s", name, countQueries(removed))
+}
+
+func countQueries(n int) string {
+	if n == 1 {
+		return "1 saved query"
+	}
+	return fmt.Sprintf("%d saved queries", n)
 }
 
 // loadConfig opens the config file at its default location.

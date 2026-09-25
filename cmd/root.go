@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -20,6 +21,7 @@ import (
 	"github.com/colbytimm/alchemist/internal/config"
 	"github.com/colbytimm/alchemist/internal/history"
 	"github.com/colbytimm/alchemist/internal/logging"
+	"github.com/colbytimm/alchemist/internal/saved"
 	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
@@ -126,6 +128,7 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 			Logger:       logger,
 			History:      s.historyStore(logger, stateDir),
 			SampleFields: s.sampleFields,
+			Saved:        savedStore(logger),
 		}),
 		tea.WithAltScreen(),
 		tea.WithContext(cmd.Context()),
@@ -298,6 +301,17 @@ func (s sessionFlags) historyStore(logger *log.Logger, dir string) history.Store
 		return history.Discard{}
 	}
 	return store
+}
+
+// savedStore places the saved queries beside config.toml. A config directory
+// that cannot be located leaves a store that says why on the first save.
+func savedStore(logger *log.Logger) saved.Store {
+	dir, err := config.Dir()
+	if err != nil {
+		logger.Warn("saved queries are off for this session", "error", err)
+		return saved.Unavailable{Err: err}
+	}
+	return saved.Open(filepath.Join(dir, saved.DirName))
 }
 
 func (s sessionFlags) icons() theme.IconSet {

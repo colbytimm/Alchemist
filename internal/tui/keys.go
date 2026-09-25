@@ -34,6 +34,11 @@ type KeyMap struct {
 	Run          key.Binding
 	Connect      key.Binding
 	History      key.Binding
+	SaveQuery    key.Binding
+	Saved        key.Binding
+	Rename       key.Binding
+	DeleteQuery  key.Binding
+	Confirm      key.Binding
 	Accounts     key.Binding
 	Switch       key.Binding
 	AddAccount   key.Binding
@@ -150,6 +155,31 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+o"),
 			key.WithHelp("ctrl+o", "history"),
 		),
+		// ctrl+s and ctrl+l are bound by neither the editor's textarea nor a
+		// text input, so they work while either has the keyboard. bubbletea's
+		// raw mode delivers ctrl+s as a key rather than freezing output.
+		SaveQuery: key.NewBinding(
+			key.WithKeys("ctrl+s"),
+			key.WithHelp("ctrl+s", "save query"),
+		),
+		Saved: key.NewBinding(
+			key.WithKeys("ctrl+l"),
+			key.WithHelp("ctrl+l", "open saved"),
+		),
+		Rename: key.NewBinding(
+			key.WithKeys("r"),
+			key.WithHelp("r", "rename"),
+		),
+		// DeleteQuery is not Delete: that one goes with the catalog's
+		// management, and a backend without it can still delete a saved query.
+		DeleteQuery: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d", "delete"),
+		),
+		Confirm: key.NewBinding(
+			key.WithKeys("y"),
+			key.WithHelp("y", "delete"),
+		),
 		// ctrl+g is bound by nothing in the editor's textarea, so it reaches
 		// the switcher while the editor has the keyboard.
 		Accounts: key.NewBinding(
@@ -219,6 +249,19 @@ func (k KeyMap) HistoryKeys() []key.Binding {
 	return []key.Binding{k.Filter, k.Recall, k.Rerun}
 }
 
+// SavedKeys are the bindings only the saved queries overlay answers to. Its
+// hint line shows Filter, Recall and Rerun in front of them, which
+// HistoryKeys already groups.
+func (k KeyMap) SavedKeys() []key.Binding {
+	return []key.Binding{k.Rename, k.DeleteQuery}
+}
+
+// ConfirmKeys answer the saved queries overlay's question before a delete,
+// and nothing else.
+func (k KeyMap) ConfirmKeys() []key.Binding {
+	return []key.Binding{k.Confirm}
+}
+
 // AccountsKeys are the bindings only the account switcher answers to. Its
 // hint line shows Filter beside them, which HistoryKeys already groups.
 func (k KeyMap) AccountsKeys() []key.Binding {
@@ -239,7 +282,7 @@ func (k KeyMap) InfoKeys() []key.Binding {
 func (k KeyMap) globalKeys() []key.Binding {
 	return []key.Binding{
 		k.NextPane, k.PrevPane, k.FocusEditor, k.Run,
-		k.History, k.Accounts, k.Help, k.Close, k.Quit,
+		k.History, k.SaveQuery, k.Saved, k.Accounts, k.Help, k.Close, k.Quit,
 	}
 }
 

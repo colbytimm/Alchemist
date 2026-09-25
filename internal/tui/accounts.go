@@ -234,15 +234,21 @@ func (m Model) activeConnection() (accountEntry, bool) {
 
 // setActive moves the session onto account, empty for none. It is the one
 // place the active account changes, so a feature that shows something per
-// account hooks in here. The editor, the results and the run are left alone.
-func (m Model) setActive(account string) Model {
+// account hooks in here, and reloads through the command. The editor, the
+// results and the run are left alone.
+func (m Model) setActive(account string) (Model, tea.Cmd) {
+	changed := account != m.accounts.active
 	m.accounts.active = account
 	if account != "" {
 		m.accounts = m.accounts.used(account)
 	}
 	entry, _ := m.accounts.get(account)
 	m.statusBar = m.statusBar.SetAccount(account).SetScope(entry.scope)
-	return m.closeSuggestions().withManagement(entry.management).setFocus(m.focus)
+	m = m.closeSuggestions().withManagement(entry.management).setFocus(m.focus)
+	if !changed {
+		return m, nil
+	}
+	return m.followActiveAccount(account)
 }
 
 func (m Model) setScope(account string, scope []string) Model {
@@ -273,7 +279,8 @@ func (m Model) startLaunch(launch string) Model {
 	entry, _ := m.accounts.get(launch)
 	entry.pane, _, _ = entry.pane.Reload()
 	m.accounts.put(entry)
-	return m.setActive(launch)
+	m, _ = m.setActive(launch) // nothing is open yet for the switch to reload
+	return m
 }
 
 // startConnecting numbers a new attempt to connect name, which supersedes any
@@ -405,7 +412,7 @@ func (m Model) switchToSelected() (Model, tea.Cmd) {
 	entry, _ := m.accounts.get(row.Name)
 	switch {
 	case entry.connected():
-		return m.closeAccounts().setActive(row.Name), nil
+		return m.closeAccounts().setActive(row.Name)
 	case entry.state == panes.AccountConnecting, m.formAttempts[row.Name] != 0:
 		m.accounts.waiting = row.Name
 		return m, nil
@@ -435,7 +442,7 @@ func (m Model) disconnectSelected() (Model, tea.Cmd) {
 	if m.accounts.waiting == row.Name {
 		m.accounts.waiting = ""
 	}
-	var abandon tea.Cmd
+	var abandon, follow tea.Cmd
 	if m.runAccount == row.Name && entry.connected() {
 		m, abandon = m.abandonRun()
 	}
@@ -444,10 +451,10 @@ func (m Model) disconnectSelected() (Model, tea.Cmd) {
 	m.accounts.put(blank)
 	m.accounts = m.accounts.forget(row.Name)
 	if m.accounts.active == row.Name {
-		m = m.setActive(m.accounts.fallback())
+		m, follow = m.setActive(m.accounts.fallback())
 	}
 	m, sync := m.syncAccountRows()
-	return m, tea.Batch(abandon, sync, m.closeInBackground(entry.connection))
+	return m, tea.Batch(abandon, follow, sync, m.closeInBackground(entry.connection))
 }
 
 // acceptConnection takes the connection an Opener delivered. One nothing is
@@ -460,14 +467,15 @@ func (m Model) acceptConnection(msg AccountConnectedMsg) (Model, tea.Cmd) {
 	}
 	m.logger.Info("connected", "account", msg.Account)
 	m, load := m.attach(entry, msg.Connection)
+	var follow tea.Cmd
 	switch {
 	case m.takeWait(msg.Account):
-		m = m.closeAccounts().setActive(msg.Account)
+		m, follow = m.closeAccounts().setActive(msg.Account)
 	case m.accounts.active == "", m.accounts.active == msg.Account:
-		m = m.setActive(msg.Account)
+		m, follow = m.setActive(msg.Account)
 	}
 	m, sync := m.syncAccountRows()
-	return m, tea.Batch(load, sync)
+	return m, tea.Batch(load, follow, sync)
 }
 
 // attach records conn as entry's connection, and starts loading its tree. The
@@ -500,7 +508,7 @@ func (m Model) failConnection(msg ErrMsg) (Model, tea.Cmd) {
 	waited := m.takeWait(msg.Account)
 	launching := m.accounts.active == msg.Account
 	if launching {
-		m = m.setActive("")
+		m, _ = m.setActive("") // no account has nothing to reload
 	}
 	idle := waited || launching && m.overlay == overlayNone
 	if idle && errors.Is(msg.Err, ErrCredentialsNeeded) {

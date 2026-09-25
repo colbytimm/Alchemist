@@ -119,14 +119,15 @@ func (m Model) acceptFormConnection(msg AccountConnectedMsg) (Model, tea.Cmd) {
 	entry, _ := m.accounts.get(msg.Account)
 	m.logger.Info("connected", "account", msg.Account)
 	m, load := m.attach(entry, msg.Connection)
+	var follow tea.Cmd
 	switch {
 	case m.showsFormAttempt(msg.attempt), m.takeWait(msg.Account):
-		m = m.closeAccounts().setActive(msg.Account)
+		m, follow = m.closeAccounts().setActive(msg.Account)
 	case m.accounts.active == "":
-		m = m.setActive(msg.Account)
+		m, follow = m.setActive(msg.Account)
 	}
 	m, sync := m.syncAccountRows()
-	return m, tea.Batch(load, sync)
+	return m, tea.Batch(load, follow, sync)
 }
 
 // failFormConnection shows why the attempt did not connect, on the form that
