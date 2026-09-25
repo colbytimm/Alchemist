@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // jobKind is what a background job does; the zero value is no job at all.
@@ -112,18 +114,19 @@ func (j job) waitText(others string) string {
 }
 
 // warnBeforeQuit shows the running job, and what quitting would leave,
-// before the quit that stops it. It reports whether it did.
-func (m Model) warnBeforeQuit() (Model, bool) {
+// before the quit that stops it. It reports whether it did, with what the
+// view it opened needs to load.
+func (m Model) warnBeforeQuit() (Model, tea.Cmd, bool) {
 	switch {
 	case m.job.kind == jobClone && m.cloning.running() && !m.cloning.quitWarned:
 		m.cloning.quitWarned = true
 		m.overlay = overlayCloneProgress
-		return m.syncClone(), true
+		return m.syncClone(), nil, true
 	case m.job.kind == jobCapture && !m.capturing.quitWarned:
 		m.capturing.quitWarned = true
 		m.capturing.status.Warning = captureQuitWarning
-		model, _ := m.showCapture()
-		return model, true
+		model, load := m.showCapture()
+		return model, load, true
 	}
-	return m, false
+	return m, nil, false
 }

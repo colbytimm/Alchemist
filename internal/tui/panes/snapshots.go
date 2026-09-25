@@ -47,7 +47,7 @@ type CaptureStatus struct {
 	Progress  snapshot.Progress
 	End       CaptureEnd
 	Err       error
-	// Warning is said in place of the row's figures, as quitting's is.
+	// Warning is said under the row: what quitting now would do.
 	Warning string
 }
 
@@ -288,6 +288,9 @@ func (s Snapshots) topLines(width int) []string {
 	var lines []string
 	if s.capture != nil {
 		lines = append(lines, s.captureLine(width))
+		if s.capture.Warning != "" {
+			lines = append(lines, styleAll(theme.ErrorStyle(), wrapText(s.capture.Warning, width))...)
+		}
 	}
 	if s.groups != nil {
 		return append(lines, theme.HintStyle().Render(fmt.Sprintf("    %-*s  %-*s  %s", takenWidth, "Taken (UTC)", windowWidth, "Window", "Containers")))
@@ -298,14 +301,12 @@ func (s Snapshots) topLines(width int) []string {
 
 func (s Snapshots) captureLine(width int) string {
 	status := s.capture
-	switch {
-	case status.Warning != "":
-		return theme.ErrorStyle().Render(fit(status.Warning, width))
-	case status.End == CaptureFailed:
+	switch status.End {
+	case CaptureFailed:
 		return theme.ErrorStyle().Render(fit(s.icons.Failure+" capture failed: "+status.Err.Error(), width))
-	case status.End == CaptureCancelled:
+	case CaptureCancelled:
 		return theme.HintStyle().Render(fit("capture cancelled: nothing was kept", width))
-	case status.End == CaptureDone:
+	case CaptureDone:
 		return theme.SuccessStyle().Render(fit(s.icons.Success+" snapshot taken", width))
 	}
 	p := status.Progress

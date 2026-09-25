@@ -273,8 +273,9 @@ func (m Model) finishSnapshotDelete(msg SnapshotDeletedMsg) (Model, tea.Cmd) {
 }
 
 // closeSnapshots leaves the overlay. A capture it showed carries on, in
-// the status bar.
+// the status bar, and leaving the quit warning is choosing not to quit.
 func (m Model) closeSnapshots() (Model, tea.Cmd) {
+	m = m.disarmCaptureQuit()
 	m, closing := m.leaveDiff()
 	m.overlay = overlayNone
 	m.browsing = snapshotBrowse{}
@@ -405,4 +406,12 @@ func (m Model) diffSelected() (Model, tea.Cmd) {
 	}
 	m.browsing.diffReturn = overlaySnapshots
 	return m, m.loadDiff(m.browsing.loc, from, to)
+}
+
+// disarmCaptureQuit takes back the quit warning, so the next quit warns
+// again rather than cancelling the capture.
+func (m Model) disarmCaptureQuit() Model {
+	m.capturing.quitWarned = false
+	m.capturing.status.Warning = ""
+	return m
 }

@@ -1175,7 +1175,10 @@ What landed differs from the text above in these ways:
   confirmation is `d`, then `enter`. The overlays' hint lines wrap to a second line at
   80 columns rather than cutting keys off. The theme's icons gained `Marked` and
   `Removed`. Iteration 21 has not landed, so there is no `UPDATE` for `ctrl+r` to
-  refuse. The switcher's refusal names the job's own key and verb:
+  refuse. The quit warning opens the capture's overlay with its list and its progress
+  line, the warning under it; leaving that overlay with `esc` takes the warning back,
+  so the next `q` warns again rather than cancelling. The switcher's refusal names the
+  job's own key and verb:
   `a snapshot is using prod: cancel it first (v in the catalog)`.
 - **CLI.** Counts are grouped with commas, as the TUI's are. `prune` refuses to run
   without `--keep-last` (0 keeps by day alone). `list` prints each store's usage line

@@ -701,8 +701,8 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 // holds. A clone that is running is shown first, with what quitting would
 // leave behind, and stopped by the quit that follows.
 func (m Model) quit() (Model, tea.Cmd) {
-	if model, warned := m.warnBeforeQuit(); warned {
-		return model, nil
+	if model, load, warned := m.warnBeforeQuit(); warned {
+		return model, load
 	}
 	switch m.job.kind {
 	case jobClone:

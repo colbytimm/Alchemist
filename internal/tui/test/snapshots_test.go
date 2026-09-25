@@ -194,13 +194,57 @@ func TestTheFirstQuitMidCaptureWarnsAndTheSecondQuitsKeepingNothing(t *testing.T
 	m, _ := beginSnapshot(t, newSnapshotModel(t, newSnapshotConnection(t), root), "")
 	m = pressNow(t, m, keyMsg(tea.KeyEscape))
 
-	warned, cmd := m.Update(keyRune('q'))
-	assert.Nil(t, cmd)
-	assert.Contains(t, plain(warned.View()), "A snapshot is running. Quit again to cancel it and quit; nothing will be kept.")
-	_, cmd = warned.Update(keyRune('q'))
+	warned := pressNow(t, m, keyRune('q'))
+	assert.Contains(t, overlayText(warned), quitWarning)
+	_, cmd := warned.Update(keyRune('q'))
 
-	require.NotNil(t, cmd)
+	assert.True(t, quits(cmd))
 	assert.Empty(t, snapshotsOf(t, root))
+}
+
+const quitWarning = "A snapshot is running. Quit again to cancel it and quit; nothing will be kept."
+
+// overlayText is the view with its borders gone and its lines run
+// together, so a wrapped sentence reads whole.
+func overlayText(m tea.Model) string {
+	return strings.Join(strings.Fields(strings.ReplaceAll(plain(m.View()), "│", "")), " ")
+}
+
+func quits(cmd tea.Cmd) bool {
+	return hasMsg[tea.QuitMsg](answers(cmd))
+}
+
+// runningCapture is a session whose sales.orders has one snapshot and a
+// second capture one step in, hidden behind the catalog.
+func runningCapture(t *testing.T) tea.Model {
+	t.Helper()
+	m := takeSnapshot(t, newSnapshotModel(t, newSnapshotConnection(t), t.TempDir()))
+	m, cmd := beginSnapshot(t, m, "")
+	m, _ = step(m, cmd)
+	return pressNow(t, m, keyMsg(tea.KeyEscape))
+}
+
+func TestTheQuitWarningOpensOnTheListWithTheCapturesProgress(t *testing.T) {
+	m := runningCapture(t)
+
+	warned := pressNow(t, m, keyRune('q'))
+
+	view := overlayText(warned)
+	assert.Contains(t, view, quitWarning)
+	assert.NotContains(t, view, "reading snapshots", "the list is read when the warning opens")
+	assert.Contains(t, view, "first snapshot")
+	assert.Contains(t, view, "capturing", "the progress line stays beside the warning")
+}
+
+func TestLeavingTheQuitWarningDisarmsTheQuit(t *testing.T) {
+	m := pressNow(t, runningCapture(t), keyRune('q'), keyMsg(tea.KeyEscape))
+
+	reopened := pressNow(t, m, keyRune('v'))
+	assert.NotContains(t, overlayText(reopened), quitWarning, "v shows the capture without the warning")
+	again, cmd := m.Update(keyRune('q'))
+
+	assert.False(t, quits(cmd), "the next quit warns again rather than quitting")
+	assert.Contains(t, overlayText(settleNow(again, cmd)), quitWarning)
 }
 
 func TestAQuitMidStepLeavesTheStoreUnlocked(t *testing.T) {
