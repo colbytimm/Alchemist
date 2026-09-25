@@ -571,3 +571,59 @@ func TestErrorsNameTheTarget(t *testing.T) {
 	assert.False(t, errors.Is(err, clone.ErrTargetExists))
 	assert.Contains(t, err.Error(), "target/sales.orders-copy")
 }
+
+// cancellingWriter cancels the step on its first upsert, and counts the
+// upserts that found their own context cancelled.
+type cancellingWriter struct {
+	adapter.ItemWriter
+	cancel    context.CancelFunc
+	once      sync.Once
+	mu        sync.Mutex
+	cancelled int
+}
+
+func (w *cancellingWriter) OpenItemSink(ctx context.Context, path []string) (adapter.ItemSink, error) {
+	sink, err := w.ItemWriter.OpenItemSink(ctx, path)
+	return cancellingSink{ItemSink: sink, writer: w}, err
+}
+
+type cancellingSink struct {
+	adapter.ItemSink
+	writer *cancellingWriter
+}
+
+func (s cancellingSink) Upsert(ctx context.Context, item json.RawMessage) (float64, error) {
+	s.writer.once.Do(s.writer.cancel)
+	if ctx.Err() != nil {
+		s.writer.mu.Lock()
+		s.writer.cancelled++
+		s.writer.mu.Unlock()
+	}
+	return s.ItemSink.Upsert(ctx, item)
+}
+
+func TestAStoppedPageLetsTheWritesInFlightFinish(t *testing.T) {
+	eachWriterCount(t, func(t *testing.T, writers int) {
+		a := mock.New(mock.WithItemCount(ordersPath, 25))
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		source, target := sourceOf(t, a), targetOf(t, a)
+		writer := &cancellingWriter{ItemWriter: target.Items, cancel: cancel}
+		target.Items = writer
+		job := containerJob(writers, copyPath)
+		survey, err := clone.SurveySource(context.Background(), source, job.Source)
+		require.NoError(t, err)
+		plan, err := clone.Prepare(context.Background(), job, survey, source, target)
+		require.NoError(t, err)
+		require.NoError(t, plan.CreateContainer(context.Background(), 0))
+		c, err := plan.Open(context.Background(), 0, "")
+		require.NoError(t, err)
+
+		_, err = c.CopyPage(ctx)
+
+		require.ErrorIs(t, err, context.Canceled)
+		assert.Zero(t, writer.cancelled, "no write in flight saw the stop")
+		assert.Equal(t, a.Upserts(), len(a.Items(copyPath)), "every write that started was written")
+		assert.Empty(t, c.Position(), "the page is written again on resume")
+	})
+}

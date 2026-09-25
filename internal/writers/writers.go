@@ -28,7 +28,6 @@ const defaultRetryAfter = time.Second
 // ErrNotStarted is the outcome of a write its step ended before starting.
 var ErrNotStarted = errors.New("writers: not started: the step ended first")
 
-// Write performs one item's write and reports what it cost.
 type Write func(ctx context.Context) (requestCharge float64, err error)
 
 type Outcome struct {
@@ -37,12 +36,10 @@ type Outcome struct {
 	Err           error
 }
 
-// Clock is what a throttled step waits on.
 type Clock interface {
 	After(d time.Duration) <-chan time.Time
 }
 
-// SystemClock waits in real time.
 type SystemClock struct{}
 
 func (SystemClock) After(d time.Duration) <-chan time.Time { return time.After(d) }
@@ -56,7 +53,6 @@ type Pool struct {
 	size int
 }
 
-// NewPool clamps size to 1..MaxSize.
 func NewPool(size int, clock Clock) *Pool {
 	return &Pool{size: min(max(size, 1), MaxSize), clock: clock}
 }
@@ -135,7 +131,6 @@ func (s *step) admit(ctx context.Context) bool {
 	return true
 }
 
-// release frees the caller's slot, unless a step-down has claimed it.
 func (s *step) release() {
 	for {
 		retired := s.retired.Load()

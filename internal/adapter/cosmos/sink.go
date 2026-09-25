@@ -25,8 +25,6 @@ const maxExactInteger = 1 << 53
 
 var errInexactKey = errors.New("an integer partition key past 2^53 cannot be sent exactly")
 
-// OpenItemSink reads the container's key paths once, for every upsert to
-// come.
 func (c *connection) OpenItemSink(ctx context.Context, path []string) (adapter.ItemSink, error) {
 	op := "upsert into " + pathText(path)
 	container, err := c.containerAt(op, path)
@@ -98,7 +96,6 @@ func (s *sink) refusal(err error) error {
 	return wrapped
 }
 
-// chargeOf is what a refused request still cost.
 func chargeOf(err error) float64 {
 	var respErr *azcore.ResponseError
 	if !errors.As(err, &respErr) || respErr.RawResponse == nil {

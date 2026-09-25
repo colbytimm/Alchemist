@@ -16,6 +16,9 @@ import (
 // the backend named no delay.
 const readRetryAfter = time.Second
 
+// writeTimeout bounds one upsert, retries included.
+const writeTimeout = 30 * time.Second
+
 // Copy moves the items of one container. Whoever calls CopyPage owns it
 // until the call returns: it is not safe for concurrent use.
 type Copy struct {
@@ -43,7 +46,6 @@ type Progress struct {
 	Done                    bool
 }
 
-// Skip is one item the target could not take.
 type Skip struct {
 	ID     string
 	Reason error
@@ -207,12 +209,16 @@ func stripAll(items []json.RawMessage) ([]json.RawMessage, []Skip) {
 
 // writes builds one upsert per body. A body the target refuses for its own
 // sake is recorded in refused, at its index, and counts as written: it must
-// not end the step for every other item of the page.
+// not end the step for every other item of the page. An upsert runs on a
+// deadline of its own, not the step's: a stopped step starts no new write,
+// and lets the ones in flight finish.
 func (c *Copy) writes(bodies []json.RawMessage) ([]writers.Write, []error) {
 	refused := make([]error, len(bodies))
 	writes := make([]writers.Write, len(bodies))
 	for i, body := range bodies {
 		writes[i] = func(ctx context.Context) (float64, error) {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
+			defer cancel()
 			charge, err := c.sink.Upsert(ctx, body)
 			if errors.Is(err, adapter.ErrItemRefused) {
 				refused[i] = err
@@ -224,8 +230,6 @@ func (c *Copy) writes(bodies []json.RawMessage) ([]writers.Write, []error) {
 	return writes, refused
 }
 
-// fold adds the outcomes of a page's writes to progress, and returns how
-// many items were written, or the error that ended the step.
 func fold(progress *Progress, outcomes []writers.Outcome, refused []error, bodies []json.RawMessage) (int, error) {
 	var failure error
 	written := 0
