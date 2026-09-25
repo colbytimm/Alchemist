@@ -691,6 +691,7 @@ func (m Model) beginRun(account string) Model {
 	m.simulated = false
 	m.plan = query.Plan{}
 	m.batchState = panes.BatchNone
+	m.pendingBatch = pendingBatch{}
 	m.runAccount = account
 	m.results = m.results.Clear().SetSource(account)
 	return m

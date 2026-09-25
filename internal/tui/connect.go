@@ -115,7 +115,9 @@ func (m Model) acceptFormConnection(msg AccountConnectedMsg) (Model, tea.Cmd) {
 	account := msg.submitted
 	if entry, ok := m.accounts.get(msg.Account); ok {
 		account.Database, account.MaxJoinRows = entry.account.Database, entry.account.MaxJoinRows
-		account.ReadOnly = entry.account.ReadOnly
+		// Read-only only ever tightens here: what the old endpoint allowed says
+		// nothing about the one the form just connected to.
+		account.ReadOnly = account.ReadOnly || entry.account.ReadOnly
 	}
 	m.accounts = m.accounts.add(m.withSessionAccess(account), m.blankEntry)
 	entry, _ := m.accounts.get(msg.Account)

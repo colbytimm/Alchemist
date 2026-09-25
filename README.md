@@ -271,8 +271,8 @@ A batch that writes opens a review first, every time, recalled from history or n
 account, the container, the key, each operation, and a warning for a write with no
 `IF MATCH` or two operations on one item. It commits only once the container's name
 is typed back exactly and `enter` pressed; `esc` sends nothing and records nothing. A
-batch that only reads runs straight away. `ctrl+b` on a result row, or in its detail,
-adds a `REPLACE` of that document, conditional on its current ETag, to the batch in the
+batch that only reads runs straight away. `ctrl+b` on a row of a `SELECT *` query of
+one container, or in its detail, adds a `REPLACE` of that document, conditional on its current ETag, to the batch in the
 editor, or starts one when the editor holds a query.
 
 The outcome is a result set, one row per operation, which the detail view and export

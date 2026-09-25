@@ -236,9 +236,11 @@ func (m Model) setCatalogPane(pane panes.Catalog) Model {
 	return m
 }
 
+// activeManagement is what the active account permits, so no dialog can
+// write to a read-only one even if a binding were left enabled.
 func (m Model) activeManagement() Management {
 	entry, _ := m.accounts.get(m.accounts.active)
-	return entry.management
+	return entry.permitted()
 }
 
 // activeConnection is the account a run goes to, when it is connected.
@@ -263,6 +265,7 @@ func (m Model) setActive(account string) (Model, tea.Cmd) {
 	if !changed {
 		return m, nil
 	}
+	m.pendingBatch = pendingBatch{} // a batch belongs to the account it was started on
 	return m.followActiveAccount(account)
 }
 
