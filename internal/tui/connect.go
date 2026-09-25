@@ -7,13 +7,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
-	"github.com/colbytimm/alchemist/internal/config"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
 
-// Connector connects and saves what the connect form submitted. It is called
-// off the main goroutine, once per attempt, never with an incomplete form.
-type Connector func(ctx context.Context, form panes.ConnectForm) (adapter.Connection, error)
+// Connector connects and saves what the connect form submitted, and reports
+// the account as saved. It is called off the main goroutine, once per
+// attempt, never with an incomplete form.
+type Connector func(ctx context.Context, form panes.ConnectForm) (Account, adapter.Connection, error)
 
 // openCredentialsForm asks for the key of an account that has none anywhere,
 // seeded with everything else about it.
@@ -112,14 +112,7 @@ func (m Model) acceptFormConnection(msg AccountConnectedMsg) (Model, tea.Cmd) {
 	if m.accounts.busy(msg.Account) {
 		return m, m.closeInBackground(msg.Connection)
 	}
-	account := msg.submitted
-	if entry, ok := m.accounts.get(msg.Account); ok {
-		account.Database, account.MaxJoinRows = entry.account.Database, entry.account.MaxJoinRows
-		// Read-only only ever tightens here: what the old endpoint allowed says
-		// nothing about the one the form just connected to.
-		account.ReadOnly = account.ReadOnly || entry.account.ReadOnly
-	}
-	m.accounts = m.accounts.add(m.withSessionAccess(account), m.blankEntry)
+	m.accounts = m.accounts.add(m.withSessionAccess(msg.saved), m.blankEntry)
 	entry, _ := m.accounts.get(msg.Account)
 	m.logger.Info("connected", "account", msg.Account)
 	m, load := m.attach(entry, msg.Connection)
@@ -183,20 +176,10 @@ func (m Model) openConnection(form panes.ConnectForm, attempt int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
 		defer cancel()
-		conn, err := connect(ctx, form)
+		saved, conn, err := connect(ctx, form)
 		if err != nil {
 			return ConnectFailedMsg{Err: err, account: form.Profile, attempt: attempt}
 		}
-		return AccountConnectedMsg{
-			Account:    form.Profile,
-			Connection: conn,
-			attempt:    attempt,
-			submitted: Account{
-				Name:       form.Profile,
-				Endpoint:   form.Endpoint,
-				SkipVerify: form.SkipVerify,
-				ReadOnly:   config.Profile{Endpoint: form.Endpoint}.IsReadOnly(),
-			},
-		}
+		return AccountConnectedMsg{Account: form.Profile, Connection: conn, attempt: attempt, saved: saved}
 	}
 }

@@ -68,7 +68,7 @@ func TestConnectRefusesAProfileThatAlreadyWorks(t *testing.T) {
 	h.addProfile(t, "dev", "--adapter", mock.Name)
 	h.keyring.secrets["dev"] = "stored-key"
 
-	_, err := h.profiles(t).Connect(context.Background(), panes.ConnectForm{
+	_, _, err := h.profiles(t).Connect(context.Background(), panes.ConnectForm{
 		Profile: "dev", Endpoint: "https://elsewhere", Key: "typed-key",
 	})
 
@@ -80,7 +80,7 @@ func TestConnectCompletesAProfileWithNoKey(t *testing.T) {
 	h := newHarness(t)
 	h.addProfile(t, "dev", "--adapter", mock.Name)
 
-	conn, err := h.profiles(t).Connect(context.Background(), panes.ConnectForm{
+	_, conn, err := h.profiles(t).Connect(context.Background(), panes.ConnectForm{
 		Profile: "dev", Endpoint: "https://elsewhere", Key: "typed-key", StoreKey: true,
 	})
 
@@ -95,7 +95,7 @@ func TestConnectCompletesAProfileWithNoKey(t *testing.T) {
 func TestConnectAddsAnyOtherNameOnlyOnceItConnects(t *testing.T) {
 	h := newHarness(t)
 
-	_, err := h.profiles(t).Connect(context.Background(), panes.ConnectForm{
+	_, _, err := h.profiles(t).Connect(context.Background(), panes.ConnectForm{
 		Profile: "fresh", Endpoint: "::not-a-url", Key: "a2V5", StoreKey: true,
 	})
 
@@ -119,7 +119,7 @@ func TestConnectCompletesAProfileWhoseKeychainCannotBeRead(t *testing.T) {
 	require.NoError(t, err)
 	profiles := cmd.Profiles{Store: store, Keyring: lockedKeyring{h.keyring}}
 
-	conn, err := profiles.Connect(context.Background(), panes.ConnectForm{
+	_, conn, err := profiles.Connect(context.Background(), panes.ConnectForm{
 		Profile: "dev", Endpoint: "https://elsewhere", Key: "typed-key",
 	})
 
@@ -150,7 +150,7 @@ func TestConnectSavesNothingWhenTheKeyCannotBeRemembered(t *testing.T) {
 	require.NoError(t, err)
 	profiles := cmd.Profiles{Store: store, Keyring: refusingKeyring{h.keyring}}
 
-	_, err = profiles.Connect(context.Background(), panes.ConnectForm{
+	_, _, err = profiles.Connect(context.Background(), panes.ConnectForm{
 		Profile: "dev", Endpoint: "https://elsewhere", Key: "typed-key", StoreKey: true,
 	})
 
@@ -165,7 +165,7 @@ func TestConnectRefusesACaseVariantBeforeConnecting(t *testing.T) {
 	h := newHarness(t)
 	h.addProfile(t, "prod", "--adapter", mock.Name)
 
-	_, err := h.profiles(t).Connect(context.Background(), panes.ConnectForm{
+	_, _, err := h.profiles(t).Connect(context.Background(), panes.ConnectForm{
 		Profile: "Prod", Endpoint: "::not-a-url", Key: "typed-key",
 	})
 
@@ -186,4 +186,61 @@ func TestOpenNeverBorrowsAnotherAccountsConnectionString(t *testing.T) {
 	conn, err := h.profiles(t).Open(context.Background(), "staging")
 	require.NoError(t, err, "the account the string names still connects with it")
 	require.NoError(t, conn.Close())
+}
+
+// connectForm completes the keyless mock profile name through the form,
+// with endpoint as typed.
+func connectForm(t *testing.T, h harness, name, endpoint string) tui.Account {
+	t.Helper()
+	account, conn, err := h.profiles(t).Connect(context.Background(), panes.ConnectForm{
+		Profile: name, Endpoint: endpoint, Key: "typed-key",
+	})
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+	return account
+}
+
+func TestConnectReportsTheAccountAsSaved(t *testing.T) {
+	h := newHarness(t)
+	h.addProfile(t, "dev", "--adapter", mock.Name, "--database", "sales")
+
+	account := connectForm(t, h, "dev", "https://localhost:8081")
+
+	accounts, err := h.profiles(t).Accounts()
+	require.NoError(t, err)
+	assert.Equal(t, accounts, []tui.Account{account})
+	assert.Equal(t, "sales", account.Database)
+}
+
+func TestAFormKeepsAnExplicitReadOnlyOnTheSameEndpoint(t *testing.T) {
+	h := newHarness(t)
+	_, err := h.run("", "profile", "add", "staging", "--adapter", mock.Name,
+		"--endpoint", "https://staging.documents.azure.com:443/", "--read-only=false")
+	require.NoError(t, err)
+
+	account := connectForm(t, h, "staging", "https://staging.documents.azure.com:443/")
+
+	assert.False(t, account.ReadOnly, "read_only = false still holds")
+	assert.False(t, readOnlyOf(t, h, "staging"))
+}
+
+func TestAFormThatChangesTheEndpointDerivesReadOnlyAgain(t *testing.T) {
+	h := newHarness(t)
+	_, err := h.run("", "profile", "add", "staging", "--adapter", mock.Name,
+		"--endpoint", "https://staging.documents.azure.com:443/", "--read-only=false")
+	require.NoError(t, err)
+
+	account := connectForm(t, h, "staging", "https://prod.documents.azure.com:443/")
+
+	assert.True(t, account.ReadOnly, "writes were allowed for the old endpoint, not this one")
+	assert.True(t, readOnlyOf(t, h, "staging"), "and the saved profile says so too")
+}
+
+func TestAFormFromLocalhostToARemoteEndpointIsReadOnly(t *testing.T) {
+	h := newHarness(t)
+	h.addProfile(t, "dev", "--adapter", mock.Name)
+
+	account := connectForm(t, h, "dev", "https://prod.documents.azure.com:443/")
+
+	assert.True(t, account.ReadOnly)
 }

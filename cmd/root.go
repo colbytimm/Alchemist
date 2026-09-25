@@ -218,7 +218,9 @@ func adapterLaunch(ctx context.Context, name string, keyring config.Keyring) (la
 	store, err := config.DefaultStore()
 	if err != nil {
 		session.open = adapterOpener(name, nil)
-		session.connect = func(context.Context, panes.ConnectForm) (adapter.Connection, error) { return nil, err }
+		session.connect = func(context.Context, panes.ConnectForm) (tui.Account, adapter.Connection, error) {
+			return tui.Account{}, nil, err
+		}
 		return session, nil
 	}
 	profiles := Profiles{Store: store, Keyring: keyring}
