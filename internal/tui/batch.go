@@ -25,7 +25,7 @@ var (
 	errReadOnly       = errors.New("read-only")
 	errNoBatchSupport = errors.New("this adapter has no transactions")
 	errBatchInFlight  = errors.New("a batch is committing: wait for its outcome")
-	errNotADocument   = errors.New("only a row of one container's items can be written back")
+	errNotADocument   = errors.New("only a whole item of one container, from SELECT *, can be written back")
 )
 
 // readOnlyError says how to lift the refusal as well as what it was.
@@ -256,12 +256,20 @@ func (m Model) blockWhileCommitting(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	switch {
 	case msg.Type == tea.KeyCtrlC:
 		return m, nil, false
+	case key.Matches(msg, m.keys.Quit) && m.typesIntoEditor(msg):
+		return m, nil, false
 	case key.Matches(msg, m.keys.Run, m.keys.Rerun, m.keys.Accounts, m.keys.Quit),
 		msg.Type == tea.KeyEsc && m.overlay == overlayNone:
 		model, cmd := m.notify(errBatchInFlight.Error())
 		return model, cmd, true
 	}
 	return m, nil, false
+}
+
+// typesIntoEditor reports whether msg is text for the editor, where q is a
+// letter rather than a quit.
+func (m Model) typesIntoEditor(msg tea.KeyMsg) bool {
+	return typesIntoBuffer(msg) && m.overlay == overlayNone && m.focus == focusEditor
 }
 
 // finishBatch lays the report out as the result set, whatever the outcome:
@@ -345,7 +353,7 @@ func (m Model) draftReplace() (Model, tea.Cmd) {
 		return m, nil
 	}
 	item, ok := m.results.SelectedDocument()
-	if !ok || m.batchState != panes.BatchNone || m.plan.Simulated() || len(m.plan.Leaves) != 1 || m.runAccount != entry.account.Name {
+	if !ok || !m.showsWholeItems(entry) {
 		return m.notify(errNotADocument.Error())
 	}
 	text, err := m.appendReplace(entry, drafter, item)
@@ -354,6 +362,14 @@ func (m Model) draftReplace() (Model, tea.Cmd) {
 	}
 	m.editor = m.editor.SetValue(text)
 	return m.notify("added a REPLACE to the batch in the editor")
+}
+
+// showsWholeItems reports whether the rows on screen are items as stored in
+// one container of entry's account: a projection written back would erase
+// every field it left out.
+func (m Model) showsWholeItems(entry accountEntry) bool {
+	return m.batchState == panes.BatchNone && !m.plan.Simulated() && len(m.plan.Leaves) == 1 &&
+		m.plan.Leaves[0].WholeItems() && m.runAccount == entry.account.Name
 }
 
 func (m Model) appendReplace(entry accountEntry, drafter adapter.ItemDrafter, item []byte) (string, error) {

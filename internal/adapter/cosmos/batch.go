@@ -25,7 +25,13 @@ var (
 // replace must not send back.
 var systemFields = []string{"_rid", "_self", "_etag", "_attachments", "_ts", "_lsn"}
 
-var errNoID = errors.New("the item has no id")
+var (
+	errNoID         = errors.New("the item has no id")
+	errNotWholeItem = errors.New("the item is not whole as stored: a projection written back would erase every field it left out")
+)
+
+// storedFields are the system fields every item read whole carries.
+var storedFields = []string{"_rid", "_etag", "_ts"}
 
 // ExecuteBatch sends b as one transactional batch, once. A rolled-back
 // batch is an answer, not an error.
@@ -187,12 +193,18 @@ func outcome(status int) adapter.OperationOutcome {
 // DraftReplace sends item back as it was read, less the fields the service
 // writes, on condition that it has not changed since.
 func (c *connection) DraftReplace(item json.RawMessage) (adapter.Operation, error) {
+	var fields map[string]json.RawMessage
 	var head struct {
 		ID   string `json:"id"`
 		ETag string `json:"_etag"`
 	}
-	if err := json.Unmarshal(item, &head); err != nil || head.ID == "" {
+	if json.Unmarshal(item, &fields) != nil || json.Unmarshal(item, &head) != nil || head.ID == "" {
 		return adapter.Operation{}, fmt.Errorf("cosmos: draft replace: %w", errNoID)
+	}
+	for _, name := range storedFields {
+		if _, ok := fields[name]; !ok {
+			return adapter.Operation{}, fmt.Errorf("cosmos: draft replace: %w", errNotWholeItem)
+		}
 	}
 	body, err := adapter.WithoutFields(item, systemFields...)
 	if err != nil {

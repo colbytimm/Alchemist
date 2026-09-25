@@ -359,3 +359,13 @@ func TestDraftReplaceRefusesAnItemWithNoID(t *testing.T) {
 
 	require.Error(t, err)
 }
+
+func TestDraftReplaceRefusesAProjectedRow(t *testing.T) {
+	conn, _ := connectTo(t, "https://localhost:8081")
+	drafter, ok := conn.(adapter.ItemDrafter)
+	require.True(t, ok)
+
+	_, err := drafter.DraftReplace(json.RawMessage(`{"id":"o1","status":"open","_etag":"\"0800\""}`))
+
+	require.ErrorContains(t, err, "not whole as stored")
+}

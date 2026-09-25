@@ -890,7 +890,7 @@ What landed differs from the text above in these ways:
 - Tests live in each package's `test/` folder and see only exported names, so two of
   `write.go`'s helpers are exported: `cosmos.PartitionKey` and `cosmos.WriteError`.
   `withoutRetries` stays unexported; a counting server proves that a 503, a 429 or a
-  dropped connection is sent once. The request-body tests use an `httptest` TLS server
+  dropped connection is sent once. The request-body tests use a local TLS test server
   standing in for the account rather than `ClientOptions.Transport`.
 - `FormatOperation` is in `query/batchtext.go` with `FormatBatch` (the header `ctrl+b`
   writes), `AppendOperation` (inserts before `COMMIT`) and `BatchPrefix` (the 64 KiB cut
@@ -905,6 +905,12 @@ What landed differs from the text above in these ways:
   `config.Profile{Endpoint: …}.IsReadOnly()`. Read-only removes `Admin`, `Throughput`
   and `Drafter` from what the account permits, which takes `n`, `c`, `d`, `t` and
   `ctrl+b` out of the keymap and the help overlay; `Model.batcher` refuses the writes.
+- `ctrl+b` drafts only from a `SELECT *` run of one container (`Leaf.WholeItems`), and
+  the Cosmos `DraftReplace` also refuses an item lacking `_rid`, `_etag` or `_ts`: a
+  replace written from a projection would erase every field it left out.
+- A connect form that completes an existing account only ever tightens its
+  read-only state, since the form may have changed the endpoint. A batch waiting on
+  the tree is dropped by any new run and by a switch of account.
 - `mock.WithBatchFailure` takes the status as an `int`. The mock's patch ignores the
   condition: it has no query engine.
 - Iterations 18, 19, 21 and 22 have not landed: there is no job slot to consult and no

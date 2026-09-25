@@ -358,6 +358,16 @@ func TestWhileABatchCommitsTheSessionWaitsForItsOutcome(t *testing.T) {
 	assert.Contains(t, plain(m.View()), "Committed: 2 operations")
 }
 
+func TestQTypedInTheEditorWhileABatchCommitsIsText(t *testing.T) {
+	m := pressAll(t, openReview(t, newBatchModel(t, newOrdersConnection(t), &recordingStore{}), writingBatch), keyText(firstContainer))
+	m, _ = m.Update(keyMsg(tea.KeyEnter))
+
+	m, msgs := press(t, m, keyRune('q'))
+
+	assert.False(t, hasMsg[tea.QuitMsg](msgs))
+	assert.Contains(t, plain(m.View()), "COMMITq")
+}
+
 func TestCtrlCQuitsWhileABatchCommits(t *testing.T) {
 	m := pressAll(t, openReview(t, newBatchModel(t, newOrdersConnection(t), &recordingStore{}), writingBatch), keyText(firstContainer))
 	m, _ = m.Update(keyMsg(tea.KeyEnter))
@@ -536,6 +546,14 @@ func TestCtrlBRefusesARowOfAnotherPartition(t *testing.T) {
 	assert.Contains(t, plain(m.View()), "1 (1 replace)")
 }
 
+func TestCtrlBRefusesAProjectedRow(t *testing.T) {
+	m := runQuery(t, newBatchModel(t, newLedgerConnection(t), &recordingStore{}), "SELECT c.id, c.pk FROM sales.ledger c")
+
+	m = pressAll(t, focusResults(t, m), keyMsg(tea.KeyCtrlB))
+
+	assert.NotContains(t, plain(m.View()), "BEGIN BATCH", "a replace from a projection would erase every field it left out")
+}
+
 func TestCtrlBRefusesASimulatedRow(t *testing.T) {
 	m := runQuery(t, newBatchModel(t, newLedgerConnection(t), &recordingStore{}), "SELECT * FROM sales.ledger, sales.orders")
 
@@ -579,4 +597,59 @@ func TestTheReviewScrollsAndKeepsTheNameFieldInView(t *testing.T) {
 	assert.NotContains(t, view, "d00")
 	assert.Contains(t, view, "d39")
 	assert.Contains(t, view, "Type the container name to commit:")
+}
+
+// pendingOnRootOnly starts a batch on a model whose sales listing is still
+// out, and returns that listing's command to deliver later.
+func pendingOnRootOnly(t *testing.T, conn *recordingConnection, batch string) (tea.Model, tea.Cmd) {
+	t.Helper()
+	m, prefetch := rootOnly(t, conn)
+	m = runQuery(t, m, batch)
+	require.NotContains(t, plain(m.View()), reviewTitle)
+	return m, prefetch
+}
+
+func TestAQueryStartedAfterAWaitingBatchIsNotReplaced(t *testing.T) {
+	for _, batch := range []string{writingBatch, `BEGIN BATCH sales.orders PARTITION "c01"; READ "o1"; COMMIT`} {
+		conn := newOrdersConnection(t)
+		m, prefetch := pendingOnRootOnly(t, conn, batch)
+
+		m = runAnother(t, m, "SELECT * FROM sales.orders c")
+		m, _ = settle(m, prefetch)
+
+		view := plain(m.View())
+		assert.NotContains(t, view, reviewTitle, batch)
+		assert.Empty(t, conn.batches, batch)
+		assert.Contains(t, view, "item-1-0", "the query's rows stay on screen")
+	}
+}
+
+func TestSwitchingAccountsDropsAWaitingBatch(t *testing.T) {
+	o := newOpener(t)
+	m := newAccountsModel(t, o, tui.Options{})
+	m, relisting := m.Update(keyRune('r')) // sales is listed again, and the answer held back
+	m = runQuery(t, m, writingBatch)
+	require.NotContains(t, plain(m.View()), reviewTitle, "the batch waits for the listing")
+
+	m = switchTo(t, m, "staging")
+	m, _ = settle(m, relisting)
+
+	assert.NotContains(t, plain(m.View()), reviewTitle)
+	assert.Empty(t, o.last("prod").batches)
+}
+
+func TestTheConnectFormNeverLoosensReadOnlyOnANewEndpoint(t *testing.T) {
+	o := newOpener(t)
+	o.failOpen["emulator"] = tui.ErrCredentialsNeeded
+	c := &connector{t: t}
+	m := switchTo(t, newAccountsModel(t, o, tui.Options{Connect: c.connect}), "emulator")
+	require.Contains(t, plain(m.View()), "Profile emulator has no key")
+
+	m = pressAll(t, m, keyMsg(tea.KeyShiftTab), keyMsg(tea.KeyCtrlU), keyText("https://prod.documents.azure.com:443/"),
+		keyMsg(tea.KeyTab), keyText("typed-key"), keyMsg(tea.KeyEnter))
+
+	onAccount(t, m, "emulator")
+	require.Len(t, c.forms, 1)
+	require.Equal(t, "https://prod.documents.azure.com:443/", c.forms[0].Endpoint)
+	assert.Contains(t, statusBar(m), "emulator ▪ read-only")
 }
