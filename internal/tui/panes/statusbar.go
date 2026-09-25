@@ -86,6 +86,7 @@ type StatusBar struct {
 	account  string
 	readOnly bool
 	scope    []string
+	job      string
 	progress Progress
 	notice   string
 	notices  int
@@ -158,6 +159,13 @@ func (s StatusBar) SetScope(scope []string) StatusBar {
 	return s
 }
 
+// SetJob shows the background job of the session, whichever account it
+// runs on; empty is none.
+func (s StatusBar) SetJob(label string) StatusBar {
+	s.job = label
+	return s
+}
+
 // SetProgress records what the current run has produced. The returned command
 // starts the running animation, and is nil while one is already playing.
 func (s StatusBar) SetProgress(progress Progress) (StatusBar, tea.Cmd) {
@@ -218,6 +226,12 @@ func (s StatusBar) fields(breakdown func(map[string]float64) string) []string {
 		fields = append(fields, theme.HintStyle().Render(ReadOnlyBadge))
 	}
 	fields = append(fields, theme.TextStyle().Render(s.scopeLabel()))
+	if s.job != "" {
+		fields = append(fields, chargeStyle().Render(s.job))
+	}
+	if s.notice != "" {
+		fields = append(fields, theme.SuccessStyle().Render(s.notice))
+	}
 	switch {
 	case s.progress.Batch != BatchNone:
 		fields = append(fields, s.batchBadge())
@@ -231,9 +245,6 @@ func (s StatusBar) fields(breakdown func(map[string]float64) string) []string {
 	)
 	if s.progress.Running {
 		fields = append(fields, s.spinner.View())
-	}
-	if s.notice != "" {
-		fields = append(fields, theme.SuccessStyle().Render(s.notice))
 	}
 	return fields
 }

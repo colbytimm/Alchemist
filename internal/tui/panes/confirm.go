@@ -60,6 +60,7 @@ type Confirm struct {
 	icons       theme.IconSet
 	consequence string
 	prompt      string
+	hint        string
 	name        nameField
 	failure     string
 	submitting  bool
@@ -72,6 +73,7 @@ func NewDatabaseDelete(icons theme.IconSet, name string) Confirm {
 		consequence: "Deleting " + name + " removes every container in it and all of their " +
 			"documents. This cannot be undone.",
 		prompt: "Type the database name to confirm:",
+		hint:   deleteHint,
 		name:   newNameField(name),
 	}
 }
@@ -84,6 +86,7 @@ func NewContainerDelete(icons theme.IconSet, path []string) Confirm {
 		consequence: "Deleting " + strings.Join(path, ".") + " removes every document in it. " +
 			"This cannot be undone.",
 		prompt: "Type the container name to confirm:",
+		hint:   deleteHint,
 		name:   newNameField(name),
 	}
 }
@@ -131,7 +134,7 @@ func (c Confirm) View() string {
 	lines := styleAll(theme.TextStyle(), wrapText(c.consequence, width))
 	lines = append(lines, "", theme.TextStyle().Render(c.prompt), c.name.view(), "")
 	lines = append(lines, styleAll(theme.ErrorStyle(), failureLines(c.failureText(), width))...)
-	return c.frame.renderWithHint(lines, theme.HintStyle().Render(deleteHint))
+	return c.frame.renderWithHint(lines, theme.HintStyle().Render(c.hint))
 }
 
 func (c Confirm) failureText() string {

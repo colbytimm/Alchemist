@@ -291,3 +291,26 @@ func TestAThrottleIsAThrottledErrorWithTheServicesDelay(t *testing.T) {
 	assert.False(t, errors.Is(err, adapter.ErrItemRefused), "a throttle says nothing about the item")
 	assert.True(t, strings.HasPrefix(err.Error(), "cosmos: upsert into sales.orders: 429"), err.Error())
 }
+
+func TestACreateIsSentOnce(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  int
+		unknown bool
+	}{
+		{name: "a server error may have created it", status: http.StatusServiceUnavailable, unknown: true},
+		{name: "a throttle created nothing", status: http.StatusTooManyRequests},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			acct := &cloneAccount{writeStatus: tt.status}
+			conn, _ := account(t, acct)
+
+			err := admin(t, conn).CreateContainer(context.Background(), adapter.ContainerSpec{Database: "sales", Name: "copy", PartitionKeys: []string{"/pk"}})
+
+			require.Error(t, err)
+			assert.Equal(t, tt.unknown, errors.Is(err, adapter.ErrWriteOutcomeUnknown))
+			assert.Len(t, acct.sent(), 1, "never replayed")
+		})
+	}
+}

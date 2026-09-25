@@ -276,7 +276,8 @@ unexercised.
 - **17, transactions.** As 21. 17's `DELETE "id" IF MATCH "…"` inside a batch is the
   tool for deleting a known handful atomically; this is the tool for deleting by
   condition, non-atomically.
-- **18, cloning.** As 21. A clone is the second-best "before" copy.
+- **18, cloning.** As 21. A clone is the second-best "before" copy. 18 has landed, with
+  the pool, the `writers` key and the `job` slot that 21's notes on it describe.
 - **19, snapshots.** Soft, and the pairing matters most here: snapshot, delete, diff
   shows exactly the removed items, and the snapshot's `.jsonl` export is the way back.
   The review's snapshot line is 21's, worded for a delete.

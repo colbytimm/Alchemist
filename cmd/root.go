@@ -159,13 +159,19 @@ func management(conn adapter.Connection) tui.Management {
 	sampler, _ := conn.(adapter.FieldSampler)
 	batcher, _ := conn.(adapter.Batcher)
 	drafter, _ := conn.(adapter.ItemDrafter)
+	definitions, _ := conn.(adapter.DefinitionReader)
+	scanner, _ := conn.(adapter.ItemScanner)
+	writer, _ := conn.(adapter.ItemWriter)
 	return tui.Management{
-		Admin:      admin,
-		Throughput: throughput,
-		Inspector:  inspector,
-		Sampler:    sampler,
-		Batcher:    batcher,
-		Drafter:    drafter,
+		Admin:       admin,
+		Throughput:  throughput,
+		Inspector:   inspector,
+		Sampler:     sampler,
+		Batcher:     batcher,
+		Drafter:     drafter,
+		Definitions: definitions,
+		Scanner:     scanner,
+		Writer:      writer,
 	}
 }
 

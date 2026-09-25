@@ -55,7 +55,8 @@ func plain(view string) string {
 // straight through to the mock, keeping the specs so a test can see what the
 // dialogs assembled, and inspections and field samples keep the path they
 // were asked about. Batches pass through to the mock's item store, which
-// store is, and are kept in the order they arrived.
+// store is, and are kept in the order they arrived; so do a clone's
+// definition reads, scans and upserts, and deletes keep what they deleted.
 type recordingConnection struct {
 	inner        adapter.Connection
 	store        *mock.Adapter
@@ -66,6 +67,10 @@ type recordingConnection struct {
 	editor       adapter.ThroughputEditor
 	inspector    adapter.Inspector
 	sampler      adapter.FieldSampler
+	definitions  adapter.DefinitionReader
+	scanner      adapter.ItemScanner
+	writer       adapter.ItemWriter
+	deleted      [][]string
 	calls        map[string]int
 	queries      []adapter.Query
 	contexts     []context.Context
@@ -97,6 +102,9 @@ func newConnection(t *testing.T, opts ...mock.Option) *recordingConnection {
 	conn.editor, _ = inner.(adapter.ThroughputEditor)
 	conn.inspector, _ = inner.(adapter.Inspector)
 	conn.sampler, _ = inner.(adapter.FieldSampler)
+	conn.definitions, _ = inner.(adapter.DefinitionReader)
+	conn.scanner, _ = inner.(adapter.ItemScanner)
+	conn.writer, _ = inner.(adapter.ItemWriter)
 	return conn
 }
 
@@ -124,6 +132,7 @@ func (c *recordingConnection) CreateDatabase(ctx context.Context, spec adapter.D
 }
 
 func (c *recordingConnection) DeleteDatabase(ctx context.Context, name string) error {
+	c.deleted = append(c.deleted, []string{name})
 	return c.admin.DeleteDatabase(ctx, name)
 }
 
@@ -133,7 +142,20 @@ func (c *recordingConnection) CreateContainer(ctx context.Context, spec adapter.
 }
 
 func (c *recordingConnection) DeleteContainer(ctx context.Context, path []string) error {
+	c.deleted = append(c.deleted, path)
 	return c.admin.DeleteContainer(ctx, path)
+}
+
+func (c *recordingConnection) ContainerDefinition(ctx context.Context, path []string, fidelity adapter.DefinitionFidelity) (adapter.ContainerDefinition, error) {
+	return c.definitions.ContainerDefinition(ctx, path, fidelity)
+}
+
+func (c *recordingConnection) ScanItems(ctx context.Context, request adapter.ScanRequest) (adapter.ItemScan, error) {
+	return c.scanner.ScanItems(ctx, request)
+}
+
+func (c *recordingConnection) OpenItemSink(ctx context.Context, path []string) (adapter.ItemSink, error) {
+	return c.writer.OpenItemSink(ctx, path)
 }
 
 func (c *recordingConnection) Throughput(ctx context.Context, path []string) (adapter.Throughput, error) {
@@ -222,13 +244,19 @@ func managed(conn adapter.Connection) tui.Management {
 	sampler, _ := conn.(adapter.FieldSampler)
 	batcher, _ := conn.(adapter.Batcher)
 	drafter, _ := conn.(adapter.ItemDrafter)
+	definitions, _ := conn.(adapter.DefinitionReader)
+	scanner, _ := conn.(adapter.ItemScanner)
+	writer, _ := conn.(adapter.ItemWriter)
 	return tui.Management{
-		Admin:      admin,
-		Throughput: throughput,
-		Inspector:  inspector,
-		Sampler:    sampler,
-		Batcher:    batcher,
-		Drafter:    drafter,
+		Admin:       admin,
+		Throughput:  throughput,
+		Inspector:   inspector,
+		Sampler:     sampler,
+		Batcher:     batcher,
+		Drafter:     drafter,
+		Definitions: definitions,
+		Scanner:     scanner,
+		Writer:      writer,
 	}
 }
 

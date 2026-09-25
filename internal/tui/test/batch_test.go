@@ -3,11 +3,13 @@ package tui_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
@@ -332,6 +334,25 @@ func TestARefusedBatchReadsNotApplied(t *testing.T) {
 	m := commit(t, openReview(t, newBatchModel(t, conn, &recordingStore{}), writingBatch))
 
 	assert.Contains(t, plain(m.View()), "Not applied: mock: injected batch error")
+	assert.Len(t, conn.batches, 1)
+}
+
+// throttlingBatcher refuses every batch for rate, naming a wait.
+type throttlingBatcher struct{}
+
+func (throttlingBatcher) ExecuteBatch(context.Context, adapter.Batch) (adapter.BatchResult, error) {
+	return adapter.BatchResult{}, &adapter.ThrottledError{RetryAfter: 1200 * time.Millisecond, Err: errors.New("429 Too Many Requests")}
+}
+
+func TestAThrottledBatchPassesOnTheWaitAndIsNotRetried(t *testing.T) {
+	conn := newOrdersConnection(t)
+	conn.batcher = throttlingBatcher{}
+
+	m := commit(t, openReview(t, newBatchModel(t, conn, &recordingStore{}), writingBatch))
+
+	view := plain(m.View())
+	assert.Contains(t, view, "Not applied: 429 Too Many Requests (retry after")
+	assert.Contains(t, view, "1.2s)")
 	assert.Len(t, conn.batches, 1)
 }
 

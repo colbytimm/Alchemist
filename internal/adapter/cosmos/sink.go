@@ -75,13 +75,14 @@ func (s *sink) partitionKey(item json.RawMessage) (azcosmos.PartitionKey, error)
 }
 
 // exactNumber reports whether value is anything but an integer too large
-// for a float64 to hold.
+// for a float64 to hold: a string, a boolean, null, a number with a fraction
+// or an exponent, or an integer within 2^53.
 func exactNumber(value json.RawMessage) bool {
-	text := string(value)
-	if text == "" || strings.ContainsAny(text, `".eEtfn`) {
+	digits := strings.TrimPrefix(string(value), "-")
+	if digits == "" || strings.Trim(digits, "0123456789") != "" {
 		return true
 	}
-	n, err := strconv.ParseInt(text, 10, 64)
+	n, err := strconv.ParseInt(string(value), 10, 64)
 	return err == nil && n <= maxExactInteger && n >= -maxExactInteger
 }
 

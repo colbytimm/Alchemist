@@ -870,6 +870,17 @@ them would drift, and `snapshot` must not import `clone`, so the list lives once
   as "Long-running work" sets out; `SetClone` in 18 is that field under its first name.
   `ScanPosition` is ignored here: a capture that stops is abandoned, not resumed.
   `internal/snapshot` does not import `internal/clone`, nor the reverse.
+  **18 has landed first** (see its "Implementation notes"), so some of the above is
+  already there: `adapter.SplitSystemFields`, `ItemMeta` and `IsSystemField`, to this
+  plan's text and tested, in `internal/adapter/system.go`; the `job` slot in
+  `internal/tui/job.go` (`jobKind` with `jobNone` and `jobClone`: register
+  `jobCapture`, and give it its wording in `jobKind.String`), whose label is set with
+  `StatusBar.SetJob` from the job's state rather than kept in the slot; the quit guard
+  (`warnBeforeQuit`) and the switcher guard (`job.uses`), both to be taught a capture.
+  `SetClone` never existed. The mock seeds items with 17's `WithItems(path,
+  items...)` or 18's `WithItemCount(path, n)`, and `ThrottledError.Error()` is the
+  backend's own text. `ScanRequest` has the three fields 18 names; `Since` and
+  `Projection` are still this plan's to add.
 - **21, update by query, and 22, delete by query.** Soft, in both directions. They use
   `ScanIdentity`, `SplitSystemFields` and `IsSystemField` as they stand, add
   `ScanRequest.Filter`, and share the one-job slot. Their review overlay shows the age
@@ -895,8 +906,8 @@ Each step ships and is tested alone; the first usable tool is step 7.
    the size table.
 3. Manifests, change sets (compose, undo), records, `Store.Open` with orphan cleanup,
    the lock, atomic publish; crash-safety tests.
-4. `adapter.SplitSystemFields`; iteration 18's scan contracts and mock items if they
-   are not in yet, plus `PutItem`/`DeleteItem`; full capture through `Capture.Next`
+4. `adapter.SplitSystemFields` (brought by 18); iteration 18's scan contracts and mock
+   items if they are not in yet (they are), plus `PutItem`/`DeleteItem`; full capture through `Capture.Next`
    with definitions; the restore property test.
 5. `ScanRequest.Since` and `Projection`, mock then Cosmos, and the integration test.
    **Measure RU** for the full scan and for the sweep with and without `_etag` on a

@@ -41,6 +41,11 @@ const (
 	FieldPartitionKey
 	FieldMode
 	FieldRUs
+	FieldTarget
+	FieldDatabase
+	FieldContent
+	FieldFidelity
+	FieldCapacity
 )
 
 // The modes each form offers, in cycling order. The first is the default: a
@@ -52,17 +57,31 @@ var (
 )
 
 // formField is one editable row: a text input, or a choice cycling through
-// throughput modes when modes is set.
+// options when options is set. A throughput mode choice keeps the modes its
+// options name.
 type formField struct {
 	name    FormField
 	label   string
 	input   textinput.Model
 	missing error
+	options []string
 	modes   []adapter.ThroughputMode
 	choice  int
+	// defaulted is the text a default last filled in, and touched marks a
+	// choice the user moved: what is theirs, a new default leaves alone.
+	defaulted string
+	touched   bool
 }
 
-func (f formField) choosing() bool { return len(f.modes) > 0 }
+func (f formField) choosing() bool { return len(f.options) > 0 }
+
+// cycle moves a choice field by the step msg asks for, and reports whether
+// it moved.
+func (f *formField) cycle(msg tea.KeyMsg) bool {
+	step := choiceStep(msg)
+	f.choice = (f.choice + step + len(f.options)) % len(f.options)
+	return step != 0
+}
 
 // formNote is a row stating something about what the form acts on, which
 // nothing may edit.
@@ -161,6 +180,7 @@ func textField(name FormField, label, placeholder string, missing error) formFie
 func modeField(modes []adapter.ThroughputMode, current adapter.ThroughputMode) formField {
 	field := formField{name: FieldMode, label: "Throughput", modes: modes}
 	for i, mode := range modes {
+		field.options = append(field.options, mode.String())
 		if mode == current {
 			field.choice = i
 		}
@@ -198,7 +218,7 @@ func (f Form) Update(msg tea.KeyMsg) (Form, tea.Cmd) {
 	}
 	field := &f.fields[f.focus]
 	if field.choosing() {
-		field.choice = (field.choice + choiceStep(msg) + len(field.modes)) % len(field.modes)
+		field.cycle(msg)
 		return f, nil
 	}
 	var cmd tea.Cmd
@@ -349,10 +369,14 @@ func (f Form) fieldView(field formField) string {
 	if !field.choosing() {
 		return field.input.View()
 	}
+	return choiceView(f.icons, field)
+}
+
+func choiceView(icons theme.IconSet, field formField) string {
 	arrows := theme.HintStyle()
-	return arrows.Render(f.icons.Left+" ") +
-		theme.TextStyle().Render(field.modes[field.choice].String()) +
-		arrows.Render(" "+f.icons.Right)
+	return arrows.Render(icons.Left+" ") +
+		theme.TextStyle().Render(field.options[field.choice]) +
+		arrows.Render(" "+icons.Right)
 }
 
 func (f Form) field(name FormField) (formField, bool) {

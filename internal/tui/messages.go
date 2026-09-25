@@ -2,6 +2,7 @@ package tui
 
 import (
 	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/clone"
 	"github.com/colbytimm/alchemist/internal/history"
 	"github.com/colbytimm/alchemist/internal/saved"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
@@ -28,6 +29,7 @@ const (
 	OpSavedReload     = "reload saved queries"
 	OpSaveQuery       = "save query"
 	OpRemoveQuery     = "remove saved query"
+	OpClone           = "clone"
 )
 
 // runID identifies one query run. Every page and failure carries the run it
@@ -209,4 +211,53 @@ type QuerySavedMsg struct {
 type QueryRemovedMsg struct {
 	Account string
 	Name    string
+}
+
+// ClonePreparedMsg delivers what the source of the clone prompt holds, or
+// why it could not be read.
+type ClonePreparedMsg struct {
+	Survey clone.Survey
+	Err    error
+	dialog dialogID
+}
+
+// ClonePlannedMsg delivers the plan the clone review restates, or why the
+// target cannot take it.
+type ClonePlannedMsg struct {
+	Plan   clone.Plan
+	Err    error
+	dialog dialogID
+}
+
+// cloneCreated is what a clone step has created on the target.
+type cloneCreated struct {
+	database  bool
+	container bool
+}
+
+// CloneTargetCreatedMsg reports the container a clone step created, or
+// reopened to resume, and hands over the copy that fills it; Copy is nil
+// when only the definition is copied.
+type CloneTargetCreatedMsg struct {
+	Copy    *clone.Copy
+	created cloneCreated
+	job     jobID
+}
+
+// ClonePageCopiedMsg reports one page written, and hands the copy back.
+type ClonePageCopiedMsg struct {
+	Progress clone.Progress
+	copy     *clone.Copy
+	job      jobID
+}
+
+// CloneFailedMsg reports a clone step that ended short: stopped, refused,
+// or out of time. Progress is what it spent; copy, when set, is handed back
+// to be closed.
+type CloneFailedMsg struct {
+	Err      error
+	Progress clone.Progress
+	copy     *clone.Copy
+	created  cloneCreated
+	job      jobID
 }

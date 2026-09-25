@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/colbytimm/alchemist/internal/writers"
 )
 
 // Errors matchable with errors.Is.
@@ -45,6 +47,9 @@ type Profile struct {
 	// MaxJoinRows caps the rows a cross-container join holds in memory,
 	// across all the sides it holds.
 	MaxJoinRows int `toml:"max_join_rows,omitzero"`
+	// Writers is how many item writes a write job, such as a clone into
+	// this account, keeps in flight; writers.DefaultSize when zero.
+	Writers int `toml:"writers,omitzero"`
 	// SampleFields lets completion read a few items of a container for its
 	// fields; unset means true, which a plain bool cannot say.
 	SampleFields *bool `toml:"sample_fields,omitempty"`
@@ -207,6 +212,8 @@ func (p Profile) validate() error {
 		return fmt.Errorf("profile %q: page_size must be positive: %w", p.Name, ErrInvalidConfig)
 	case p.MaxJoinRows < 0:
 		return fmt.Errorf("profile %q: max_join_rows must be positive: %w", p.Name, ErrInvalidConfig)
+	case p.Writers < 0 || p.Writers > writers.MaxSize:
+		return fmt.Errorf("profile %q: writers must be from 1 to %d: %w", p.Name, writers.MaxSize, ErrInvalidConfig)
 	}
 	return nil
 }

@@ -1183,3 +1183,78 @@ every created resource removed in `t.Cleanup`):
 - `internal/clone` imports no bubbletea and no concrete adapter. `internal/tui`
   imports `internal/clone` and the `internal/adapter` interfaces only. Capabilities
   are found by type assertion on connections `cmd` wired.
+
+## Implementation notes
+
+What landed differs from the text above in these ways:
+
+- **The engine's steps.** `y` reads the source before anything about the target is
+  known, so the engine has a read of its own: `clone.SurveySource(ctx, source,
+  endpoint) (Survey, error)` lists the containers, reads each full definition and size,
+  and the throughput. `Prepare(ctx, job, survey, source, target)` then re-reads a
+  definition only for `portable`, and checks the target. `CreateNext` became three
+  calls the TUI chains: `Plan.CreateDatabase`, `Plan.CreateContainer(i)` and
+  `Plan.Open(i, from) (*Copy, error)`, so a resume knows which of them already
+  happened. `Copy` gained `Done` and `Close`. `Content`'s zero value is
+  `DefinitionAndItems`, `Job.Clock` (nil: real time) is what a throttled copy waits on,
+  and `writers.NewPool(size, clock)` takes the clock too (`writers.SystemClock`).
+- **Two sentinels in `internal/adapter`.** `ErrItemRefused` is what a sink refuses for
+  the item's own sake: nothing at a key path, an integer key past 2^53, a 400 or 413
+  from the service. The engine counts those as skips, and the pool never sees them.
+  `ErrAlreadyExists` is a create refused as a conflict: the mock returns it and Cosmos's
+  `wrap` maps a 409 to it; the engine turns it into `clone.ErrTargetExists`.
+- `ThrottledError.Error()` is the backend's own text, so 17's `Not applied:` reads as
+  before; the batch banner now ends `(retry after 1.2s)` when the service named a wait,
+  as 17 planned.
+- 18 landed before 19, so it wrote `adapter.SplitSystemFields`, `ItemMeta` and
+  `IsSystemField` (`internal/adapter/system.go`) to 19's text, and
+  `clone.StripSystemFields` calls them. The Cosmos `DraftReplace` keeps 17's own list,
+  which adds `_lsn`.
+- `PartitionKeyValues` returns 17's `adapter.PartitionKey`, and an object or an array
+  at a path is `ErrNoPartitionKey`.
+- **Creates are sent once.** Cosmos `CreateDatabase` and `CreateContainer` now run
+  with 17's `withoutRetries` and classify failures with `WriteError`: azcore would
+  replay a create after a 5xx, which is a blind retry of a write that is not
+  idempotent. A create that got no answer ends the clone saying that what it was
+  creating may exist. Upserts keep azcore's retries, being idempotent.
+- The usage header parser stayed in `inspect.go`, where 12 put it; `definition.go`
+  reuses `ParseResourceUsage`. There is no `quota.go`.
+- **Mock options.** 17 had brought `WithItems(path, items...)`; a generated count is
+  `WithItemCount(path, n)`. Throttles and write errors are keyed by item id,
+  `WithThrottle(id, times, retryAfter)` and `WithWriteError(id)`, because a call index
+  is not deterministic under concurrent writers. The gauge is
+  `HighestConcurrentUpserts()` and `Upserts()`. `OpScan` fails a page read. Deleting a
+  container drops its items, so a recreated one starts empty.
+- `MaxSkipped` is counted per container copy, from the moment it is opened: a resumed
+  copy counts afresh. A throttled read reopens the scan at the last position rather
+  than asking the pager again.
+- **TUI.** Clone messages carry the job's id and no account names: the job holds both.
+  `ClonePlannedMsg` carries the target check that `enter` on the form makes. There is
+  no `CloneFinishedMsg`: the last page ends the job in `Update`. The reload of the
+  target's tree is made directly on that account's pane rather than through
+  `CatalogChangedMsg`, whose dialog check could close the progress view; `applyChange`
+  now moves a tree's cursor only on the active account, as the plan asks of both.
+- `panes.CloneForm` is a type of its own, built on `Form`'s fields
+  and choice cycling (`formField` gained `options`, `defaulted` and `touched`), since
+  its defaults follow the target account. Its source block reads `reading the source…`
+  with no spinner. The review is `panes.Confirm` from `NewCloneReview`; `Confirm`
+  gained a hint of its own. The progress view is `panes.CloneProgress`, fed a
+  `CloneStatus` the model computes.
+- The progress view's keys are bindings of their own, `HideClone` (`esc`),
+  `StopClone` (`x`), `ResumeClone` (`r`) and `DeleteClone` (`d`), grouped by
+  `KeyMap.CloneKeys()`. `y` reopens a clone from any account, its binding disabled
+  there or not.
+- The job slot is `internal/tui/job.go` as planned, less the `label` field: the label
+  comes from the clone's state each time it changes. `writesTo` is true in either
+  direction, so the catalog's `d` also refuses the database holding a clone's target.
+  A refused `x` in the switcher draws under the row through `AccountRow.Notice`.
+- Status bar notices now sit before the run statistics, so one is readable beside a
+  job's field at 80 columns.
+- A database clone of an empty database creates the database alone. A container that
+  draws on its database's throughput, cloned into a database the clone creates, gets
+  `minimum` for `same as source` too: it has nothing of its own to copy.
+- `alchemist profile add --writers` sets the new key.
+- The emulator integration tests (`test/integration/clone_test.go`) ran against the
+  `vnext-preview` image in this iteration's environment, and passed; so did the rest of
+  the integration suite. The full-fidelity test did not need to skip. The manual
+  checklist was not run.

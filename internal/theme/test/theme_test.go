@@ -75,6 +75,8 @@ func TestIconSetsAreComplete(t *testing.T) {
 		assert.NotEmpty(t, icons.Success)
 		assert.NotEmpty(t, icons.Failure)
 		assert.NotEmpty(t, icons.Separator)
+		assert.NotEmpty(t, icons.BarFull)
+		assert.NotEmpty(t, icons.BarEmpty)
 		assert.GreaterOrEqual(t, len(icons.SpinnerFrames), 2, "an animation needs more than one frame")
 	}
 }
@@ -84,6 +86,7 @@ func TestASCIIIconsAreASCIIOnly(t *testing.T) {
 	glyphs := append([]string{
 		icons.Database, icons.Container, icons.Expanded, icons.Collapsed,
 		icons.Left, icons.Right, icons.Success, icons.Failure, icons.Separator,
+		icons.BarFull, icons.BarEmpty,
 	}, icons.SpinnerFrames...)
 
 	for _, glyph := range glyphs {

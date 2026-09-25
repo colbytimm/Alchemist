@@ -23,7 +23,7 @@ var (
 	copyPath   = []string{"sales", "orders-copy"}
 )
 
-// writerCounts are the pool sizes every engine behaviour is checked at.
+// writerCounts are the pool sizes every engine behavior is checked at.
 var writerCounts = []int{1, 8}
 
 func eachWriterCount(t *testing.T, test func(t *testing.T, writers int)) {

@@ -17,7 +17,7 @@ import (
 	"github.com/colbytimm/alchemist/internal/writers"
 )
 
-// sizes are the pool sizes every behaviour is checked at: one writer, where
+// sizes are the pool sizes every behavior is checked at: one writer, where
 // the semaphore alone orders everything, and several, where it does not.
 var sizes = []int{1, 8}
 

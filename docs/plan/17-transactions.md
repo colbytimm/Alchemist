@@ -916,6 +916,9 @@ What landed differs from the text above in these ways:
   condition: it has no query engine.
 - Iterations 18, 19, 21 and 22 have not landed: there is no job slot to consult and no
   `ThrottledError`, so a 429 reads `Not applied:` with the service's own message.
+  Iteration 18 has since landed and brought both: `startBatch` refuses a batch into a
+  clone's target through `job.writesTo`, and a 429 arrives as a `ThrottledError` whose
+  wait the banner names, `(retry after 1.2s)`.
 - A batch leaves a query in flight alone until it commits: the review is an overlay.
   While it commits, `q` is refused everywhere, the editor included.
 - 11's `panes.Confirm` had landed; its name field is now `nameField`, shared with

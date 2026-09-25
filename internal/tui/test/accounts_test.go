@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/adapter/mock"
 	"github.com/colbytimm/alchemist/internal/history"
 	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui"
@@ -48,6 +49,8 @@ type opener struct {
 	failOpen map[string]error
 	// failPing is how many pings each account's next connection fails.
 	failPing map[string]int
+	// options seed the mock behind each account's connections.
+	options map[string][]mock.Option
 }
 
 func newOpener(t *testing.T) *opener {
@@ -56,6 +59,7 @@ func newOpener(t *testing.T) *opener {
 		opened:   map[string][]*recordingConnection{},
 		failOpen: map[string]error{},
 		failPing: map[string]int{},
+		options:  map[string][]mock.Option{},
 	}
 }
 
@@ -64,7 +68,7 @@ func (o *opener) open(_ context.Context, name string) (adapter.Connection, error
 		delete(o.failOpen, name)
 		return nil, err
 	}
-	conn := newConnection(o.t)
+	conn := newConnection(o.t, o.options[name]...)
 	conn.failPing = o.failPing[name]
 	delete(o.failPing, name)
 	o.opened[name] = append(o.opened[name], conn)

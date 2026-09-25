@@ -49,7 +49,7 @@ func TestSaveOmitsUnsetOptionalFields(t *testing.T) {
 
 	text, err := os.ReadFile(store.Path)
 	require.NoError(t, err)
-	for _, unset := range []string{"page_size", "max_join_rows", "database", "insecure_skip_verify"} {
+	for _, unset := range []string{"page_size", "max_join_rows", "writers", "database", "insecure_skip_verify"} {
 		assert.NotContains(t, string(text), unset)
 	}
 }
@@ -83,6 +83,7 @@ insecure_skip_verify = true      # emulator self-signed cert only
 database = "sales"               # optional default scope
 page_size = 100
 max_join_rows = 5000
+writers = 8
 
 [profiles.prod]
 adapter = "cosmos"
@@ -102,6 +103,7 @@ endpoint = "https://myaccount.documents.azure.com:443/"
 		Database:           "sales",
 		PageSize:           100,
 		MaxJoinRows:        5000,
+		Writers:            8,
 	}, profile)
 	assert.Equal(t, []string{"emulator", "prod"}, cfg.Names())
 }
