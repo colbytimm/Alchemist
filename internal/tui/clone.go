@@ -207,8 +207,6 @@ func (m Model) connectCloneTarget(target accountEntry) (Model, tea.Cmd) {
 	return m, tea.Batch(tick, m.connectAccount(target))
 }
 
-// continueClonePrompt plans the clone once the target the form was
-// connecting has connected.
 func (m Model) continueClonePrompt(account string) (Model, tea.Cmd) {
 	entry, _ := m.accounts.get(account)
 	if m.clonePrompt.connecting != account || m.overlay != overlayCloneForm || !entry.connected() {
@@ -261,7 +259,6 @@ func (m Model) planCloneOn(target accountEntry) (Model, tea.Cmd) {
 	return m, planClone(m.dialog, cloneJob, m.cloneForm.Survey(), m.clonePrompt.reader, writer)
 }
 
-// writersFor is how many writes a clone into account keeps in flight.
 func writersFor(account Account) int {
 	if account.Writers <= 0 {
 		return writers.DefaultSize

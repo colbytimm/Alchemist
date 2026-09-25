@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	// MinimumRUs is the manual throughput the Minimum capacity provisions.
 	MinimumRUs = 400
 	// MaxSkipped is how many items one container's copy may skip before it
 	// stops: past that, something systematic is wrong.
@@ -28,9 +27,7 @@ const (
 var (
 	// ErrTargetExists refuses a target that is already there. A clone never
 	// writes into anything that existed before it.
-	ErrTargetExists = errors.New("the target already exists, and a clone never writes into it")
-	// ErrTooManySkipped stops a copy that has skipped more than MaxSkipped
-	// items.
+	ErrTargetExists   = errors.New("the target already exists, and a clone never writes into it")
 	ErrTooManySkipped = fmt.Errorf("more than %d items could not be written", MaxSkipped)
 	errNoItemAccess   = errors.New("items cannot be copied between these accounts: definition only")
 	errNoThroughput   = errors.New("the source's throughput cannot be read, so it cannot be copied")
@@ -49,8 +46,6 @@ func (e Endpoint) String() string {
 
 func (e Endpoint) database() string { return e.Path[0] }
 
-// Container reports whether e names a single container rather than a
-// database.
 func (e Endpoint) Container() bool { return len(e.Path) == 2 }
 
 type Content int
@@ -132,7 +127,6 @@ type Survey struct {
 	Containers      []SourceContainer
 }
 
-// SourceContainer is one container to copy, with its full definition.
 type SourceContainer struct {
 	Path            []string
 	Definition      adapter.ContainerDefinition
@@ -370,7 +364,6 @@ func scaled(capacity Capacity, source adapter.Throughput) adapter.Throughput {
 	return adapter.Throughput{Mode: adapter.ThroughputManual, RUs: MinimumRUs}
 }
 
-// CreateDatabase creates the target database the plan needs.
 func (p Plan) CreateDatabase(ctx context.Context) error {
 	if err := p.target.Admin.CreateDatabase(ctx, p.Database); err != nil {
 		return createError(p.Job.Target.Account+"/"+p.Database.Name, err)
@@ -378,7 +371,6 @@ func (p Plan) CreateDatabase(ctx context.Context) error {
 	return nil
 }
 
-// CreateContainer creates the plan's container i.
 func (p Plan) CreateContainer(ctx context.Context, i int) error {
 	container := p.Containers[i]
 	if err := p.target.Admin.CreateContainer(ctx, container.Spec); err != nil {

@@ -3,6 +3,7 @@ package tui_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -403,4 +404,130 @@ func itemID(t *testing.T, item []byte) string {
 	}
 	require.NoError(t, json.Unmarshal(item, &head))
 	return head.ID
+}
+
+// refusingAdmin refuses the container creates refuses picks, with the words
+// a service would use.
+type refusingAdmin struct {
+	adapter.CatalogAdmin
+	refuses func(adapter.ContainerSpec) bool
+}
+
+func (a refusingAdmin) CreateContainer(ctx context.Context, spec adapter.ContainerSpec) error {
+	if a.refuses(spec) {
+		return errors.New("mock: 400 Bad Request: " + spec.Name + " refused")
+	}
+	return a.CatalogAdmin.CreateContainer(ctx, spec)
+}
+
+func refusing(name string) func(adapter.ContainerSpec) bool {
+	return func(spec adapter.ContainerSpec) bool { return spec.Name == name }
+}
+
+// cloneSales runs a clone of the whole sales database to sales-copy.
+func cloneSales(t *testing.T, conn *recordingConnection) tea.Model {
+	t.Helper()
+	m := pressAll(t, newLoadedModel(t, conn), keyRune('y'), keyMsg(tea.KeyEnter))
+	m, cmd := confirmClone(t, m, mock.Name)
+	return runSteps(m, cmd)
+}
+
+func TestADatabaseCloneSaysHowManyContainersItLeftBehind(t *testing.T) {
+	tests := []struct {
+		name   string
+		refuse string
+		want   string
+	}{
+		{name: "the second create refused", refuse: "customers", want: "mock/sales-copy holds 1 of 2 containers."},
+		{name: "the first create refused", refuse: "orders", want: "mock/sales-copy was created and holds no container yet."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := newCloneConnection(t)
+			conn.admin = refusingAdmin{CatalogAdmin: conn.admin, refuses: refusing(tt.refuse)}
+
+			m := cloneSales(t, conn)
+
+			view := plain(m.View())
+			assert.Contains(t, view, "Failed.")
+			assert.Contains(t, view, tt.want)
+			assert.NotContains(t, view, "incomplete")
+		})
+	}
+}
+
+func TestStoppingAtAContainerBoundaryCountsOnlyWhatExists(t *testing.T) {
+	m := pressAll(t, newLoadedModel(t, newCloneConnection(t)), keyRune('y'), keyMsg(tea.KeyEnter))
+	m, cmd := confirmClone(t, m, mock.Name)
+	for {
+		next := messages(cmd)
+		require.Len(t, next, 1)
+		page, ok := next[0].(tui.ClonePageCopiedMsg)
+		if ok && page.Progress.Done {
+			m = pressAll(t, m, keyRune('x'))
+			m, _ = m.Update(page)
+			break
+		}
+		m, cmd = m.Update(next[0])
+	}
+
+	view := plain(m.View())
+	assert.Contains(t, view, "Stopped.")
+	assert.Contains(t, view, "mock/sales-copy holds 1 of 2 containers.")
+}
+
+func TestAResumeAfterTheSkipLimitCountsEachItemOnce(t *testing.T) {
+	var keyless []json.RawMessage
+	for i := range 101 {
+		keyless = append(keyless, json.RawMessage(fmt.Sprintf(`{"id":"k%03d"}`, i)))
+	}
+	conn := newCloneConnection(t, mock.WithItems(ordersPath, keyless...))
+	m := cloneAll(t, newLoadedModel(t, conn))
+	require.Contains(t, plain(m.View()), "Failed.")
+	require.Contains(t, plain(m.View()), "skipped 101")
+
+	m = pressAll(t, m, keyRune('r'))
+
+	view := plain(m.View())
+	assert.Contains(t, view, "Done.")
+	assert.Contains(t, view, "skipped 101")
+	assert.Len(t, storedIn(t, conn, copyPath), cloneItemCount)
+}
+
+func TestAFirstCreateTheServiceRefusesGoesBackToTheForm(t *testing.T) {
+	conn := newCloneConnection(t)
+	conn.admin = refusingAdmin{CatalogAdmin: conn.admin, refuses: func(spec adapter.ContainerSpec) bool {
+		return spec.Throughput.Provisioned()
+	}}
+
+	m := cloneAll(t, newLoadedModel(t, conn))
+
+	view := plain(m.View())
+	assert.Contains(t, view, cloneContainerTitle, "the form is back")
+	assert.Contains(t, view, "400 Bad Request: orders-copy")
+	assert.Contains(t, view, "orders-copy", "with its values")
+	assert.NotContains(t, statusBar(m), "(y)", "and the slot is free")
+
+	m = pressAll(t, m, keyMsg(tea.KeyShiftTab), keyMsg(tea.KeyRight), keyMsg(tea.KeyRight), keyMsg(tea.KeyEnter))
+	m, cmd := confirmClone(t, m, mock.Name)
+	m = runSteps(m, cmd)
+
+	assert.Contains(t, plain(m.View()), "Done.")
+	require.Len(t, conn.containers, 2)
+	assert.False(t, conn.containers[1].Throughput.Provisioned(), "none was one keystroke away")
+	assert.Len(t, storedIn(t, conn, copyPath), cloneItemCount)
+}
+
+func TestStoppingDuringACreateLetsTheCreateFinish(t *testing.T) {
+	conn := newCloneConnection(t)
+	m, cmd := confirmClone(t, reviewClone(t, newLoadedModel(t, conn)), mock.Name)
+
+	m = pressAll(t, m, keyRune('x'))
+	m = runSteps(m, cmd)
+
+	view := plain(m.View())
+	assert.Contains(t, view, "Stopped.")
+	assert.NotContains(t, view, "no answer came back")
+	assert.Len(t, conn.containers, 1)
+	assert.Contains(t, view, "mock/sales.orders-copy holds 0 of about 25 items and is incomplete.")
 }

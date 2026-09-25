@@ -1253,6 +1253,23 @@ What landed differs from the text above in these ways:
 - A database clone of an empty database creates the database alone. A container that
   draws on its database's throughput, cloned into a database the clone creates, gets
   `minimum` for `same as source` too: it has nothing of its own to copy.
+- **A refused first create goes back to the form.** When the service refuses the
+  first create of a clone outright (not a create with no answer), the slot is given up
+  and the form reopens with its values and the service's words under the fields, so
+  `none` after a `minimum` refused on a serverless account is one keystroke away. A
+  database a container clone had just created stays, empty, and the message says so:
+  nothing is deleted without a typed name, and the next attempt finds it and creates
+  only the container. A database clone whose database was created before its first
+  container was refused ends in the ended view instead, where `d` offers that
+  database, since trying again would find the target existing.
+- **`x` stops at a step boundary.** During a create it only marks the clone as
+  stopping, so a create already sent is never cancelled into an unknown outcome. During
+  a copy it cancels the step: no new write starts, and each upsert runs on its own
+  deadline (`writeTimeout`, 30 s), so the writes in flight finish. The page is written
+  again on resume.
+- A copy that ends on the skip limit has written its page: the model takes the copy's
+  position, and a copy that had read its last page is finished on `r` rather than read
+  again.
 - `alchemist profile add --writers` sets the new key.
 - The emulator integration tests (`test/integration/clone_test.go`) ran against the
   `vnext-preview` image in this iteration's environment, and passed; so did the rest of

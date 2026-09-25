@@ -17,7 +17,6 @@ type ItemMeta struct {
 	Modified time.Time
 }
 
-// IsSystemField reports whether name is a top-level field the backend owns.
 func IsSystemField(name string) bool {
 	return slices.Contains(systemFields, name)
 }

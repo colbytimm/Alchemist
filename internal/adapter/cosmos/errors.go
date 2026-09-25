@@ -69,7 +69,6 @@ func wrap(op string, err error) error {
 	return fmt.Errorf("cosmos: %s: %w", op, err)
 }
 
-// retryAfter is the wait the service asked for, zero when it named none.
 func retryAfter(resp *http.Response) time.Duration {
 	if resp == nil {
 		return 0

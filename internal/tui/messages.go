@@ -229,7 +229,6 @@ type ClonePlannedMsg struct {
 	dialog dialogID
 }
 
-// cloneCreated is what a clone step has created on the target.
 type cloneCreated struct {
 	database  bool
 	container bool
@@ -244,7 +243,6 @@ type CloneTargetCreatedMsg struct {
 	job     jobID
 }
 
-// ClonePageCopiedMsg reports one page written, and hands the copy back.
 type ClonePageCopiedMsg struct {
 	Progress clone.Progress
 	copy     *clone.Copy

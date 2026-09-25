@@ -16,13 +16,11 @@ import (
 
 const (
 	progressLabelWidth = 11
-	// progressColumn is where the right-hand column starts.
-	progressColumn = 26
-	percentWidth   = 6
-	notASnapshot   = "The source can change while this runs. This is a copy, not a snapshot."
+	progressColumn     = 26
+	percentWidth       = 6
+	notASnapshot       = "The source can change while this runs. This is a copy, not a snapshot."
 )
 
-// CloneEnd is how a clone finished, CloneRunning while it has not.
 type CloneEnd int
 
 const (
@@ -77,7 +75,6 @@ type CloneKeys struct {
 	Hide, Stop, Resume, Delete, Close key.Binding
 }
 
-// CloneProgress is the view of a clone that is running or has ended.
 type CloneProgress struct {
 	frame  frame
 	icons  theme.IconSet
@@ -249,7 +246,6 @@ func (p CloneProgress) hintKeys() []key.Binding {
 	return []key.Binding{p.keys.Resume, p.keys.Close}
 }
 
-// spread puts left and right at either end of width.
 func spread(left, right string, width int) string {
 	gap := width - len([]rune(left)) - len([]rune(right))
 	if gap < 1 {

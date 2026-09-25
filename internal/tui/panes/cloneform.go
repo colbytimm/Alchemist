@@ -44,7 +44,6 @@ type CloneDefaults struct {
 	Capacity clone.Capacity
 }
 
-// CloneChoice is what the form collected.
 type CloneChoice struct {
 	Target   clone.Endpoint
 	Content  clone.Content
@@ -160,7 +159,6 @@ func (f CloneForm) Surveyed() bool { return f.surveyed }
 
 func (f CloneForm) Survey() clone.Survey { return f.survey }
 
-// ApplyDefaults sets every field the user has not changed to what d says.
 func (f CloneForm) ApplyDefaults(d CloneDefaults) CloneForm {
 	for i := range f.fields {
 		field := &f.fields[i]
@@ -235,7 +233,6 @@ func (f CloneForm) setFocus(i int) CloneForm {
 	return f
 }
 
-// Target is the account chosen, empty when none can be written to.
 func (f CloneForm) Target() string {
 	field, _ := f.fieldNamed(FieldTarget)
 	if len(f.targets) == 0 {
@@ -264,7 +261,6 @@ func (f CloneForm) capacity() clone.Capacity {
 	return f.capacities[min(field.choice, len(f.capacities)-1)]
 }
 
-// Validate reports what stands between the form and its review.
 func (f CloneForm) Validate() error {
 	if len(f.targets) == 0 {
 		return errNoWritableAccount
@@ -280,14 +276,12 @@ func (f CloneForm) Validate() error {
 	return nil
 }
 
-// SetStatus says what the form is waiting for; empty is nothing.
 func (f CloneForm) SetStatus(status string) CloneForm {
 	f.status = status
 	f.failure = ""
 	return f
 }
 
-// Fail shows why the clone cannot go ahead, and keeps every field.
 func (f CloneForm) Fail(err error) CloneForm {
 	f.failure = err.Error()
 	f.status = ""
@@ -376,7 +370,6 @@ func (f CloneForm) notes() []string {
 		"known up front; it is projected once the first page has been copied.", f.source.Account, target))
 }
 
-// SizeText is what a size estimate says, and that it is an estimate.
 func SizeText(size adapter.SizeEstimate) string {
 	if !size.Known {
 		return "size unknown: the account did not say"

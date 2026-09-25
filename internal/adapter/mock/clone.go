@@ -28,14 +28,12 @@ const (
 	OpUpsert     = "upsert"
 )
 
-// scanCharge is what every scanned page costs, whatever it holds.
 const scanCharge = 2.5
 
 // defaultPolicies is the definition of a container created without one. It
 // holds a policy a portable read leaves out, so the two readings differ.
 var defaultPolicies = json.RawMessage(`{"indexingPolicy":{"indexingMode":"consistent","automatic":true},"vectorEmbeddingPolicy":{"vectorEmbeddings":[]}}`)
 
-// accountBound are the policies a portable read drops.
 var accountBound = []string{"vectorEmbeddingPolicy", "fullTextPolicy"}
 
 // WithItemCount seeds the container at path with count generated items,
@@ -83,7 +81,6 @@ type writeFaults struct {
 	failures  map[string]bool
 }
 
-// upsertGauge counts the upserts running at once, and the most ever seen.
 type upsertGauge struct {
 	mu      sync.Mutex
 	current int
@@ -113,15 +110,12 @@ func (a *Adapter) HighestConcurrentUpserts() int {
 	return a.upserts.highest
 }
 
-// Upserts is how many upserts reached a, whatever became of them.
 func (a *Adapter) Upserts() int {
 	a.upserts.mu.Lock()
 	defer a.upserts.mu.Unlock()
 	return a.upserts.total
 }
 
-// ContainerDefinition reports the container's keys, the policies it was
-// created with, and what it holds.
 func (c *conn) ContainerDefinition(ctx context.Context, path []string, fidelity adapter.DefinitionFidelity) (adapter.ContainerDefinition, error) {
 	if err := c.a.stall(ctx, OpDefinition); err != nil {
 		return adapter.ContainerDefinition{}, err
@@ -276,7 +270,6 @@ func (a *Adapter) upsert(path, keys []string, item json.RawMessage) (float64, er
 	return charges[adapter.OperationUpsert], nil
 }
 
-// take spends the fault injected for the item called id, if any.
 func (f writeFaults) take(id string) error {
 	if f.failures[id] {
 		delete(f.failures, id)

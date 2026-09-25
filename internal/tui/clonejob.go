@@ -20,9 +20,8 @@ const (
 	// cloneStepTimeout bounds one step of a clone, so a request that hangs
 	// ends the job instead of wedging it.
 	cloneStepTimeout = 2 * time.Minute
-	// rateWindow is how many of the latest pages the rate is taken over.
-	rateWindow  = 10
-	quitWarning = "A clone is running. Quit again to stop it and quit; the target will be incomplete."
+	rateWindow       = 10
+	quitWarning      = "A clone is running. Quit again to stop it and quit; the target will be incomplete."
 )
 
 // cloneRun is the clone holding the job slot: how far it has got, and what
@@ -38,6 +37,9 @@ type cloneRun struct {
 	end              panes.CloneEnd
 	stopping         bool
 	err              error
+	// drained marks a container whose every page was read, though the
+	// clone ended before it was marked done.
+	drained bool
 	// unanswered marks a create that was sent and never answered: what it
 	// was creating may exist.
 	unanswered  bool
@@ -79,7 +81,6 @@ func (m Model) startClone(plan clone.Plan) (Model, tea.Cmd) {
 		target:   writeTarget{account: target.Account, path: target.Path},
 	}
 	m.cloning = newCloneRun(plan)
-	m.clonePrompt = clonePrompt{}
 	m.overlay = overlayCloneProgress
 	m.logger.Info("clone started", "source", source, "target", target, "content", plan.Job.Content,
 		"fidelity", plan.Job.Fidelity, "capacity", plan.Job.Capacity, "writers", plan.Job.Writers)
@@ -217,11 +218,39 @@ func (m Model) failClone(msg CloneFailedMsg) (Model, tea.Cmd) {
 	}
 	m.closeCopy(msg.copy)
 	m.cloning = m.cloning.tally(msg.Progress)
+	if msg.copy != nil {
+		m.cloning.position, m.cloning.drained = msg.copy.Position(), msg.copy.Done()
+	}
 	m.cloning.databaseCreated = m.cloning.databaseCreated || msg.created.database
 	m.cloning.containerCreated = m.cloning.containerCreated || msg.created.container
 	m.cloning.unanswered = !m.cloning.containerCreated && errors.Is(msg.Err, adapter.ErrWriteOutcomeUnknown)
 	m.cloning.copy = nil
+	if m.cloning.firstCreateRefused(msg.Err) {
+		return m.backToCloneForm(msg.Err), nil
+	}
 	return m.endClone(msg.Err)
+}
+
+// firstCreateRefused reports a clone whose first create the service turned
+// down, leaving nothing in the way of trying again with other values: a
+// database a container clone created stays, and the next plan finds it.
+func (r cloneRun) firstCreateRefused(err error) bool {
+	return r.index == 0 && !r.containerCreated && !r.unanswered && !errors.Is(err, context.Canceled) &&
+		(!r.databaseCreated || r.plan.Job.Target.Container())
+}
+
+// backToCloneForm gives the slot up and reopens the form the clone came
+// from, as it was left, with the service's refusal under its fields.
+func (m Model) backToCloneForm(err error) Model {
+	target := m.cloning.plan.Job.Target
+	if m.cloning.databaseCreated {
+		err = fmt.Errorf("%w (database %s was created on %s and is empty)", err, target.Path[0], target.Account)
+	}
+	m.logger.Warn("clone refused at create", "target", target, "error", err)
+	m = m.releaseClone()
+	m.cloneForm = m.cloneForm.Fail(err)
+	m.overlay = overlayCloneForm
+	return m
 }
 
 func (m Model) logSkips(skips []clone.Skip) {
@@ -258,7 +287,6 @@ func (r cloneRun) tally(p clone.Progress) cloneRun {
 	return r
 }
 
-// finishContainer moves on to the next container, or ends the clone.
 func (m Model) finishContainer() (Model, tea.Cmd) {
 	run := &m.cloning
 	m.closeCopy(run.copy)
@@ -379,9 +407,7 @@ func (m Model) handleCloneProgressKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m.releaseClone(), nil
 	case run.running() && key.Matches(msg, m.keys.StopClone):
-		m.cloning.stopping = true
-		m.job.stopStep()
-		return m.syncClone(), nil
+		return m.stopClone(), nil
 	case !run.running() && run.end != panes.CloneDone && key.Matches(msg, m.keys.ResumeClone):
 		return m.resumeClone()
 	case run.deletable() && key.Matches(msg, m.keys.DeleteClone):
@@ -390,15 +416,29 @@ func (m Model) handleCloneProgressKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// stopClone ends the clone at the next step boundary. A create is left to
+// finish, since cancelling one that was sent leaves its outcome unknown; a
+// copy stops starting writes, and lets the ones in flight finish.
+func (m Model) stopClone() Model {
+	m.cloning.stopping = true
+	if m.cloning.containerCreated {
+		m.job.stopStep()
+	}
+	return m.syncClone()
+}
+
 // resumeClone picks the clone up where it stopped: at the step that did
 // not finish, or after the last page written in full.
 func (m Model) resumeClone() (Model, tea.Cmd) {
 	m.cloning.end, m.cloning.err, m.cloning.quitWarned, m.cloning.unanswered = panes.CloneRunning, nil, false, false
 	m.logger.Info("clone resumed", "target", m.cloning.plan.Job.Target, "container", m.cloning.index, "position", m.cloning.position)
+	if m.cloning.drained {
+		m.cloning.drained = false
+		return m.finishContainer()
+	}
 	return m.stepClone()
 }
 
-// releaseClone gives the slot up. Whatever the clone created stays.
 func (m Model) releaseClone() Model {
 	m.job = job{}
 	m.cloning = cloneRun{}
@@ -504,8 +544,6 @@ func (m Model) releaseDeletedClone(msg CatalogChangedMsg) Model {
 	return m.releaseClone()
 }
 
-// syncClone redraws the progress view and the status bar field from the
-// clone holding the slot.
 func (m Model) syncClone() Model {
 	if m.job.kind != jobClone {
 		return m
@@ -533,7 +571,6 @@ func (r cloneRun) label() string {
 	return label + " (y)"
 }
 
-// done counts every item written or skipped, in every container.
 func (r cloneRun) done() int64 {
 	return r.written() + r.skipped()
 }
@@ -622,7 +659,6 @@ func (r cloneRun) projected() float64 {
 	return (r.readCharge + r.writeCharge) / float64(done) * float64(total.Items)
 }
 
-// leftBehind says what a clone that ended short leaves on the target.
 func (r cloneRun) leftBehind() string {
 	target := r.plan.Job.Target
 	switch {
@@ -639,6 +675,16 @@ func (r cloneRun) leftBehind() string {
 		row := r.rows[0]
 		return fmt.Sprintf("%s holds %s items and is incomplete.", target, panes.OfAbout(row.Written, row.Estimate))
 	}
-	return fmt.Sprintf("%s holds %d of %d containers, the last of them incomplete.",
-		target, r.index+1, len(r.plan.Containers))
+	created := r.index
+	if r.containerCreated {
+		created++
+	}
+	if created == 0 {
+		return fmt.Sprintf("%s was created and holds no container yet.", target)
+	}
+	incomplete := ""
+	if r.containerCreated && !r.rows[r.index].Done {
+		incomplete = ", the last of them incomplete"
+	}
+	return fmt.Sprintf("%s holds %d of %d containers%s.", target, created, len(r.plan.Containers), incomplete)
 }

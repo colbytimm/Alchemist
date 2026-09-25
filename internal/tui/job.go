@@ -38,8 +38,7 @@ type job struct {
 	// switcher refuses to disconnect.
 	accounts []string
 	target   writeTarget
-	// cancel stops the step in flight.
-	cancel context.CancelFunc
+	cancel   context.CancelFunc
 }
 
 // writeTarget is where a job writes: a container, or a whole database. The
@@ -78,12 +77,10 @@ func (j job) stopStep() {
 	}
 }
 
-// usingText refuses to disconnect an account the job holds.
 func (j job) usingText(account string) string {
 	return fmt.Sprintf("a %s is using %s: stop it first (y in the catalog)", j.kind, account)
 }
 
-// writingText refuses a change to what the job writes.
 func (j job) writingText(path []string) string {
 	return fmt.Sprintf("a %s is writing %s: stop it first (y in the catalog)", j.kind, strings.Join(path, "."))
 }
