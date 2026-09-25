@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 )
 
@@ -70,11 +69,8 @@ type ThrottledError struct {
 	Err        error
 }
 
-func (e *ThrottledError) Error() string {
-	if e.RetryAfter <= 0 {
-		return fmt.Sprintf("throttled: %v", e.Err)
-	}
-	return fmt.Sprintf("throttled, retry after %s: %v", e.RetryAfter, e.Err)
-}
+// Error is the backend's own account of the refusal, which already says
+// that it was for rate.
+func (e *ThrottledError) Error() string { return e.Err.Error() }
 
 func (e *ThrottledError) Unwrap() error { return e.Err }
