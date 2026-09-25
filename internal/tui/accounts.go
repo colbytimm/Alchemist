@@ -23,6 +23,7 @@ type Account struct {
 	SkipVerify  bool
 	Database    string // expanded when the account's root first arrives
 	MaxJoinRows int    // query.DefaultMaxJoinRows when zero
+	Writers     int    // writes a clone into this account keeps in flight; writers.DefaultSize when zero
 	// SampleFields lets completion read a few items of this account's
 	// containers, when the session allows it too.
 	SampleFields bool
@@ -74,7 +75,7 @@ type accountEntry struct {
 func (e accountEntry) permitted() Management {
 	management := e.management
 	if e.account.ReadOnly {
-		management.Admin, management.Throughput, management.Drafter = nil, nil, nil
+		management.Admin, management.Throughput, management.Drafter, management.Writer = nil, nil, nil, nil
 	}
 	return management
 }
@@ -322,6 +323,7 @@ func (m Model) whyNoConnection() error {
 // openAccounts shows the switcher, with the cursor on the account the session
 // is on, and asks for the profiles afresh.
 func (m Model) openAccounts() (Model, tea.Cmd) {
+	m.refusedDisconnect = ""
 	m, cmd := m.syncAccountRows()
 	m.accountsPane = m.accountsPane.Open()
 	m.overlay = overlayAccounts
@@ -374,6 +376,9 @@ func (m Model) syncAccountRows() (Model, tea.Cmd) {
 	for i, row := range rows {
 		if m.formAttempts[row.Name] != 0 && row.State != panes.AccountConnected {
 			rows[i].State, rows[i].Err = panes.AccountConnecting, nil
+		}
+		if row.Name == m.refusedDisconnect && m.job.uses(row.Name) {
+			rows[i].Notice = m.job.usingText(row.Name)
 		}
 	}
 	var cmd tea.Cmd
@@ -467,6 +472,10 @@ func (m Model) disconnectSelected() (Model, tea.Cmd) {
 	}
 	if m.formAttempts[row.Name] != 0 {
 		return m.abandonFormAttempt(row.Name)
+	}
+	if m.job.uses(row.Name) {
+		m.refusedDisconnect = row.Name
+		return m.syncAccountRows()
 	}
 	entry, _ := m.accounts.get(row.Name)
 	if entry.state == panes.AccountDisconnected {

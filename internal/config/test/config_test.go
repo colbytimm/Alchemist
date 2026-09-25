@@ -106,6 +106,16 @@ func TestAddRejectsWhatCannotBeLaunched(t *testing.T) {
 			profile: config.Profile{Name: "x", Adapter: "cosmos", Endpoint: "https://x", MaxJoinRows: -1},
 			wantErr: config.ErrInvalidConfig,
 		},
+		{
+			name:    "negative writers",
+			profile: config.Profile{Name: "x", Adapter: "cosmos", Endpoint: "https://x", Writers: -1},
+			wantErr: config.ErrInvalidConfig,
+		},
+		{
+			name:    "more writers than a pool holds",
+			profile: config.Profile{Name: "x", Adapter: "cosmos", Endpoint: "https://x", Writers: 17},
+			wantErr: config.ErrInvalidConfig,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -51,6 +51,8 @@ type IconSet struct {
 	Success       string
 	Failure       string
 	Separator     string
+	BarFull       string
+	BarEmpty      string
 	SpinnerFrames []string
 }
 
@@ -65,6 +67,8 @@ var (
 		Success:       "✓",
 		Failure:       "✗",
 		Separator:     "▪",
+		BarFull:       "█",
+		BarEmpty:      "░",
 		SpinnerFrames: []string{"◐", "◓", "◑", "◒"},
 	}
 	asciiIcons = IconSet{
@@ -77,6 +81,8 @@ var (
 		Success:       "+",
 		Failure:       "x",
 		Separator:     "|",
+		BarFull:       "#",
+		BarEmpty:      "-",
 		SpinnerFrames: []string{"|", "/", "-", `\`},
 	}
 )

@@ -44,6 +44,8 @@ type AccountRow struct {
 	State    AccountState
 	Err      error // set when State is AccountFailed
 	ReadOnly bool
+	// Notice is why the last action on the row was refused.
+	Notice string
 }
 
 // Accounts is the account switcher. Its value receiver hides shared pointers:
@@ -167,7 +169,7 @@ func (a Accounts) View() string {
 	return a.frame.render(strings.Join(lines, "\n"))
 }
 
-// body is every matching row with its failure hung under it, cut to the
+// body is every matching row with its failure or refusal hung under it, cut to the
 // window that keeps the cursor's row on screen.
 func (a Accounts) body(width, height int) []string {
 	matches := a.list.matching()
@@ -186,7 +188,7 @@ func (a Accounts) body(width, height int) []string {
 			cursorLine = len(lines)
 		}
 		lines = append(lines, a.row(row, columns, width, selected))
-		lines = append(lines, failureUnder(row, width)...)
+		lines = append(lines, messageUnder(row, width)...)
 	}
 	return window(lines, cursorLine, height)
 }
@@ -256,14 +258,18 @@ func (a Accounts) stateLabel(row AccountRow) string {
 	return "not connected"
 }
 
-// failureUnder wraps the reason an account failed under its name, so the part
-// that explains it is never cut off.
-func failureUnder(row AccountRow, width int) []string {
-	if row.State != AccountFailed || row.Err == nil {
+// messageUnder wraps the reason an account failed, or an action on it was
+// refused, under its name, so the part that explains it is never cut off.
+func messageUnder(row AccountRow, width int) []string {
+	message := row.Notice
+	if row.State == AccountFailed && row.Err != nil {
+		message = row.Err.Error()
+	}
+	if message == "" {
 		return nil
 	}
 	hanging := strings.Repeat(" ", glyphWidth)
-	lines := wrapText(row.Err.Error(), width-glyphWidth)
+	lines := wrapText(message, width-glyphWidth)
 	hung := make([]string, 0, len(lines))
 	for _, line := range lines {
 		hung = append(hung, hanging+theme.ErrorStyle().Render(line))

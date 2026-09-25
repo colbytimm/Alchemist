@@ -16,11 +16,13 @@ var (
 	_ adapter.ThroughputEditor = (*connection)(nil)
 )
 
+// CreateDatabase sends the create once: a create is not idempotent, and one
+// replayed after a lost answer would be refused as a conflict with itself.
 func (c *connection) CreateDatabase(ctx context.Context, spec adapter.DatabaseSpec) error {
 	props := azcosmos.DatabaseProperties{ID: spec.Name}
 	opts := &azcosmos.CreateDatabaseOptions{ThroughputProperties: createOffer(spec.Throughput)}
-	if _, err := c.client.CreateDatabase(ctx, props, opts); err != nil {
-		return wrap(fmt.Sprintf("create database %q", spec.Name), err)
+	if _, err := c.client.CreateDatabase(withoutRetries(ctx), props, opts); err != nil {
+		return WriteError(fmt.Sprintf("create database %q", spec.Name), err)
 	}
 	return nil
 }
@@ -36,6 +38,7 @@ func (c *connection) DeleteDatabase(ctx context.Context, name string) error {
 	return nil
 }
 
+// CreateContainer sends the create once, as CreateDatabase does.
 func (c *connection) CreateContainer(ctx context.Context, spec adapter.ContainerSpec) error {
 	db, err := c.database(spec.Database)
 	if err != nil {
@@ -47,8 +50,8 @@ func (c *connection) CreateContainer(ctx context.Context, spec adapter.Container
 		return fmt.Errorf("cosmos: %s: %w", op, err)
 	}
 	opts := &azcosmos.CreateContainerOptions{ThroughputProperties: createOffer(spec.Throughput)}
-	if _, err := db.CreateContainer(ctx, props, opts); err != nil {
-		return wrap(op, err)
+	if _, err := db.CreateContainer(withoutRetries(ctx), props, opts); err != nil {
+		return WriteError(op, err)
 	}
 	return nil
 }

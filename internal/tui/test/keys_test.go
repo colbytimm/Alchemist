@@ -29,7 +29,8 @@ const (
 func TestEveryBindingIsGroupedExactlyOnce(t *testing.T) {
 	keys := tui.DefaultKeyMap()
 	advertised := slices.Concat(bindings(keys), keys.ConnectKeys(), keys.HistoryKeys(),
-		keys.SavedKeys(), keys.ConfirmKeys(), keys.AccountsKeys(), keys.ExportKeys(), keys.BatchKeys())
+		keys.SavedKeys(), keys.ConfirmKeys(), keys.AccountsKeys(), keys.ExportKeys(), keys.BatchKeys(),
+		keys.CloneKeys())
 	grouped := map[string]int{}
 	for _, binding := range advertised {
 		grouped[identity(binding)]++

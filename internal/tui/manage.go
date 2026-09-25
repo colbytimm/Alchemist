@@ -28,15 +28,20 @@ func (m Model) openContainerForm() Model {
 	return m.showForm(panes.NewContainerForm(m.icons, database), OpCreateContainer, []string{database})
 }
 
-func (m Model) openDelete() Model {
+// openDelete refuses anything a background job is writing to, whichever
+// account the session is on.
+func (m Model) openDelete() (Model, tea.Cmd) {
 	node, ok := m.catalogPane().SelectedNode()
 	if !ok {
-		return m
+		return m, nil
+	}
+	if m.job.writesTo(m.accounts.active, node.Path) {
+		return m.notify(m.job.writingText(node.Path))
 	}
 	if node.Kind == adapter.NodeContainer {
-		return m.showConfirm(panes.NewContainerDelete(m.icons, node.Path), OpDeleteContainer, node.Path)
+		return m.showConfirm(panes.NewContainerDelete(m.icons, node.Path), OpDeleteContainer, node.Path), nil
 	}
-	return m.showConfirm(panes.NewDatabaseDelete(m.icons, node.Name), OpDeleteDatabase, node.Path)
+	return m.showConfirm(panes.NewDatabaseDelete(m.icons, node.Name), OpDeleteDatabase, node.Path), nil
 }
 
 // openThroughput reads what the node under the cursor provisions now. The
@@ -230,7 +235,11 @@ func (m Model) applyChange(msg CatalogChangedMsg) (Model, tea.Cmd) {
 	if msg.Op == OpSetThroughput || !ok || !entry.connected() {
 		return m, expiry
 	}
-	pane, fetch, tick := entry.pane.Select(cursorAfter(msg)).RefreshPath(msg.Parent)
+	pane := entry.pane
+	if msg.Account == m.accounts.active {
+		pane = pane.Select(cursorAfter(msg))
+	}
+	pane, fetch, tick := pane.RefreshPath(msg.Parent)
 	entry.pane = pane
 	m.accounts.put(entry)
 

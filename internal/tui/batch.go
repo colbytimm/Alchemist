@@ -77,6 +77,9 @@ func (m Model) startBatch() (Model, tea.Cmd) {
 		return m.refuseBatch(request, fmt.Errorf("the batch does not parse, so nothing was sent: %w", err))
 	}
 	request.batch = b
+	if m.job.writesTo(request.account, b.Scope) {
+		return m.refuseBatch(request, fmt.Errorf("a %s is writing %s: the batch waits for it (y)", m.job.kind, strings.Join(b.Scope, ".")))
+	}
 	if _, err := m.batcher(entry, b); err != nil {
 		return m.refuseBatch(request, err)
 	}
@@ -317,10 +320,20 @@ func (m Model) failBatch(msg BatchFailedMsg) (Model, tea.Cmd) {
 		return m.reportUnknownOutcome(msg)
 	}
 	m.results = m.results.SetSource(msg.Account).SetOutcome("not applied").
-		SetBanner("Not applied: "+msg.Err.Error(), true)
+		SetBanner("Not applied: "+msg.Err.Error()+retryHint(msg.Err), true)
 	m.batchState = panes.BatchNone
 	model, cmd := m.syncStatusBar()
 	return model, tea.Batch(cmd, model.recordFailure(fmt.Errorf("not applied: %w", msg.Err)))
+}
+
+// retryHint passes on the wait a throttled batch was told to make. The
+// wait is the user's: a batch is never retried for them.
+func retryHint(err error) string {
+	var throttled *adapter.ThrottledError
+	if !errors.As(err, &throttled) || throttled.RetryAfter <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (retry after %s)", throttled.RetryAfter)
 }
 
 func (m Model) reportUnknownOutcome(msg BatchFailedMsg) (Model, tea.Cmd) {

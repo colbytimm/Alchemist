@@ -448,7 +448,7 @@ enter → applyChunk ─ MutationChunkAppliedMsg → applyChunk … → Mutation
 - Every message carries a `jobID` and the account. A message for a job that is no
   longer current is dropped.
 - **The writer pool is `internal/writers`**, specified in 18 ("Why a worker pool, and
-  how it stays honest") and not described again here: `NewPool(size)`, `Run(ctx,
+  how it stays honest") and not described again here: `NewPool(size, clock)`, `Run(ctx,
   []Write) []Outcome`, the shared throttle gate, the step-down that never steps back
   up, `writers.MaxThrottles`, the injected clock. A job makes one `Pool` and keeps it,
   so a size stepped down in chunk 3 stays down. Whichever of 18 and 21 lands first
@@ -730,7 +730,7 @@ review expects, decided in one place for this iteration and the next.
 - `internal/adapter/cosmos` — `edit.go`, on 17's `write.go`; `scan.go` learns `Filter`;
   compile-time check `_ adapter.ItemEditor = (*connection)(nil)`.
 - `internal/adapter/mock` — `WithPredicate`, `EditItem`, the injection options.
-- `internal/writers` — 18's package, written here if 21 lands first, to 18's text.
+- `internal/writers` — 18's package, which 18 wrote; imported here.
 - `internal/query`
   - `mutation.go` — `IsMutation`, `ParseMutation(text) (Mutation, error)`,
     `Mutation{Kind, Target, Alias, Assignments, Removals, Where, EveryItem}`,
@@ -744,7 +744,7 @@ review expects, decided in one place for this iteration and the next.
   `MaxFailures`, `MaxUnknown`, `MaxReportRows`, `PlanningChargePerPatch`,
   `SelectionPageSize` (1000).
 - `internal/config` — `max_mutation_items` on `Profile` (`omitzero`, validated
-  positive); 18's `writers` if 18 has not brought it.
+  positive). 18 brought `writers`.
 - `internal/history` — `Entry.Kind` gains the value `update`. See "History".
 - `internal/tui`
   - `mutation.go` (new) — `startMutation`, `selectTargets`, `reviewMutation`,
@@ -852,7 +852,17 @@ account. A rerun always selects afresh: a target list is never reused across run
   keys, the status bar field, the quit and switcher guards, `ItemScanner`,
   `ThrottledError`, `PartitionKeyValues`, `internal/writers`, the `writers` key, the
   `job` slot with `writes`/`writesTo`. `ItemSink` is not used: an upsert of a whole item
-  is the wrong write here.
+  is the wrong write here. **18 has landed** (see its "Implementation notes"):
+  `internal/writers` is there, with `NewPool(size, clock)` taking the clock
+  (`writers.SystemClock` in production), `ErrNotStarted`, `DefaultSize`, `MaxSize` and
+  `MaxThrottles`; `Profile.Writers`, `Account.Writers`, `profile add --writers`, and the
+  TUI's `writersFor(account)` mapping zero to `DefaultSize`; the `job` slot in
+  `internal/tui/job.go` with `jobNone` and `jobClone` (register `jobMutation`), no
+  `label` field, `writesTo` true in either direction of the path, and the refusal
+  texts per kind in `usingText` and `writingText`. `adapter.IsSystemField` and
+  `SplitSystemFields` exist, in `internal/adapter/system.go`. A create refused as a
+  conflict is `adapter.ErrAlreadyExists`, and `adapter.ErrItemRefused` marks what a
+  sink refuses for the item's own sake.
 - **19, snapshots.** Soft. `ScanIdentity` and `SplitSystemFields` are used as they
   stand, with `IsSystemField`; `Filter` is the third field added to `ScanRequest` by
   19's own rule. The one-job rule is shared. The review's snapshot line is
