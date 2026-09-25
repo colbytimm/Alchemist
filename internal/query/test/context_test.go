@@ -410,3 +410,32 @@ func FuzzContextRangeStaysInsideTheText(f *testing.F) {
 		}
 	})
 }
+
+func TestContextInABatch(t *testing.T) {
+	const header = `BEGIN BATCH sales.orders PARTITION "c01";`
+	tests := []struct {
+		name  string
+		batch string
+		want  query.Completion
+	}{
+		{name: "after BEGIN", batch: "BEGIN |BATCH", want: query.Completion{Kind: query.CompleteKeyword, Keywords: []string{"BATCH"}}},
+		{name: "the target's database", batch: "BEGIN BATCH |", want: query.Completion{Kind: query.CompleteDatabase}},
+		{name: "the target's container", batch: "BEGIN BATCH sales.|", want: query.Completion{Kind: query.CompleteContainer, Database: "sales"}},
+		{name: "after the target", batch: "BEGIN BATCH sales.orders |", want: query.Completion{Kind: query.CompleteKeyword, Keywords: []string{"PARTITION"}}},
+		{name: "the start of an operation", batch: header + "\n  |", want: query.Completion{Kind: query.CompleteKeyword,
+			Keywords: []string{"CREATE", "UPSERT", "REPLACE", "DELETE", "READ", "PATCH", "COMMIT"}}},
+		{name: "after IF", batch: header + ` DELETE "a" IF |`, want: query.Completion{Kind: query.CompleteKeyword, Keywords: []string{"MATCH"}}},
+		{name: "inside a body", batch: header + ` CREATE {"id": "a", |`},
+		{name: "inside a patch array", batch: header + ` PATCH "a" [{"op": "set"}, |`},
+		{name: "after an id", batch: header + ` READ "a" |`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := contextAt(t, tt.batch)
+
+			assert.Equal(t, tt.want.Kind, got.Kind)
+			assert.Equal(t, tt.want.Keywords, got.Keywords)
+			assert.Equal(t, tt.want.Database, got.Database)
+		})
+	}
+}

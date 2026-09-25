@@ -90,8 +90,13 @@ func Context(text string, cursor int) Completion {
 	}
 	toks = code(toks)
 	word, before := splitAtCursor(toks, cursor)
-	c := classifier{toks: before, parser: parseTokens(toks), typing: word.end > word.start}
-	completion := c.classify()
+	var completion Completion
+	if keywordAt(toks, 0, "BEGIN") && keywordAt(toks, 1, "BATCH") {
+		completion = batchCompletion(before)
+	} else {
+		c := classifier{toks: before, parser: parseTokens(toks), typing: word.end > word.start}
+		completion = c.classify()
+	}
 	completion.Word = text[word.start:cursor]
 	completion.Start, completion.End = word.start, word.end
 	return completion
@@ -596,4 +601,54 @@ func isPath(toks []token) bool {
 		}
 	}
 	return true
+}
+
+// operationWords start each statement of a batch, in the order they are
+// offered.
+var operationWords = []string{"CREATE", "UPSERT", "REPLACE", "DELETE", "READ", "PATCH", "COMMIT"}
+
+// Token counts of a batch's header, up to the cursor.
+const (
+	afterBegin     = 1 // BEGIN
+	afterBatch     = 2 // BEGIN BATCH
+	afterDatabase  = 4 // BEGIN BATCH db .
+	afterContainer = 5 // BEGIN BATCH db . container
+)
+
+// batchCompletion completes a batch statement: its target, a database then
+// a container, and the keyword that starts each part. Nothing is offered
+// inside a body, whose fields are the person's own.
+func batchCompletion(before []token) Completion {
+	last, ok := lastOf(before)
+	switch {
+	case !ok, insideBody(before):
+		return Completion{}
+	case len(before) == afterBegin:
+		return keywordsOnly([]string{"BATCH"})
+	case len(before) == afterBatch:
+		return Completion{Kind: CompleteDatabase}
+	case len(before) == afterDatabase && last.kind == tokDot:
+		return Completion{Kind: CompleteContainer, Database: before[afterBatch].text}
+	case len(before) == afterContainer:
+		return keywordsOnly([]string{"PARTITION"})
+	case isSymbol(last, ";"):
+		return keywordsOnly(operationWords)
+	case keywordAt(before, len(before)-1, "IF"):
+		return keywordsOnly([]string{"MATCH"})
+	}
+	return Completion{}
+}
+
+// insideBody reports whether a JSON body is still open at the end of toks.
+func insideBody(toks []token) bool {
+	depth := 0
+	for _, tok := range toks {
+		switch {
+		case isSymbol(tok, "{"), isSymbol(tok, "["):
+			depth++
+		case isSymbol(tok, "}"), isSymbol(tok, "]"):
+			depth--
+		}
+	}
+	return depth > 0
 }
