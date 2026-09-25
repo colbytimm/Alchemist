@@ -383,8 +383,16 @@ func (f CloneForm) notes() []string {
 	if target != f.source.Account {
 		notes = append(notes, fmt.Sprintf("%s → %s: items leave %s.", f.source.Account, target, f.source.Account))
 	}
-	return append(notes, fmt.Sprintf("Reading spends RU on %s, writing spends RU on %s. The cost cannot be "+
-		"known up front; it is projected once the first page has been copied.", f.source.Account, target))
+	return append(notes, fmt.Sprintf("Reading spends RU on %s, writing spends RU on %s. %s",
+		f.source.Account, target, f.costNote()))
+}
+
+// costNote promises a projection only when there is a size to project to.
+func (f CloneForm) costNote() string {
+	if !f.survey.Size().Known {
+		return "The cost cannot be known up front, and with no size to go on it is counted as it is spent."
+	}
+	return "The cost cannot be known up front; it is projected once the first page has been copied."
 }
 
 func SizeText(size adapter.SizeEstimate) string {
