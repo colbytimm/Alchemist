@@ -184,3 +184,54 @@ func TestTheStatusBarCarriesTheJob(t *testing.T) {
 
 	assert.Contains(t, ansi.Strip(bar.View()), "clone prod/sales.orders → emulator 41% (y)")
 }
+
+func TestAnEstimateThatSaysNothingIsNotMeasuredAgainst(t *testing.T) {
+	tests := []struct {
+		name     string
+		estimate adapter.SizeEstimate
+	}{
+		{name: "a zero count", estimate: adapter.SizeEstimate{Known: true}},
+		{name: "one the copy has overtaken", estimate: adapter.SizeEstimate{Items: 200, Known: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			view := progressView(runningStatus(tt.estimate))
+
+			assert.NotContains(t, view, "about")
+			assert.NotContains(t, view, "%")
+			assert.Contains(t, view, "Items      12,400 ")
+			assert.Contains(t, view, "none: size not known")
+		})
+	}
+}
+
+func TestADoneCloneSaysWhatItSpent(t *testing.T) {
+	status := runningStatus(adapter.SizeEstimate{Items: 12400, Known: true})
+	status.End, status.Projected = panes.CloneDone, 0
+
+	view := progressView(status)
+
+	assert.Contains(t, view, "Spent      80,116.51 RU in total")
+	assert.NotContains(t, view, "after the first page")
+}
+
+func TestTheReviewSaysSoWhenTheAccountReportsNoItems(t *testing.T) {
+	assert.Equal(t, "no items, as the account reports it", panes.SizeText(adapter.SizeEstimate{Known: true}))
+}
+
+func TestTheFormsTargetsFollowTheAccounts(t *testing.T) {
+	form := cloneForm(
+		panes.CloneTarget{Name: "emulator", State: panes.AccountDisconnected},
+		panes.CloneTarget{Name: "prod", State: panes.AccountConnected},
+	)
+	form, _ = form.Update(pressed(tea.KeyLeft))
+	require.Equal(t, "emulator", form.Target())
+
+	form = form.SetTargets([]panes.CloneTarget{
+		{Name: "emulator", State: panes.AccountConnected},
+		{Name: "prod", State: panes.AccountConnected},
+	}, nil)
+
+	assert.Equal(t, "emulator", form.Target(), "the choice stays on the account chosen")
+	assert.Contains(t, ansi.Strip(form.View()), "emulator · connected")
+}

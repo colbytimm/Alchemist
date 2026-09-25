@@ -314,3 +314,23 @@ func TestACreateIsSentOnce(t *testing.T) {
 		})
 	}
 }
+
+func TestAZeroDocumentCountIsNoKnownSize(t *testing.T) {
+	tests := []struct {
+		name  string
+		usage string
+	}{
+		{name: "as the emulator reports every container", usage: "documentSize=0;documentsSize=0;documentsCount=0;collectionSize=0"},
+		{name: "zero documents in a sized container", usage: "documentsSize=12;documentsCount=0;collectionSize=40"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn, _ := account(t, &cloneAccount{usage: tt.usage})
+
+			def, err := definitionReader(t, conn).ContainerDefinition(context.Background(), []string{"sales", "orders"}, adapter.DefinitionFull)
+
+			require.NoError(t, err)
+			assert.False(t, def.Size.Known)
+		})
+	}
+}
