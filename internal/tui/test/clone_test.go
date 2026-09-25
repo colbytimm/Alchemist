@@ -576,3 +576,27 @@ func TestARefusalBehindAnotherOverlayWaitsForY(t *testing.T) {
 	assert.Contains(t, view, "400 Bad Request: orders-copy")
 	assert.Contains(t, view, "orders-copy")
 }
+
+func TestAStopInsideAPageSaysAtLeast(t *testing.T) {
+	m, cmd := confirmClone(t, reviewClone(t, newLoadedModel(t, newCloneConnection(t))), mock.Name)
+	m, cmd = m.Update(messages(cmd)[0])
+
+	m = pressAll(t, m, keyRune('x'))
+	m = runSteps(m, cmd)
+
+	assert.Contains(t, plain(m.View()), "mock/sales.orders-copy holds at least 0 of about 25 items and is incomplete.",
+		"writes in flight when the page stopped may have landed uncounted")
+}
+
+func TestLeavingTheQuitWarningDisarmsIt(t *testing.T) {
+	m, _ := confirmClone(t, reviewClone(t, newLoadedModel(t, newCloneConnection(t))), mock.Name)
+	m = pressAll(t, m, keyMsg(tea.KeyEscape))
+	m, _ = m.Update(keyRune('q'))
+	require.Contains(t, plain(m.View()), "Quit again to stop it and quit")
+
+	m = pressAll(t, m, keyMsg(tea.KeyEscape))
+	m, cmd := m.Update(keyRune('q'))
+
+	assert.NotContains(t, messages(cmd), tea.QuitMsg{}, "a later q warns again")
+	assert.Contains(t, plain(m.View()), "Quit again to stop it and quit")
+}
