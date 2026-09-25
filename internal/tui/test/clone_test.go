@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -530,4 +532,47 @@ func TestStoppingDuringACreateLetsTheCreateFinish(t *testing.T) {
 	assert.NotContains(t, view, "no answer came back")
 	assert.Len(t, conn.containers, 1)
 	assert.Contains(t, view, "mock/sales.orders-copy holds 0 of about 25 items and is incomplete.")
+}
+
+func TestEverySkippedItemIsNamedInTheLogOnce(t *testing.T) {
+	var keyless []json.RawMessage
+	for i := range 150 {
+		keyless = append(keyless, json.RawMessage(fmt.Sprintf(`{"id":"k%03d"}`, i)))
+	}
+	conn := newCloneConnection(t, mock.WithItems(ordersPath, keyless...))
+	var logged bytes.Buffer
+	m := newModelWith(t, conn, tui.Options{Manage: managed, Logger: log.New(&logged)})
+	m, _ = settle(m, m.Init())
+	m = cloneAll(t, m)
+	require.Contains(t, plain(m.View()), "Failed.")
+
+	m = pressAll(t, m, keyRune('r'))
+
+	require.Contains(t, plain(m.View()), "Done.")
+	for i := range 150 {
+		assert.Equal(t, 1, strings.Count(logged.String(), fmt.Sprintf("id=k%03d ", i)), "k%03d", i)
+	}
+}
+
+func TestARefusalBehindAnotherOverlayWaitsForY(t *testing.T) {
+	conn := newCloneConnection(t)
+	conn.admin = refusingAdmin{CatalogAdmin: conn.admin, refuses: func(spec adapter.ContainerSpec) bool {
+		return spec.Throughput.Provisioned()
+	}}
+	m, cmd := confirmClone(t, reviewClone(t, newLoadedModel(t, conn)), mock.Name)
+	m = pressAll(t, m, keyMsg(tea.KeyEscape), keyRune('?'))
+
+	m = runSteps(m, cmd)
+
+	assert.Contains(t, plain(m.View()), "Catalog", "the help overlay stays up")
+	assert.NotContains(t, plain(m.View()), cloneContainerTitle)
+	m = pressAll(t, m, keyMsg(tea.KeyEscape))
+	assert.Contains(t, statusBar(m), "clone refused at create (y)")
+
+	m = pressAll(t, m, keyRune('y'))
+
+	view := plain(m.View())
+	assert.Contains(t, view, cloneContainerTitle)
+	assert.Contains(t, view, "400 Bad Request: orders-copy")
+	assert.Contains(t, view, "orders-copy")
 }

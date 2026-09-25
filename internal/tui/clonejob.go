@@ -217,6 +217,7 @@ func (m Model) failClone(msg CloneFailedMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	m.closeCopy(msg.copy)
+	m.logSkips(msg.Progress.Skips)
 	m.cloning = m.cloning.tally(msg.Progress)
 	if msg.copy != nil {
 		m.cloning.position, m.cloning.drained = msg.copy.Position(), msg.copy.Done()
@@ -226,7 +227,7 @@ func (m Model) failClone(msg CloneFailedMsg) (Model, tea.Cmd) {
 	m.cloning.unanswered = !m.cloning.containerCreated && errors.Is(msg.Err, adapter.ErrWriteOutcomeUnknown)
 	m.cloning.copy = nil
 	if m.cloning.firstCreateRefused(msg.Err) {
-		return m.backToCloneForm(msg.Err), nil
+		return m.backToCloneForm(msg.Err)
 	}
 	return m.endClone(msg.Err)
 }
@@ -240,17 +241,25 @@ func (r cloneRun) firstCreateRefused(err error) bool {
 }
 
 // backToCloneForm gives the slot up and reopens the form the clone came
-// from, as it was left, with the service's refusal under its fields.
-func (m Model) backToCloneForm(err error) Model {
+// from, as it was left, with the service's refusal under its fields. Over
+// another overlay the form waits for y instead, and a notice says so.
+func (m Model) backToCloneForm(err error) (Model, tea.Cmd) {
 	target := m.cloning.plan.Job.Target
 	if m.cloning.databaseCreated {
 		err = fmt.Errorf("%w (database %s was created on %s and is empty)", err, target.Path[0], target.Account)
 	}
 	m.logger.Warn("clone refused at create", "target", target, "error", err)
+	shown := m.overlay == overlayCloneProgress || m.overlay == overlayNone
+	overlay := m.overlay
 	m = m.releaseClone()
 	m.cloneForm = m.cloneForm.Fail(err)
-	m.overlay = overlayCloneForm
-	return m
+	if shown {
+		m.overlay = overlayCloneForm
+		return m, nil
+	}
+	m.overlay = overlay
+	m.clonePrompt.refused = true
+	return m.notify("clone refused at create (y)")
 }
 
 func (m Model) logSkips(skips []clone.Skip) {

@@ -1259,7 +1259,9 @@ What landed differs from the text above in these ways:
   `none` after a `minimum` refused on a serverless account is one keystroke away. A
   database a container clone had just created stays, empty, and the message says so:
   nothing is deleted without a typed name, and the next attempt finds it and creates
-  only the container. A database clone whose database was created before its first
+  only the container. Should another overlay be open by then (the progress view was
+  hidden), it stays, a notice reads `clone refused at create (y)`, and `y` in the
+  catalog shows the form. A database clone whose database was created before its first
   container was refused ends in the ended view instead, where `d` offers that
   database, since trying again would find the target existing.
 - **`x` stops at a step boundary.** During a create it only marks the clone as
