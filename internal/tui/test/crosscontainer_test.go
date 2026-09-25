@@ -106,9 +106,9 @@ func TestANarrowStatusBarFoldsTheBreakdownAndKeepsTheElapsedTime(t *testing.T) {
 	m := runQuery(t, newModelOfWidth(t, newConnection(t), tui.Options{}, 120), mockThreeWay)
 
 	view := plain(m.View())
-	assert.Contains(t, view, "17.50 RU (3 containers)")
 	assert.Contains(t, view, "1000 rows (+more)")
-	assert.Contains(t, view, "ms ", "the elapsed time is still shown")
+	assert.Regexp(t, `17\.50 RU \(3 containers\) \S+ [0-9.]+(ns|µs|ms|s) `, view,
+		"the folded charge is followed by the elapsed time")
 }
 
 func TestATotalOverTheRowCapFailsNamingTheSideThatCrossedIt(t *testing.T) {
