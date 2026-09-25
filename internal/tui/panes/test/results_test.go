@@ -159,3 +159,33 @@ func TestResultsHasNoDocumentWithoutRows(t *testing.T) {
 
 	assert.False(t, ok)
 }
+
+func TestABannerReadsAboveTheRowsAndTheOutcomeInTheTitle(t *testing.T) {
+	view := plain(newTable().SetSource("prod").SetOutcome("committed").SetBanner("Committed: 3 operations.", false).View())
+
+	assert.Contains(t, view, "Results · prod · committed")
+	assert.Less(t, strings.Index(view, "Committed: 3 operations."), strings.Index(view, "id"))
+}
+
+func TestClearingTheResultsDropsTheBannerAndTheOutcome(t *testing.T) {
+	view := plain(newTable().SetSource("prod").SetOutcome("rolled back").SetBanner("Rolled back.", true).Clear().View())
+
+	assert.Contains(t, view, "Results · prod ")
+	assert.NotContains(t, view, "rolled back")
+	assert.NotContains(t, view, "Rolled back.")
+}
+
+func TestABannerShowsWithNoRows(t *testing.T) {
+	view := plain(panes.NewResults().SetSize(resultsWidth, resultsHeight).SetBanner("Outcome unknown.", false).View())
+
+	assert.Contains(t, view, "Outcome unknown.")
+}
+
+func TestTheFailedRowTakesTheCursor(t *testing.T) {
+	r := newTable().MarkFailedRow(1)
+
+	document, ok := r.SelectedDocument()
+
+	assert.True(t, ok)
+	assert.Equal(t, firstPage.Raw[1], document)
+}

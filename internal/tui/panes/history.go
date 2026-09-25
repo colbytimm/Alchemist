@@ -164,7 +164,7 @@ func (h History) row(entry history.Entry, scopeWidth, width int, selected bool) 
 		text = theme.SelectedStyle()
 	}
 	age := fit(relativeTime(entry.Time, h.now), timeWidth)
-	scope := fit(scopeText(entry.Scope), scopeWidth)
+	scope := fit(entryScope(entry), scopeWidth)
 	charge := fmt.Sprintf("%*s", chargeWidth, chargeText(entry))
 	query := fit(firstLine(entry.Query), max(width-timeWidth-scopeWidth-lipgloss.Width(charge)-rowGaps, 1))
 	return text.Render(age+" ") + h.outcome(entry, selected) + text.Render(" "+scope+" "+query+" "+charge)
@@ -181,9 +181,18 @@ func (h History) outcome(entry history.Entry, selected bool) string {
 func scopeWidth(entries []history.Entry) int {
 	width := 0
 	for _, entry := range entries {
-		width = max(width, lipgloss.Width(scopeText(entry.Scope)))
+		width = max(width, lipgloss.Width(entryScope(entry)))
 	}
 	return min(width, maxScopeWidth)
+}
+
+// entryScope tags a batch, whose scope is the target it wrote to rather
+// than a scope the query ran under.
+func entryScope(entry history.Entry) string {
+	if entry.Kind == history.KindBatch {
+		return history.KindBatch + " " + scopeText(entry.Scope)
+	}
+	return scopeText(entry.Scope)
 }
 
 func scopeText(scope []string) string {

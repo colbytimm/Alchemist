@@ -29,6 +29,7 @@ can be added without touching the TUI.
 | — | Saved queries: named `.sql` files per account | 15 |
 | Data exporter | JSON / CSV export | 8 |
 | DDL via SQL (Cosmos has none) | Catalog management: create/delete, throughput | 11 |
+| Transactions | Transactional batch: `BEGIN BATCH … COMMIT`, reviewed and confirmed | 17 |
 | Adapter plugins | Go interfaces + registry | 2, 3 |
 | Profiles / config | TOML profiles + OS keychain secrets | 6 |
 | Help overlay | Keybinding help (`?`) | 4 |
@@ -46,15 +47,15 @@ main.go                       # thin entry
 cmd/                          # cobra: root launches TUI; version; profile subcommands
 internal/
   adapter/                    # CORE INTERFACES ONLY — no cosmos imports
-    adapter.go registry.go
+    adapter.go registry.go batch.go
     mock/                     # in-memory adapter used by all TUI tests
     cosmos/                   # azcosmos v1.5.0 implementation
-  query/                      # "db.container" scope tokenizer/rewriter
+  query/                      # "db.container" scope tokenizer/rewriter; batch statements
   tui/
     app.go                    # root model: layout, focus, routing only
     keys.go messages.go
     panes/                    # catalog.go, editor.go, results.go, history.go,
-                              # saved.go, save.go, statusbar.go, help.go
+                              # saved.go, save.go, review.go, statusbar.go, help.go
   theme/                      # adaptive alchemy palette + ASCII logo
   config/                     # TOML profiles + keyring/env secret resolution
   history/                    # JSONL query history

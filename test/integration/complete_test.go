@@ -56,7 +56,16 @@ func managed(conn adapter.Connection) tui.Management {
 	throughput, _ := conn.(adapter.ThroughputEditor)
 	inspector, _ := conn.(adapter.Inspector)
 	sampler, _ := conn.(adapter.FieldSampler)
-	return tui.Management{Admin: admin, Throughput: throughput, Inspector: inspector, Sampler: sampler}
+	batcher, _ := conn.(adapter.Batcher)
+	drafter, _ := conn.(adapter.ItemDrafter)
+	return tui.Management{
+		Admin:      admin,
+		Throughput: throughput,
+		Inspector:  inspector,
+		Sampler:    sampler,
+		Batcher:    batcher,
+		Drafter:    drafter,
+	}
 }
 
 // newCompletingSession is a session that samples fields, at a height that

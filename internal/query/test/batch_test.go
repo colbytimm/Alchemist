@@ -257,3 +257,32 @@ func FuzzParseBatch(f *testing.F) {
 		require.True(t, strings.Contains(strings.ToUpper(input), "COMMIT"))
 	})
 }
+
+func TestBatchPrefix(t *testing.T) {
+	tests := []struct {
+		name  string
+		text  string
+		limit int
+		want  string
+	}{
+		{name: "a batch that fits is kept whole", text: `BEGIN BATCH a.b PARTITION 1; READ "a"; COMMIT`, limit: 100,
+			want: `BEGIN BATCH a.b PARTITION 1; READ "a"; COMMIT`},
+		{name: "a longer one ends at the last operation that fits", text: `BEGIN BATCH a.b PARTITION 1; READ "a"; READ "b"; COMMIT`, limit: 45,
+			want: `BEGIN BATCH a.b PARTITION 1; READ "a";`},
+		{name: "a semicolon inside a string is no boundary", text: `BEGIN BATCH a.b PARTITION 1; READ "a;b;c;d"; COMMIT`, limit: 40,
+			want: `BEGIN BATCH a.b PARTITION 1;`},
+		{name: "COMMIT is never kept in a cut", text: `BEGIN BATCH a.b PARTITION 1; READ "a"; COMMIT;` + strings.Repeat(" ", 100), limit: 60,
+			want: `BEGIN BATCH a.b PARTITION 1; READ "a";`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, query.BatchPrefix(tt.text, tt.limit))
+		})
+	}
+}
+
+func TestSamePartition(t *testing.T) {
+	assert.True(t, query.SamePartition(key(`1`, `"a"`), key(`1.0`, `"a"`)))
+	assert.False(t, query.SamePartition(key(`1`), key(`"1"`)))
+	assert.False(t, query.SamePartition(key(`1`), key(`1`, `2`)))
+}

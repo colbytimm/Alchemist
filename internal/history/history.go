@@ -35,9 +35,13 @@ const (
 	fileMode = 0o600
 )
 
+// KindBatch marks an entry recording a batch; an empty Kind is a query.
+const KindBatch = "batch"
+
 // Entry is one recorded run.
 type Entry struct {
 	Time          time.Time `json:"ts"`
+	Kind          string    `json:"kind,omitempty"`
 	Profile       string    `json:"profile"`
 	Scope         []string  `json:"scope"`
 	Query         string    `json:"query"`

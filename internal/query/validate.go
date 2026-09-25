@@ -279,3 +279,9 @@ func FormatSize(n int) string {
 	}
 	return fmt.Sprintf("%.1f MB", float64(n)/bytesPerMB)
 }
+
+// SamePartition reports whether a and b name one partition, by the rule
+// CheckBatch compares keys with.
+func SamePartition(a, b adapter.PartitionKey) bool {
+	return slices.EqualFunc(a, b, sameKey)
+}

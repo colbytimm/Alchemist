@@ -50,12 +50,19 @@ func notFound(err error) bool {
 }
 
 func refusal(respErr *azcore.ResponseError) string {
-	text := strconv.Itoa(respErr.StatusCode)
-	if status := http.StatusText(respErr.StatusCode); status != "" {
-		text += " " + status
-	}
+	text := statusLine(respErr.StatusCode)
 	if message := serviceMessage(respErr); message != "" {
 		text += ": " + message
+	}
+	return text
+}
+
+// statusLine is a status code with the standard library's text for it,
+// when it has one: "404 Not Found".
+func statusLine(code int) string {
+	text := strconv.Itoa(code)
+	if status := http.StatusText(code); status != "" {
+		text += " " + status
 	}
 	return text
 }

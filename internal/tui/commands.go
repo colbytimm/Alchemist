@@ -20,6 +20,9 @@ const (
 	loadTimeout    = 15 * time.Second
 	queryTimeout   = 60 * time.Second
 	manageTimeout  = 30 * time.Second
+	// batchTimeout bounds the wait for a batch's answer. The service's own
+	// limit is 5 s of execution; the rest is the network.
+	batchTimeout = 30 * time.Second
 )
 
 // recentHistory is how much of the log the history overlay lists.
@@ -180,6 +183,21 @@ func (m Model) fetchPage(ctx context.Context, cursor adapter.Cursor) tea.Cmd {
 			return PageFailedMsg{run: run, Err: err}
 		}
 		return PageAppendedMsg{run: run, cursor: cursor, Page: page}
+	}
+}
+
+// executeBatch sends b once. Its context belongs to the command alone: the
+// model never cancels it, since canceling a sent write is how an unknown
+// outcome is made.
+func executeBatch(batcher adapter.Batcher, account string, b adapter.Batch) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), batchTimeout)
+		defer cancel()
+		result, err := batcher.ExecuteBatch(ctx, b)
+		if err != nil {
+			return BatchFailedMsg{Account: account, Batch: b, Err: err}
+		}
+		return BatchDoneMsg{Account: account, Batch: b, Result: result}
 	}
 }
 

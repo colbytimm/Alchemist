@@ -11,11 +11,15 @@ import (
 )
 
 func (m Model) newHistoryEntry(scope []string) history.Entry {
+	return newEntry(m.accounts.active, scope, m.editor.Value())
+}
+
+func newEntry(account string, scope []string, text string) history.Entry {
 	return history.Entry{
 		Time:    time.Now().UTC(),
-		Profile: m.accounts.active,
+		Profile: account,
 		Scope:   scope,
-		Query:   m.editor.Value(),
+		Query:   text,
 	}
 }
 
@@ -123,7 +127,9 @@ func (m Model) recall() (Model, bool) {
 		return m, false
 	}
 	m.editor = m.editor.SetValue(entry.Query)
-	m = m.setScope(m.accounts.active, entry.Scope)
+	if entry.Kind != history.KindBatch { // a batch names its own target, which is no scope for what runs next
+		m = m.setScope(m.accounts.active, entry.Scope)
+	}
 	m.recalledName = ""
 	m.overlay = overlayNone
 	return m.setFocus(focusEditor), true

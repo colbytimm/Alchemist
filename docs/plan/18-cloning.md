@@ -929,8 +929,8 @@ one job and one confirmation.
 - **17, transactions.** Two touch points and no dependency. `read_only` is its key and
   this plan obeys it as written under "Prompt fields": with the key absent only
   loopback endpoints are writable, a read-only account is never a target and always a
-  valid source. `adapter.PartitionKeyValues` is shared, introduced by whichever lands
-  first. It is also the third-party consumer of the `job` slot: a batch takes no slot
+  valid source. `adapter.PartitionKeyValues` is shared; 17 landed first and introduced
+  it, with `ErrNoPartitionKey`, in `internal/adapter/batch.go`. It is also the third-party consumer of the `job` slot: a batch takes no slot
   and may run beside a clone, except that `startBatch` asks `job.writes()` (through
   `writesTo`) and refuses a batch aimed at or under the clone's target on the same
   account. For a database clone that is the whole target database. The accessor is

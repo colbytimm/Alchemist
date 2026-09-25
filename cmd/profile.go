@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -34,6 +35,7 @@ func newProfileCmd(keyring config.Keyring) *cobra.Command {
 		newProfileListCmd(keyring),
 		newProfileAddCmd(keyring),
 		newProfileSetKeyCmd(keyring),
+		newProfileSetReadOnlyCmd(),
 		newProfileRemoveCmd(keyring),
 	)
 	return cmd
@@ -113,6 +115,7 @@ type addFlags struct {
 	profile      config.Profile
 	makeDefault  bool
 	sampleFields bool
+	readOnly     bool
 }
 
 func (a *addFlags) bind(flags *pflag.FlagSet) {
@@ -127,6 +130,8 @@ func (a *addFlags) bind(flags *pflag.FlagSet) {
 	flags.IntVar(&a.profile.MaxJoinRows, "max-join-rows", 0,
 		fmt.Sprintf("rows a cross-container join may hold in memory, across all the sides held (%d when 0)", query.DefaultMaxJoinRows))
 	flags.BoolVar(&a.makeDefault, "default", false, "make this the default profile")
+	flags.BoolVar(&a.readOnly, "read-only", false,
+		"refuse every write on this account (unset: read-only unless the endpoint is this machine)")
 }
 
 // run saves the profile before asking for its key, so a keychain that refuses
@@ -137,6 +142,9 @@ func (a addFlags) run(cmd *cobra.Command, keyring config.Keyring) error {
 	}
 	if !a.sampleFields {
 		a.profile.SampleFields = &a.sampleFields
+	}
+	if cmd.Flags().Changed("read-only") {
+		a.profile.ReadOnly = &a.readOnly
 	}
 	store, cfg, err := loadConfig()
 	if err != nil {
@@ -198,6 +206,46 @@ func setKey(cmd *cobra.Command, keyring config.Keyring, name string) error {
 		return err
 	}
 	return say(cmd, "key for profile %s stored in the keychain", name)
+}
+
+func newProfileSetReadOnlyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "set-read-only <name> <true|false>",
+		Short: "Allow or refuse writes on a profile's account",
+		Long: "A profile with no read_only setting is read-only unless its endpoint is this machine,\n" +
+			"as the emulator's is. Writing to any other account is a decision made here, per profile.",
+		Example: "  alchemist profile set-read-only emulator false",
+		Args:    cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			readOnly, err := strconv.ParseBool(args[1])
+			if err != nil {
+				return fmt.Errorf("cmd: read-only %q: give true or false", args[1])
+			}
+			if err := setReadOnly(args[0], readOnly); err != nil {
+				return err
+			}
+			if readOnly {
+				return say(cmd, "profile %s is read-only", args[0])
+			}
+			return say(cmd, "profile %s allows writes", args[0])
+		},
+	}
+}
+
+func setReadOnly(name string, readOnly bool) error {
+	store, cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	profile, err := cfg.Profile(name)
+	if err != nil {
+		return err
+	}
+	profile.ReadOnly = &readOnly
+	if cfg, err = cfg.Put(profile); err != nil {
+		return err
+	}
+	return store.Save(cfg)
 }
 
 func newProfileRemoveCmd(keyring config.Keyring) *cobra.Command {

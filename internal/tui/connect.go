@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/config"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
 
@@ -114,8 +115,9 @@ func (m Model) acceptFormConnection(msg AccountConnectedMsg) (Model, tea.Cmd) {
 	account := msg.submitted
 	if entry, ok := m.accounts.get(msg.Account); ok {
 		account.Database, account.MaxJoinRows = entry.account.Database, entry.account.MaxJoinRows
+		account.ReadOnly = entry.account.ReadOnly
 	}
-	m.accounts = m.accounts.add(account, m.blankEntry)
+	m.accounts = m.accounts.add(m.withSessionAccess(account), m.blankEntry)
 	entry, _ := m.accounts.get(msg.Account)
 	m.logger.Info("connected", "account", msg.Account)
 	m, load := m.attach(entry, msg.Connection)
@@ -187,7 +189,12 @@ func (m Model) openConnection(form panes.ConnectForm, attempt int) tea.Cmd {
 			Account:    form.Profile,
 			Connection: conn,
 			attempt:    attempt,
-			submitted:  Account{Name: form.Profile, Endpoint: form.Endpoint, SkipVerify: form.SkipVerify},
+			submitted: Account{
+				Name:       form.Profile,
+				Endpoint:   form.Endpoint,
+				SkipVerify: form.SkipVerify,
+				ReadOnly:   config.Profile{Endpoint: form.Endpoint}.IsReadOnly(),
+			},
 		}
 	}
 }

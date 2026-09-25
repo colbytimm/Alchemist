@@ -2,6 +2,7 @@ package tui_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"testing"
@@ -53,9 +54,14 @@ func plain(view string) string {
 // failChildren does the same for every child listing. Management calls pass
 // straight through to the mock, keeping the specs so a test can see what the
 // dialogs assembled, and inspections and field samples keep the path they
-// were asked about.
+// were asked about. Batches pass through to the mock's item store, which
+// store is, and are kept in the order they arrived.
 type recordingConnection struct {
 	inner        adapter.Connection
+	store        *mock.Adapter
+	batcher      adapter.Batcher
+	drafter      adapter.ItemDrafter
+	batches      []adapter.Batch
 	admin        adapter.CatalogAdmin
 	editor       adapter.ThroughputEditor
 	inspector    adapter.Inspector
@@ -80,10 +86,13 @@ type recordingConnection struct {
 
 func newConnection(t *testing.T, opts ...mock.Option) *recordingConnection {
 	t.Helper()
-	inner, err := mock.New(opts...).Connect(context.Background(), nil)
+	store := mock.New(opts...)
+	inner, err := store.Connect(context.Background(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, inner.Close()) })
-	conn := &recordingConnection{inner: inner, calls: map[string]int{}}
+	conn := &recordingConnection{inner: inner, store: store, calls: map[string]int{}}
+	conn.batcher, _ = inner.(adapter.Batcher)
+	conn.drafter, _ = inner.(adapter.ItemDrafter)
 	conn.admin, _ = inner.(adapter.CatalogAdmin)
 	conn.editor, _ = inner.(adapter.ThroughputEditor)
 	conn.inspector, _ = inner.(adapter.Inspector)
@@ -99,6 +108,15 @@ func (c *recordingConnection) Inspect(ctx context.Context, n adapter.Node) (adap
 func (c *recordingConnection) SampleFields(ctx context.Context, n adapter.Node) (adapter.FieldSample, error) {
 	c.sampled = append(c.sampled, n.Path)
 	return c.sampler.SampleFields(ctx, n)
+}
+
+func (c *recordingConnection) ExecuteBatch(ctx context.Context, b adapter.Batch) (adapter.BatchResult, error) {
+	c.batches = append(c.batches, b)
+	return c.batcher.ExecuteBatch(ctx, b)
+}
+
+func (c *recordingConnection) DraftReplace(item json.RawMessage) (adapter.Operation, error) {
+	return c.drafter.DraftReplace(item)
 }
 
 func (c *recordingConnection) CreateDatabase(ctx context.Context, spec adapter.DatabaseSpec) error {
@@ -202,7 +220,16 @@ func managed(conn adapter.Connection) tui.Management {
 	throughput, _ := conn.(adapter.ThroughputEditor)
 	inspector, _ := conn.(adapter.Inspector)
 	sampler, _ := conn.(adapter.FieldSampler)
-	return tui.Management{Admin: admin, Throughput: throughput, Inspector: inspector, Sampler: sampler}
+	batcher, _ := conn.(adapter.Batcher)
+	drafter, _ := conn.(adapter.ItemDrafter)
+	return tui.Management{
+		Admin:      admin,
+		Throughput: throughput,
+		Inspector:  inspector,
+		Sampler:    sampler,
+		Batcher:    batcher,
+		Drafter:    drafter,
+	}
 }
 
 // newModel builds a model sized to the minimum supported terminal, managing

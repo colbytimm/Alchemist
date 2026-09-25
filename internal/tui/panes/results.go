@@ -26,19 +26,26 @@ const (
 // as many columns as fit from the horizontal scroll offset. A failure is
 // rendered above whatever rows are already on screen.
 type Results struct {
-	frame    frame
-	columns  []string
-	widths   []int
-	rows     [][]string
-	raw      []json.RawMessage
-	failure  string
-	cursor   int
-	firstCol int
-	loaded   bool
+	frame   frame
+	source  string
+	outcome string
+	banner  string
+	// bannerFailed styles the banner, and failedRow, as a failure; failedRow
+	// is -1 when no row failed.
+	bannerFailed bool
+	failedRow    int
+	columns      []string
+	widths       []int
+	rows         [][]string
+	raw          []json.RawMessage
+	failure      string
+	cursor       int
+	firstCol     int
+	loaded       bool
 }
 
 func NewResults() Results {
-	return Results{frame: frame{title: resultsTitle}}
+	return Results{frame: frame{title: resultsTitle}, failedRow: -1}
 }
 
 func (r Results) SetSize(width, height int) Results {
@@ -59,13 +66,39 @@ func (r Results) Blur() Results {
 // SetSource names the account the rows on screen came from, which a switch
 // to another account leaves standing.
 func (r Results) SetSource(account string) Results {
-	r.frame.title = accountTitle(resultsTitle, account)
+	r.source = account
+	return r.retitle()
+}
+
+// SetOutcome names, beside the account, what became of the statement whose
+// report is on screen: "committed".
+func (r Results) SetOutcome(outcome string) Results {
+	r.outcome = outcome
+	return r.retitle()
+}
+
+// SetBanner shows text above the rows, as a failure when failed.
+func (r Results) SetBanner(text string, failed bool) Results {
+	r.banner, r.bannerFailed = text, failed
+	return r
+}
+
+// MarkFailedRow styles row as the one that failed, and puts the cursor on
+// it.
+func (r Results) MarkFailedRow(row int) Results {
+	r.failedRow = row
+	r.cursor = min(max(row, 0), max(len(r.rows)-1, 0))
+	return r
+}
+
+func (r Results) retitle() Results {
+	r.frame.title = accountTitle(accountTitle(resultsTitle, r.source), r.outcome)
 	return r
 }
 
 // Clear empties the pane for a new run.
 func (r Results) Clear() Results {
-	return Results{frame: r.frame}
+	return Results{frame: r.frame, source: r.source, failedRow: -1}.retitle()
 }
 
 // Load replaces the result set with the first page of a run.
@@ -156,8 +189,8 @@ func (r Results) content() string {
 
 func (r Results) emptyContent() string {
 	switch {
-	case r.failure != "":
-		return strings.Join(r.failureLines(), "\n")
+	case r.failure != "" || r.banner != "":
+		return strings.Join(append(r.bannerLines(), r.failureLines()...), "\n")
 	case r.loaded:
 		return theme.HintStyle().Render(noRowsHint)
 	default:
@@ -174,13 +207,37 @@ func (r Results) emptyContent() string {
 func (r Results) table() string {
 	width, height := r.frame.inner()
 	columns := r.visibleColumns(width)
-	lines := window(r.failureLines(), 0, max(height/2, 1))
+	lines := window(append(r.bannerLines(), r.failureLines()...), 0, max(height/2, 1))
 	lines = append(lines, r.headerLine(columns))
 	start, end := windowBounds(len(r.rows), r.cursor, height-len(lines))
 	for i := start; i < end; i++ {
-		lines = append(lines, r.rowLine(r.rows[i], columns, i == r.cursor))
+		lines = append(lines, r.rowLine(r.rows[i], columns, r.rowStyle(i)))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// bannerLines precede the header with a blank line, so the sentence reads
+// apart from the table under it.
+func (r Results) bannerLines() []string {
+	if r.banner == "" {
+		return nil
+	}
+	width, _ := r.frame.inner()
+	style := theme.TextStyle()
+	if r.bannerFailed {
+		style = theme.ErrorStyle()
+	}
+	return append(styleAll(style, wrapText(r.banner, width)), "")
+}
+
+func (r Results) rowStyle(i int) lipgloss.Style {
+	switch i {
+	case r.cursor:
+		return theme.SelectedStyle()
+	case r.failedRow:
+		return theme.ErrorStyle()
+	}
+	return theme.TextStyle()
 }
 
 // failureLines renders the last failure wrapped rather than truncated, so the
@@ -221,16 +278,12 @@ func (r Results) headerLine(columns []int) string {
 	return headerStyle().Render(strings.Join(cells, columnGap))
 }
 
-func (r Results) rowLine(row []string, columns []int, selected bool) string {
+func (r Results) rowLine(row []string, columns []int, style lipgloss.Style) string {
 	cells := make([]string, 0, len(columns))
 	for _, i := range columns {
 		cells = append(cells, fit(cell(row, i), r.widths[i]))
 	}
-	text := strings.Join(cells, columnGap)
-	if selected {
-		return theme.SelectedStyle().Render(text)
-	}
-	return theme.TextStyle().Render(text)
+	return style.Render(strings.Join(cells, columnGap))
 }
 
 func headerStyle() lipgloss.Style {
