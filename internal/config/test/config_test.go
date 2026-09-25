@@ -205,3 +205,29 @@ func TestPutStillReplacesAProfileBesideACaseVariantAlreadyInTheFile(t *testing.T
 
 	require.NoError(t, err)
 }
+
+func TestReadOnly(t *testing.T) {
+	yes, no := true, false
+	tests := []struct {
+		name     string
+		readOnly *bool
+		endpoint string
+		want     bool
+	}{
+		{name: "set true, local", readOnly: &yes, endpoint: "https://localhost:8081", want: true},
+		{name: "set false, remote", readOnly: &no, endpoint: "https://myaccount.documents.azure.com:443/"},
+		{name: "unset, localhost", endpoint: "https://localhost:8081"},
+		{name: "unset, localhost with no scheme", endpoint: "localhost:8081"},
+		{name: "unset, 127.0.0.1", endpoint: "https://127.0.0.1:8081/"},
+		{name: "unset, ::1", endpoint: "[::1]:8081"},
+		{name: "unset, remote", endpoint: "https://myaccount.documents.azure.com:443/", want: true},
+		{name: "unset, a remote host named like a local one", endpoint: "https://localhost.example.com", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile := config.Profile{Endpoint: tt.endpoint, ReadOnly: tt.readOnly}
+
+			assert.Equal(t, tt.want, profile.IsReadOnly())
+		})
+	}
+}

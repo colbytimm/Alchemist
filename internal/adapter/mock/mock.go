@@ -36,6 +36,10 @@ const (
 	OpSetThroughput   = "set_throughput"
 	OpInspect         = "inspect"
 	OpSampleFields    = "sample_fields"
+	// OpBatch fails a batch before anything is applied; OpBatchUnknown fails
+	// it after applying it, as a batch whose answer never came back.
+	OpBatch        = "batch"
+	OpBatchUnknown = "batch_unknown"
 )
 
 var (
@@ -129,13 +133,19 @@ type Adapter struct {
 	latency time.Duration
 	pages   int
 
+	batchFailure batchFailure
+
 	mu        sync.Mutex
 	databases []database
+	// items holds each container's documents under its path; etags counts
+	// the versions the store has handed out.
+	items map[string][]storedItem
+	etags int
 }
 
 // New builds a mock adapter with the given options applied.
 func New(opts ...Option) *Adapter {
-	a := &Adapter{errOps: map[string]bool{}, pages: 3, databases: newFixture()}
+	a := &Adapter{errOps: map[string]bool{}, pages: 3, databases: newFixture(), items: map[string][]storedItem{}}
 	for _, opt := range opts {
 		opt(a)
 	}

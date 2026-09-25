@@ -16,13 +16,26 @@ type Span struct {
 	End   int
 }
 
+// batchKeywords are the words of a batch statement. They are a set of their
+// own rather than part of keywords, whose rule is that none can be a bare
+// source alias: READ and MATCH can.
+var batchKeywords = map[string]bool{
+	"BEGIN": true, "BATCH": true, "PARTITION": true, "COMMIT": true,
+	"CREATE": true, "UPSERT": true, "REPLACE": true, "DELETE": true, "READ": true, "PATCH": true,
+	"WHERE": true, "IF": true, "MATCH": true, "TRUE": true, "FALSE": true, "NULL": true,
+}
+
 // Spans lists the keywords, string literals, numbers, and comments of text in
-// the order they appear.
+// the order they appear. A batch statement's keywords are its own.
 func Spans(text string) []Span {
+	words := keywords
+	if IsBatch(text) {
+		words = batchKeywords
+	}
 	var spans []Span
 	previous := tokOther
 	for _, tok := range lex(text) {
-		if kind, ok := spanKind(tok, previous); ok {
+		if kind, ok := spanKind(tok, previous, words); ok {
 			spans = append(spans, Span{Kind: kind, Start: tok.start, End: tok.end})
 		}
 		previous = tok.kind
@@ -32,9 +45,9 @@ func Spans(text string) []Span {
 
 // spanKind leaves a keyword that follows a dot alone: c.value and c.order
 // name properties.
-func spanKind(tok token, previous int) (SpanKind, bool) {
+func spanKind(tok token, previous int, words map[string]bool) (SpanKind, bool) {
 	switch {
-	case tok.kind == tokIdent && keywords[tok.upper] && previous != tokDot:
+	case tok.kind == tokIdent && words[tok.upper] && previous != tokDot:
 		return SpanKeyword, true
 	case tok.kind == tokString:
 		return SpanString, true
