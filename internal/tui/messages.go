@@ -5,6 +5,7 @@ import (
 	"github.com/colbytimm/alchemist/internal/clone"
 	"github.com/colbytimm/alchemist/internal/history"
 	"github.com/colbytimm/alchemist/internal/saved"
+	"github.com/colbytimm/alchemist/internal/snapshot"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
 
@@ -30,6 +31,7 @@ const (
 	OpSaveQuery       = "save query"
 	OpRemoveQuery     = "remove saved query"
 	OpClone           = "clone"
+	OpSnapshot        = "snapshot"
 )
 
 // runID identifies one query run. Every page and failure carries the run it
@@ -258,4 +260,89 @@ type CloneFailedMsg struct {
 	copy     *clone.Copy
 	created  cloneCreated
 	job      jobID
+}
+
+// SnapshotsLoadedMsg delivers the snapshots of the store at Location on
+// Account: a container's records, or a database's groups.
+type SnapshotsLoadedMsg struct {
+	Account  string
+	Location snapshot.Location
+	Records  []snapshot.Record
+	Groups   []snapshot.Group
+	// Changed names the records whose definition differs from their
+	// parent's.
+	Changed map[string]bool
+	Usage   snapshot.Usage
+	dialog  dialogID
+}
+
+// SnapshotProgressMsg reports one step of the capture holding the job
+// slot, and hands its capturer back to the model; Err is a step that
+// failed and changed nothing.
+type SnapshotProgressMsg struct {
+	Step     captureStep
+	Err      error
+	capturer capturer
+	job      jobID
+}
+
+// snapshotRetryMsg is the end of a throttled capture's wait.
+type snapshotRetryMsg struct {
+	job jobID
+}
+
+type SnapshotDeletedMsg struct {
+	Account  string
+	Location snapshot.Location
+	ID       string
+	Err      error
+	dialog   dialogID
+}
+
+// SnapshotExportedMsg reports a snapshot's items or a diff written to Path,
+// as it was typed. A diff's export hands its store back.
+type SnapshotExportedMsg struct {
+	Path   string
+	Err    error
+	store  *snapshot.Store
+	dialog dialogID
+}
+
+// DiffLoadedMsg delivers the diff of two snapshots of the container at
+// Location on Account, and the open store its bodies are read from.
+type DiffLoadedMsg struct {
+	Account  string
+	Location snapshot.Location
+	Diff     snapshot.Diff
+	Err      error
+	store    *snapshot.Store
+	dialog   dialogID
+}
+
+// GroupDiffLoadedMsg delivers the container by container diff of two
+// database snapshots.
+type GroupDiffLoadedMsg struct {
+	From    snapshot.Group
+	To      snapshot.Group
+	Changes []snapshot.GroupChange
+	Err     error
+	dialog  dialogID
+}
+
+// DiffFieldsMsg delivers the changed fields of modified items, by key.
+type DiffFieldsMsg struct {
+	Fields map[snapshot.Key]string
+	Err    error
+	store  *snapshot.Store
+	dialog dialogID
+}
+
+// ItemDiffLoadedMsg delivers the two bodies of one changed item.
+type ItemDiffLoadedMsg struct {
+	Item   snapshot.ItemChange
+	Before []byte
+	After  []byte
+	Err    error
+	store  *snapshot.Store
+	dialog dialogID
 }

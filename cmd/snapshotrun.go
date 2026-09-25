@@ -150,7 +150,10 @@ func (l liveSnapshot) takeDatabase(cmd *cobra.Command, loc snapshot.Location, op
 		return err
 	}
 	throughput, _ := l.conn.(adapter.ThroughputEditor)
-	capture := snapshot.BeginGroup(loc, snapshot.GroupSource{Containers: sources, Throughput: throughput}, options)
+	capture, err := snapshot.BeginGroup(loc, snapshot.GroupSource{Containers: sources, Throughput: throughput}, options)
+	if err != nil {
+		return err
+	}
 	progress := newProgressLine(cmd)
 	last, err := drive(cmd.Context(), capture.Next,
 		func(p snapshot.GroupProgress) {
@@ -317,7 +320,7 @@ func (f diffFlags) run(cmd *cobra.Command, keyring config.Keyring, args []string
 		if err != nil {
 			return err
 		}
-		if err := store.WriteDiff(path, d); err != nil {
+		if err := store.WriteDiff(path, d, snapshot.RefuseExisting); err != nil {
 			return err
 		}
 	}

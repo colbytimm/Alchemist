@@ -69,8 +69,8 @@ func (s *Store) Prune(policy Policy, now time.Time) ([]Record, error) {
 }
 
 // maintain runs change under the lock, on the records as they are on disk,
-// and collects garbage after it: under the lock, no capture can dedupe
-// against a body that is about to go.
+// and collects garbage after it: under the lock, no capture can reuse a
+// body that is about to go.
 func (s *Store) maintain(now time.Time, change func() error) error {
 	dir := s.loc.Dir()
 	lock, err := takeLock(dir, now)

@@ -115,12 +115,12 @@ type storeMeta struct {
 // Stores lists every container store under root, from each one's
 // store.json, including those of accounts no profile names any more.
 func Stores(root string) ([]Location, error) {
-	metas, err := filepath.Glob(filepath.Join(root, "*", "*~*", "*~*", storeFile))
+	described, err := filepath.Glob(filepath.Join(root, "*", "*~*", "*~*", storeFile))
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: %w", err)
 	}
-	locations := make([]Location, 0, len(metas))
-	for _, path := range metas {
+	locations := make([]Location, 0, len(described))
+	for _, path := range described {
 		var meta storeMeta
 		if err := readJSON(path, &meta); err != nil {
 			return nil, err

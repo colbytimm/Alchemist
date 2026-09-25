@@ -15,13 +15,33 @@ type jobKind int
 const (
 	jobNone jobKind = iota
 	jobClone
+	jobCapture
 )
 
 func (k jobKind) String() string {
-	if k == jobClone {
+	switch k {
+	case jobClone:
 		return "clone"
+	case jobCapture:
+		return "snapshot"
 	}
 	return "job"
+}
+
+// reopenKey is the catalog key that shows a job of kind k.
+func (k jobKind) reopenKey() string {
+	if k == jobCapture {
+		return "v"
+	}
+	return "y"
+}
+
+// stopVerb is what the job's view calls ending it.
+func (k jobKind) stopVerb() string {
+	if k == jobCapture {
+		return "cancel"
+	}
+	return "stop"
 }
 
 // jobID identifies one job. Every message its steps send carries it, so a
@@ -78,9 +98,32 @@ func (j job) stopStep() {
 }
 
 func (j job) usingText(account string) string {
-	return fmt.Sprintf("a %s is using %s: stop it first (y in the catalog)", j.kind, account)
+	return fmt.Sprintf("a %s is using %s: %s it first (%s in the catalog)", j.kind, account, j.kind.stopVerb(), j.kind.reopenKey())
 }
 
 func (j job) writingText(path []string) string {
-	return fmt.Sprintf("a %s is writing %s: stop it first (y in the catalog)", j.kind, strings.Join(path, "."))
+	return fmt.Sprintf("a %s is writing %s: %s it first (%s in the catalog)", j.kind, strings.Join(path, "."), j.kind.stopVerb(), j.kind.reopenKey())
+}
+
+// waitText refuses another job while this one runs: "a snapshot is
+// running: clones wait for it (v)".
+func (j job) waitText(others string) string {
+	return fmt.Sprintf("a %s is running: %s wait for it (%s)", j.kind, others, j.kind.reopenKey())
+}
+
+// warnBeforeQuit shows the running job, and what quitting would leave,
+// before the quit that stops it. It reports whether it did.
+func (m Model) warnBeforeQuit() (Model, bool) {
+	switch {
+	case m.job.kind == jobClone && m.cloning.running() && !m.cloning.quitWarned:
+		m.cloning.quitWarned = true
+		m.overlay = overlayCloneProgress
+		return m.syncClone(), true
+	case m.job.kind == jobCapture && !m.capturing.quitWarned:
+		m.capturing.quitWarned = true
+		m.capturing.status.Warning = captureQuitWarning
+		model, _ := m.showCapture()
+		return model, true
+	}
+	return m, false
 }

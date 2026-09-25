@@ -61,9 +61,13 @@ type CaptureOptions struct {
 }
 
 // Progress is how far a capture has got. Record is set once Done.
+// PhaseItems counts the items the current phase has read, of about
+// Expected when the backend said how many the container holds.
 type Progress struct {
 	Phase         Phase
 	Items         int64
+	PhaseItems    int64
+	Expected      int64
 	RequestCharge float64
 	BytesRead     int64
 	BytesStored   int64
@@ -168,7 +172,7 @@ func (c *Capture) Next(ctx context.Context) (Progress, error) {
 }
 
 // Abort releases the lock and drops what was not published. Packs already
-// written stay for the next capture to dedupe against, or for garbage
+// written stay for the next capture to reuse, or for garbage
 // collection to reclaim.
 func (c *Capture) Abort() error {
 	if c.ended {
@@ -255,6 +259,7 @@ func (c *Capture) captureDefinition(ctx context.Context) error {
 			return tooManyItems(size.Items, c.options.MaxItems)
 		}
 		c.record.Size = &SizeReading{Items: size.Items, Bytes: size.Bytes}
+		c.progress.Expected = size.Items
 	}
 	c.keyPaths = definition.PartitionKeys
 	document := definitionDocument{PartitionKeys: definition.PartitionKeys, Backend: definition.Policies.Backend, Policies: definition.Policies.Raw}
@@ -324,6 +329,7 @@ func (c *Capture) readPage(ctx context.Context, take func(json.RawMessage) error
 			return err
 		}
 		c.progress.Items++
+		c.progress.PhaseItems++
 		c.progress.BytesRead += int64(len(item))
 	}
 	c.progress.RequestCharge += page.RequestCharge
@@ -386,6 +392,7 @@ func (c *Capture) takeSwept(item json.RawMessage) error {
 func (c *Capture) endScan() error {
 	err := c.scan.Close()
 	c.scan, c.position = nil, ""
+	c.progress.PhaseItems = 0
 	switch c.progress.Phase {
 	case PhaseSweep:
 		c.compare()

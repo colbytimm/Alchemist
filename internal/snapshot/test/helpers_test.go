@@ -144,7 +144,7 @@ func (f *fixture) held() []string {
 func exported(t *testing.T, store *snapshot.Store, id string) []string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "items.jsonl")
-	require.NoError(t, store.WriteItems(path, id))
+	require.NoError(t, store.WriteItems(path, id, snapshot.RefuseExisting))
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")

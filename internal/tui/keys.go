@@ -27,36 +27,48 @@ type KeyMap struct {
 	StopClone    key.Binding
 	ResumeClone  key.Binding
 	DeleteClone  key.Binding
-	Detail       key.Binding
-	ScrollLeft   key.Binding
-	ScrollRight  key.Binding
-	FetchMore    key.Binding
-	Export       key.Binding
-	AddToBatch   key.Binding
-	Commit       key.Binding
-	Scroll       key.Binding
-	Save         key.Binding
-	Format       key.Binding
-	Complete     key.Binding
-	Accept       key.Binding
-	Run          key.Binding
-	Connect      key.Binding
-	History      key.Binding
-	SaveQuery    key.Binding
-	Saved        key.Binding
-	Rename       key.Binding
-	DeleteQuery  key.Binding
-	Confirm      key.Binding
-	Accounts     key.Binding
-	Switch       key.Binding
-	AddAccount   key.Binding
-	Disconnect   key.Binding
-	Filter       key.Binding
-	Recall       key.Binding
-	Rerun        key.Binding
-	Help         key.Binding
-	Close        key.Binding
-	Quit         key.Binding
+	// TakeSnapshot and Snapshots work on the catalog's node; the rest of
+	// the snapshot bindings only inside its overlays.
+	TakeSnapshot   key.Binding
+	Snapshots      key.Binding
+	MarkSnapshot   key.Binding
+	DiffSnapshots  key.Binding
+	DeleteSnapshot key.Binding
+	CancelCapture  key.Binding
+	ConfirmTake    key.Binding
+	ConfirmDelete  key.Binding
+	OpenChange     key.Binding
+	CycleChanges   key.Binding
+	Detail         key.Binding
+	ScrollLeft     key.Binding
+	ScrollRight    key.Binding
+	FetchMore      key.Binding
+	Export         key.Binding
+	AddToBatch     key.Binding
+	Commit         key.Binding
+	Scroll         key.Binding
+	Save           key.Binding
+	Format         key.Binding
+	Complete       key.Binding
+	Accept         key.Binding
+	Run            key.Binding
+	Connect        key.Binding
+	History        key.Binding
+	SaveQuery      key.Binding
+	Saved          key.Binding
+	Rename         key.Binding
+	DeleteQuery    key.Binding
+	Confirm        key.Binding
+	Accounts       key.Binding
+	Switch         key.Binding
+	AddAccount     key.Binding
+	Disconnect     key.Binding
+	Filter         key.Binding
+	Recall         key.Binding
+	Rerun          key.Binding
+	Help           key.Binding
+	Close          key.Binding
+	Quit           key.Binding
 }
 
 // DefaultKeyMap binds no function key: too many terminals and laptop
@@ -132,6 +144,48 @@ func DefaultKeyMap() KeyMap {
 		DeleteClone: key.NewBinding(
 			key.WithKeys("d"),
 			key.WithHelp("d", "delete the partial target"),
+		),
+		TakeSnapshot: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "take snapshot"),
+		),
+		// v also reopens a capture in progress, from any row and any
+		// account, as y does a clone.
+		Snapshots: key.NewBinding(
+			key.WithKeys("v"),
+			key.WithHelp("v", "snapshots"),
+		),
+		MarkSnapshot: key.NewBinding(
+			key.WithKeys(" "),
+			key.WithHelp("space", "mark"),
+		),
+		DiffSnapshots: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "diff"),
+		),
+		DeleteSnapshot: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d", "delete snapshot"),
+		),
+		CancelCapture: key.NewBinding(
+			key.WithKeys("x"),
+			key.WithHelp("x", "cancel capture"),
+		),
+		ConfirmTake: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "take"),
+		),
+		ConfirmDelete: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "delete"),
+		),
+		OpenChange: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "fields"),
+		),
+		CycleChanges: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "all/added/removed/modified"),
 		),
 		Detail: key.NewBinding(
 			key.WithKeys("enter"),
@@ -331,6 +385,19 @@ func (k KeyMap) CloneKeys() []key.Binding {
 	return []key.Binding{k.HideClone, k.StopClone, k.ResumeClone, k.DeleteClone}
 }
 
+// SnapshotKeys are the bindings only the snapshot overlays answer to: the
+// list, its note prompt and its delete confirmation. Each hint line shows
+// the ones that apply, beside TakeSnapshot, Export and Close.
+func (k KeyMap) SnapshotKeys() []key.Binding {
+	return []key.Binding{k.MarkSnapshot, k.DiffSnapshots, k.DeleteSnapshot, k.CancelCapture, k.ConfirmTake, k.ConfirmDelete}
+}
+
+// DiffKeys are the bindings only the diff overlay answers to. Its hint line
+// shows Filter and Export beside them.
+func (k KeyMap) DiffKeys() []key.Binding {
+	return []key.Binding{k.OpenChange, k.CycleChanges}
+}
+
 // InfoKeys are the bindings the info overlay answers to, shown in a hint line
 // of its own. Every one of them is a binding some pane already advertises.
 func (k KeyMap) InfoKeys() []key.Binding {
@@ -348,6 +415,7 @@ func (k KeyMap) catalogKeys() []key.Binding {
 	return []key.Binding{
 		k.Up, k.Down, k.Select, k.Refresh, k.Info,
 		k.NewDatabase, k.NewContainer, k.Delete, k.Throughput, k.Clone,
+		k.TakeSnapshot, k.Snapshots,
 	}
 }
 
@@ -372,6 +440,18 @@ func (k KeyMap) forManagement(management Management) KeyMap {
 	if management.Definitions == nil {
 		k.Clone.SetEnabled(false)
 	}
+	if management.Scanner == nil {
+		k.TakeSnapshot.SetEnabled(false)
+		k.Snapshots.SetEnabled(false)
+	}
+	return k
+}
+
+// withoutSnapshots disables the snapshot bindings for a session with
+// nowhere to keep snapshots.
+func (k KeyMap) withoutSnapshots() KeyMap {
+	k.TakeSnapshot.SetEnabled(false)
+	k.Snapshots.SetEnabled(false)
 	return k
 }
 

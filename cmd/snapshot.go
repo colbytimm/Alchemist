@@ -295,7 +295,7 @@ func exportSnapshot(cmd *cobra.Command, scope scopeFlags, args []string, output 
 	if err != nil {
 		return err
 	}
-	if err := store.WriteItems(path, record.ID); err != nil {
+	if err := store.WriteItems(path, record.ID, snapshot.RefuseExisting); err != nil {
 		return err
 	}
 	return say(cmd, "wrote %s items of %s %s to %s", countText(record.Items), loc, record.ID, path)

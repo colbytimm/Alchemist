@@ -42,17 +42,21 @@ func Ash() lipgloss.AdaptiveColor { return ash }
 
 // IconSet groups the glyphs used across panes.
 type IconSet struct {
-	Database      string
-	Container     string
-	Expanded      string
-	Collapsed     string
-	Left          string
-	Right         string
-	Success       string
-	Failure       string
-	Separator     string
-	BarFull       string
-	BarEmpty      string
+	Database  string
+	Container string
+	Expanded  string
+	Collapsed string
+	Left      string
+	Right     string
+	Success   string
+	Failure   string
+	Separator string
+	BarFull   string
+	BarEmpty  string
+	// Marked is a row picked out of a list; Removed signs what a diff
+	// lost, beside + and ~.
+	Marked        string
+	Removed       string
 	SpinnerFrames []string
 }
 
@@ -69,6 +73,8 @@ var (
 		Separator:     "▪",
 		BarFull:       "█",
 		BarEmpty:      "░",
+		Marked:        "●",
+		Removed:       "−",
 		SpinnerFrames: []string{"◐", "◓", "◑", "◒"},
 	}
 	asciiIcons = IconSet{
@@ -83,6 +89,8 @@ var (
 		Separator:     "|",
 		BarFull:       "#",
 		BarEmpty:      "-",
+		Marked:        "*",
+		Removed:       "-",
 		SpinnerFrames: []string{"|", "/", "-", `\`},
 	}
 )

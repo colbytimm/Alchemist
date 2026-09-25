@@ -27,7 +27,8 @@ func (f *fixture) takeGroup(source snapshot.GroupSource) snapshot.Group {
 	f.clock.advance(time.Minute)
 	database := f.loc
 	database.Container = ""
-	capture := snapshot.BeginGroup(database, source, snapshot.CaptureOptions{Clock: f.clock.Now, Note: "nightly"})
+	capture, err := snapshot.BeginGroup(database, source, snapshot.CaptureOptions{Clock: f.clock.Now, Note: "nightly"})
+	require.NoError(f.t, err)
 	for {
 		progress, err := capture.Next(context.Background())
 		require.NoError(f.t, err)

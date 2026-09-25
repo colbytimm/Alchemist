@@ -108,7 +108,7 @@ func (w *Writer) Close() error {
 }
 
 // Abort removes the pack being written. Packs already published stay: a
-// later capture may dedupe against them, and garbage collection reclaims
+// later capture may reuse their bodies, and garbage collection reclaims
 // them otherwise.
 func (w *Writer) Abort() {
 	if w.file != nil {
@@ -164,7 +164,7 @@ func (w *Writer) start() error {
 }
 
 // publish commits the pack before its index: an index naming a pack that
-// is not there would let a capture dedupe against a body that is gone.
+// is not there would let a capture reuse a body that is gone.
 func (w *Writer) publish() error {
 	if w.file == nil {
 		return nil

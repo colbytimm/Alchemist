@@ -88,14 +88,24 @@ type GroupCapture struct {
 	progress GroupProgress
 }
 
-func BeginGroup(loc Location, source GroupSource, options CaptureOptions) *GroupCapture {
+// BeginGroup prepares a database snapshot of loc's database. Its id is its
+// start, or a second past the newest group's when that would repeat it.
+func BeginGroup(loc Location, source GroupSource, options CaptureOptions) (*GroupCapture, error) {
 	if options.Clock == nil {
 		options.Clock = time.Now
 	}
+	existing, err := Groups(loc)
+	if err != nil {
+		return nil, err
+	}
+	var newest string
+	if len(existing) > 0 {
+		newest = existing[len(existing)-1].ID
+	}
 	started := options.Clock().UTC()
-	group := Group{Format: documentFormat, ID: newID(started), Database: loc.Database, Note: options.Note, Started: started}
+	group := Group{Format: documentFormat, ID: nextID(started, newest), Database: loc.Database, Note: options.Note, Started: started}
 	options.Group = group.ID
-	return &GroupCapture{loc: loc, source: source, options: options, group: group, progress: GroupProgress{Count: len(source.Containers)}}
+	return &GroupCapture{loc: loc, source: source, options: options, group: group, progress: GroupProgress{Count: len(source.Containers)}}, nil
 }
 
 func (g *GroupCapture) ID() string { return g.group.ID }

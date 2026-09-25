@@ -12,7 +12,7 @@ import (
 const (
 	prefixSize     = 16
 	indexEntrySize = prefixSize + 4 + 2
-	fanoutSize     = 256
+	firstBytes     = 256
 )
 
 type prefix [prefixSize]byte
@@ -36,11 +36,11 @@ type indexEntry struct {
 }
 
 // index is one pack's table from hash prefix to location, sorted by
-// prefix, with git's first-byte fanout: fanout[b] counts the entries whose
+// prefix, with git's first-byte table: byFirstByte[b] counts the entries whose
 // first byte is at most b.
 type index struct {
-	fanout  [fanoutSize]uint32
-	entries []indexEntry
+	byFirstByte [firstBytes]uint32
+	entries     []indexEntry
 }
 
 func newIndex(entries []indexEntry) index {
@@ -48,10 +48,10 @@ func newIndex(entries []indexEntry) index {
 	slices.SortFunc(sorted, compareEntries)
 	x := index{entries: sorted}
 	for _, entry := range sorted {
-		x.fanout[entry.prefix[0]]++
+		x.byFirstByte[entry.prefix[0]]++
 	}
-	for b := 1; b < fanoutSize; b++ {
-		x.fanout[b] += x.fanout[b-1]
+	for b := 1; b < firstBytes; b++ {
+		x.byFirstByte[b] += x.byFirstByte[b-1]
 	}
 	return x
 }
@@ -62,9 +62,9 @@ func (x index) find(h Hash) []location {
 	p := prefixOf(h)
 	var low uint32
 	if p[0] > 0 {
-		low = x.fanout[p[0]-1]
+		low = x.byFirstByte[p[0]-1]
 	}
-	candidates := x.entries[low:x.fanout[p[0]]]
+	candidates := x.entries[low:x.byFirstByte[p[0]]]
 	i, _ := slices.BinarySearchFunc(candidates, p, func(e indexEntry, p prefix) int { return bytes.Compare(e.prefix[:], p[:]) })
 	var found []location
 	for ; i < len(candidates) && candidates[i].prefix == p; i++ {
@@ -86,7 +86,7 @@ func compareEntries(a, b indexEntry) int {
 func (x index) encode() []byte {
 	encoded := Header(indexKind)
 	encoded = binary.LittleEndian.AppendUint32(encoded, uint32(len(x.entries))) // #nosec G115 -- a 64 MB pack holds far fewer
-	for _, count := range x.fanout {
+	for _, count := range x.byFirstByte {
 		encoded = binary.LittleEndian.AppendUint32(encoded, count)
 	}
 	for _, entry := range x.entries {
@@ -102,7 +102,7 @@ func readIndex(path string) (index, error) {
 	if err != nil {
 		return index{}, fmt.Errorf("pack: %w", err)
 	}
-	if info.Size() > int64(len(Header(indexKind)))+4+4*fanoutSize+indexEntrySize*maxIndexEntries {
+	if info.Size() > int64(len(Header(indexKind)))+4+4*firstBytes+indexEntrySize*maxIndexEntries {
 		return index{}, fmt.Errorf("pack: %s is %d bytes: %w", path, info.Size(), ErrCorrupt)
 	}
 	data, err := os.ReadFile(path) // #nosec G304 -- a file inside the snapshot store
@@ -126,19 +126,19 @@ func parseIndex(data []byte) (index, error) {
 		return index{}, err
 	}
 	rest := data[len(data)-reader.Len():]
-	if len(rest) < 4+4*fanoutSize {
+	if len(rest) < 4+4*firstBytes {
 		return index{}, fmt.Errorf("index cut short: %w", ErrCorrupt)
 	}
 	count := binary.LittleEndian.Uint32(rest)
 	rest = rest[4:]
-	if uint64(len(rest)) != 4*fanoutSize+uint64(count)*indexEntrySize {
+	if uint64(len(rest)) != 4*firstBytes+uint64(count)*indexEntrySize {
 		return index{}, fmt.Errorf("index of %d entries is %d bytes: %w", count, len(rest), ErrCorrupt)
 	}
 	var x index
-	for b := range x.fanout {
-		x.fanout[b] = binary.LittleEndian.Uint32(rest[4*b:])
+	for b := range x.byFirstByte {
+		x.byFirstByte[b] = binary.LittleEndian.Uint32(rest[4*b:])
 	}
-	rest = rest[4*fanoutSize:]
+	rest = rest[4*firstBytes:]
 	x.entries = make([]indexEntry, count)
 	for i := range x.entries {
 		copy(x.entries[i].prefix[:], rest[:prefixSize])
@@ -152,12 +152,12 @@ func parseIndex(data []byte) (index, error) {
 	return x, nil
 }
 
-// check refuses an index whose fanout disagrees with its entries, since
-// find trusts the fanout to slice the entries.
+// check refuses an index whose first-byte table disagrees with its
+// entries, since find trusts the table to slice the entries.
 func (x index) check() error {
 	want := newIndex(x.entries)
-	if !slices.EqualFunc(want.entries, x.entries, func(a, b indexEntry) bool { return a == b }) || want.fanout != x.fanout {
-		return fmt.Errorf("index is not sorted or its fanout disagrees: %w", ErrCorrupt)
+	if !slices.EqualFunc(want.entries, x.entries, func(a, b indexEntry) bool { return a == b }) || want.byFirstByte != x.byFirstByte {
+		return fmt.Errorf("index is not sorted or its first-byte table disagrees: %w", ErrCorrupt)
 	}
 	return nil
 }

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/colbytimm/alchemist/internal/export"
+	"github.com/colbytimm/alchemist/internal/snapshot/pack"
 )
 
 // ExtJSONLines names the one-body-per-line format of a contents export.
@@ -27,10 +28,20 @@ const exportDirMode = 0o750
 // in an export: no key value can be an object, so it is never ambiguous.
 var undefinedValue = json.RawMessage(`{}`)
 
+// Existing is what an export does about a file already at its path.
+type Existing int
+
+const (
+	// RefuseExisting fails with export.ErrFileExists, as export.WriteFile
+	// does.
+	RefuseExisting Existing = iota
+	// ReplaceExisting swaps the file for the export once it is whole.
+	ReplaceExisting
+)
+
 // WriteItems writes what snapshot id held to path, streamed from the packs
-// in key order: .jsonl is one canonical body per line, .json an array. Like
-// export.WriteFile, it refuses to replace a file.
-func (s *Store) WriteItems(path, id string) error {
+// in key order: .jsonl is one canonical body per line, .json an array.
+func (s *Store) WriteItems(path, id string, existing Existing) error {
 	var write func(w *bufio.Writer, bodies func(func([]byte) error) error) error
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ExtJSONLines:
@@ -44,7 +55,7 @@ func (s *Store) WriteItems(path, id string) error {
 	if err != nil {
 		return err
 	}
-	return createExport(path, func(w *bufio.Writer) error {
+	return createExport(path, existing, func(w *bufio.Writer) error {
 		return write(w, func(emit func([]byte) error) error {
 			for _, key := range contents.SortedKeys() {
 				body, err := s.Body(contents[key].Hash)
@@ -92,13 +103,16 @@ func writeArray(w *bufio.Writer, bodies func(func([]byte) error) error) error {
 	return err
 }
 
-// createExport writes path through write, and removes what it wrote when
-// write fails: a partial export is worse than none.
-func createExport(path string, write func(*bufio.Writer) error) error {
+// createExport writes path through write, and leaves nothing of what it
+// wrote when write fails: a partial export is worse than none.
+func createExport(path string, existing Existing, write func(*bufio.Writer) error) error {
 	if err := os.MkdirAll(filepath.Dir(path), exportDirMode); err != nil {
 		return fmt.Errorf("snapshot: %w", err)
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600) // #nosec G304 -- the path the user asked to export to
+	if existing == ReplaceExisting {
+		return replaceExport(path, write)
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, pack.FileMode) // #nosec G304 -- the path the user asked to export to
 	if errors.Is(err, fs.ErrExist) {
 		return fmt.Errorf("%w: %s", export.ErrFileExists, path)
 	}
@@ -115,6 +129,25 @@ func createExport(path string, write func(*bufio.Writer) error) error {
 		return fmt.Errorf("snapshot: export %s: %w", path, err)
 	}
 	return nil
+}
+
+// replaceExport writes beside path and renames over it, so the file it
+// replaces survives an export that fails.
+func replaceExport(path string, write func(*bufio.Writer) error) error {
+	temp, err := pack.CreateTemp(path)
+	if err != nil {
+		return err
+	}
+	buffered := bufio.NewWriter(temp)
+	err = write(buffered)
+	if err == nil {
+		err = buffered.Flush()
+	}
+	if err != nil {
+		pack.Discard(temp)
+		return fmt.Errorf("snapshot: export %s: %w", path, err)
+	}
+	return pack.Commit(temp, path)
 }
 
 // diffDocument is a diff as .json exports it.
@@ -147,13 +180,13 @@ type exportedChange struct {
 
 // WriteDiff writes d to path by its extension: .json holds every change,
 // with a JSON Patch for a modified item and the body of an added or
-// removed one; .csv is one row per item. It refuses to replace a file.
-func (s *Store) WriteDiff(path string, d Diff) error {
+// removed one; .csv is one row per item.
+func (s *Store) WriteDiff(path string, d Diff, existing Existing) error {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case export.ExtJSON:
-		return createExport(path, func(w *bufio.Writer) error { return s.writeDiffJSON(w, d) })
+		return createExport(path, existing, func(w *bufio.Writer) error { return s.writeDiffJSON(w, d) })
 	case export.ExtCSV:
-		return createExport(path, func(w *bufio.Writer) error { return s.writeDiffCSV(w, d) })
+		return createExport(path, existing, func(w *bufio.Writer) error { return s.writeDiffCSV(w, d) })
 	}
 	return fmt.Errorf("snapshot: %s: %w", path, export.ErrUnknownFormat)
 }

@@ -254,7 +254,8 @@ func TestIntegrationDatabaseSnapshot(t *testing.T) {
 		source.Containers = append(source.Containers, snapshotSource(conn, name))
 	}
 
-	capture := snapshot.BeginGroup(loc, source, snapshot.CaptureOptions{})
+	capture, err := snapshot.BeginGroup(loc, source, snapshot.CaptureOptions{})
+	require.NoError(t, err)
 	var group snapshot.Group
 	for {
 		progress, err := capture.Next(context.Background())

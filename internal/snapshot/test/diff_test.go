@@ -267,8 +267,8 @@ func TestADiffExportsAsJSONAndCSVAndNeverReplacesAFile(t *testing.T) {
 	require.NoError(t, err)
 	dir := t.TempDir()
 
-	require.NoError(t, store.WriteDiff(filepath.Join(dir, "diff.json"), d))
-	require.NoError(t, store.WriteDiff(filepath.Join(dir, "diff.csv"), d))
+	require.NoError(t, store.WriteDiff(filepath.Join(dir, "diff.json"), d, snapshot.RefuseExisting))
+	require.NoError(t, store.WriteDiff(filepath.Join(dir, "diff.csv"), d, snapshot.RefuseExisting))
 
 	var document struct {
 		Summary map[string]int `json:"summary"`
@@ -295,8 +295,8 @@ func TestADiffExportsAsJSONAndCSVAndNeverReplacesAFile(t *testing.T) {
 	rows := readCSV(t, filepath.Join(dir, "diff.csv"))
 	assert.Equal(t, []string{"change", "partition_key", "id", "fields", "modified_before", "modified_after"}, rows[0])
 	assert.Len(t, rows, 4)
-	assert.ErrorIs(t, store.WriteDiff(filepath.Join(dir, "diff.csv"), d), export.ErrFileExists)
-	assert.ErrorIs(t, store.WriteDiff(filepath.Join(dir, "diff.txt"), d), export.ErrUnknownFormat)
+	assert.ErrorIs(t, store.WriteDiff(filepath.Join(dir, "diff.csv"), d, snapshot.RefuseExisting), export.ErrFileExists)
+	assert.ErrorIs(t, store.WriteDiff(filepath.Join(dir, "diff.txt"), d, snapshot.RefuseExisting), export.ErrUnknownFormat)
 }
 
 func readCSV(t *testing.T, path string) [][]string {
@@ -309,17 +309,22 @@ func readCSV(t *testing.T, path string) [][]string {
 	return rows
 }
 
-func TestContentsExportAsAJSONArray(t *testing.T) {
+func TestContentsExportAsOneJSONArray(t *testing.T) {
 	f := newFixture(t, orders(3)...)
 	record := f.take(snapshot.CaptureOptions{})
 	path := filepath.Join(t.TempDir(), "items.json")
 
-	require.NoError(t, f.open().WriteItems(path, record.ID))
+	require.NoError(t, f.open().WriteItems(path, record.ID, snapshot.RefuseExisting))
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	var items []map[string]any
 	require.NoError(t, json.Unmarshal(data, &items))
 	assert.Len(t, items, 3)
-	assert.ErrorIs(t, f.open().WriteItems(path, record.ID), export.ErrFileExists)
+	assert.ErrorIs(t, f.open().WriteItems(path, record.ID, snapshot.RefuseExisting), export.ErrFileExists)
+	require.NoError(t, os.WriteFile(path, []byte("stale"), 0o600))
+	require.NoError(t, f.open().WriteItems(path, record.ID, snapshot.ReplaceExisting))
+	replaced, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, data, replaced)
 }

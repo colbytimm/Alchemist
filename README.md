@@ -13,10 +13,11 @@ the ones worth keeping can be saved under a name.
 It also queries across containers, which the service cannot: unions and two-container
 joins are [simulated client-side](#querying-across-containers). Writes go through
 [transactional batches](#transactions), reviewed and confirmed before anything is sent.
+[Snapshots](#snapshots) of a container, kept on disk, show what changed since.
 
 > **Status: early development.** Browsing, querying, cross-container queries,
-> catalog management, transactional batches, autocomplete, profiles, history, saved queries,
-> and export work today.
+> catalog management, transactional batches, cloning, snapshots, autocomplete, profiles,
+> history, saved queries, and export work today.
 > Release builds are still to come; the
 > [implementation plan](docs/plan/00-overview.md) tracks them.
 
@@ -83,6 +84,8 @@ the catalog and queries run against it, or name one in the query itself with
 | `t` | catalog | throughput |
 | `i` | catalog | node info |
 | `y` | catalog | clone; with a clone under way, show it |
+| `s` | catalog, snapshots | take snapshot |
+| `v` | catalog | snapshots; with a capture under way, show it |
 | `enter` | results | row detail |
 | `h/←`, `l/→` | results | scroll left, scroll right |
 | `m` | results | fetch more |
@@ -99,6 +102,13 @@ the catalog and queries run against it, or name one in the query itself with
 | `d` | clone progress, ended short | delete the partial target |
 | `r` | saved queries | rename |
 | `d`, then `y` | saved queries | delete |
+| `space` | snapshots | mark |
+| `enter` | snapshots | diff |
+| `d`, then `enter` | snapshots | delete snapshot |
+| `x` | snapshots, capturing | cancel capture |
+| `enter` | snapshots, note prompt | take |
+| `enter` | diff | fields |
+| `tab` | diff | all/added/removed/modified |
 
 While the editor has the keyboard, plain letters are text; `ctrl+c` always quits.
 Once the editor loses focus it shows the query with keywords, strings, numbers, and
@@ -376,6 +386,66 @@ switcher refuses its two accounts, `d` in the catalog refuses its target, and a 
 into its target waits. The first `q` during a clone shows it, and the second stops it
 and quits.
 
+## Snapshots
+
+`s` on a container in the catalog takes a snapshot of it: every item and the
+container's definition, kept on disk. `v` lists its snapshots, newest first, and
+`enter` shows what changed from the one before, or between the two marked with
+`space`: the items added, removed and modified, a field-by-field diff of any
+modified item (`enter` on it), and what changed in the definition, such as the
+indexing policy, the TTL or the throughput. `s` and `v` on a database take and list
+database snapshots, one per container. From a shell, with no TUI:
+
+```sh
+alchemist snapshot take prod sales.orders --note "before the migration"
+alchemist snapshot diff prod sales.orders          # previous → latest
+alchemist snapshot diff prod sales.orders --live   # the latest → now
+alchemist snapshot list prod
+alchemist snapshot export prod sales.orders latest -o orders.jsonl
+alchemist snapshot verify prod sales --deep
+```
+
+and from cron, pruning on a line of its own, since nothing prunes by itself:
+
+```
+0 6 * * *  alchemist snapshot take prod sales --note nightly \
+           && alchemist snapshot prune prod sales --keep-last 7 --keep-daily 30
+```
+
+**What a snapshot is.** A snapshot of a live container is every item as the service
+returned it during the window the list shows (`started` to `finished`), not a point
+in time. No item is torn, and one nobody wrote during the window is exactly as it
+was; but there is no consistency between items, and an item created or deleted
+during the window may or may not be in it. A write missed that way is caught by the
+next snapshot. A restore point consistent across items is the account's continuous
+backup, not this.
+
+**What it costs.** The first snapshot reads every item once. After that a snapshot
+reads every item's key and version (which is the only way to see deletes), and the
+bodies of those that changed; a container nobody touched costs one read of its keys
+and under 4 KB of disk. Items are stored once whichever snapshots hold them,
+compressed in blocks, so thirty daily snapshots of a container where 1% changes a day
+take about 1.4× the disk of one; `v` and `snapshot list` show the store against the
+exports it replaces (`30 snapshots · 30.0 GB of items · 460.0 MB on disk · 65× smaller`).
+A capture spends request units as fast as the account lets it, and the progress line
+shows how many.
+
+**Where it lives.** Under `$XDG_DATA_HOME/alchemist/snapshots`
+(`~/.local/share/alchemist/snapshots`), per profile, then database and container;
+`snapshot_dir` in `config.toml` or `--snapshot-dir` moves it. Directories are `0700`
+and files `0600`. **Snapshots are not encrypted**: they are copies of the account's
+data, protected by file permissions and whatever encrypts the disk.
+
+A snapshot only reads, so it works on a read-only account. A capture runs in the
+background like a clone: `esc` hides it, the status bar carries
+`snapshot prod/sales.orders 41% (v)` on every account, `v` in the catalog brings it
+back, and `x` cancels it, keeping nothing. One capture, clone or other background job
+runs at a time. A container past `snapshot_max_items` on the profile (5,000,000 when
+unset) is refused before anything is read. `ctrl+e` in the list exports a snapshot's
+items (`.jsonl` or `.json`), and in a diff, the diff (`.json` with a JSON Patch per
+modified item, or `.csv`). `alchemist profile remove` keeps an account's snapshots
+and says where; `--purge` deletes them with the profile.
+
 ## Inspecting a node
 
 `i` on a database or container opens a read-only overlay with everything the account
@@ -411,6 +481,7 @@ The file can also be written by hand:
 
 ```toml
 default_profile = "emulator"
+snapshot_dir = "/mnt/big/alchemist-snapshots"   # snapshots here, not under $XDG_DATA_HOME
 
 [profiles.emulator]
 adapter = "cosmos"
@@ -422,6 +493,7 @@ max_join_rows = 5000             # rows a join holds across its held sides; 1000
 sample_fields = false            # autocomplete never queries a container for its fields
 read_only = false                # allow writes; unset, only a local endpoint allows them
 writers = 8                      # item writes a clone into this account keeps in flight; 4 when unset
+snapshot_max_items = 10000000    # the largest container a snapshot takes on; 5000000 when unset
 
 [profiles.prod]
 adapter = "cosmos"
@@ -512,9 +584,9 @@ SELECT c.id, c.total FROM c WHERE c.status = "open"
 A query that names its own containers (`FROM sales.orders c`) is saved without one.
 A name is letters, digits, spaces, `.`, `-` and `_`, up to 64 characters.
 
-`alchemist profile remove <name>` keeps the profile's saved queries and says where
-they are, so a profile removed and added again under the same name finds them.
-`--purge` deletes them too.
+`alchemist profile remove <name>` keeps the profile's saved queries and snapshots and
+says where they are, so a profile removed and added again under the same name finds
+them. `--purge` deletes them too.
 
 ## Writing an adapter
 

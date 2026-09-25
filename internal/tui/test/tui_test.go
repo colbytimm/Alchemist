@@ -84,9 +84,13 @@ type recordingConnection struct {
 	failQuery    int
 	failPage     int
 	failPing     int
-	pings        int
-	closed       int
-	closes       int
+	// throttleScans is how many page reads of a scan come back throttled,
+	// naming scanRetryAfter as the wait, before the rest are served.
+	throttleScans  int
+	scanRetryAfter time.Duration
+	pings          int
+	closed         int
+	closes         int
 }
 
 func newConnection(t *testing.T, opts ...mock.Option) *recordingConnection {
@@ -151,7 +155,25 @@ func (c *recordingConnection) ContainerDefinition(ctx context.Context, path []st
 }
 
 func (c *recordingConnection) ScanItems(ctx context.Context, request adapter.ScanRequest) (adapter.ItemScan, error) {
-	return c.scanner.ScanItems(ctx, request)
+	scan, err := c.scanner.ScanItems(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	return &throttlingScan{ItemScan: scan, connection: c}, nil
+}
+
+// throttlingScan throttles the page reads its connection was told to.
+type throttlingScan struct {
+	adapter.ItemScan
+	connection *recordingConnection
+}
+
+func (s *throttlingScan) NextPage(ctx context.Context) (adapter.ItemPage, error) {
+	if s.connection.throttleScans > 0 {
+		s.connection.throttleScans--
+		return adapter.ItemPage{}, &adapter.ThrottledError{RetryAfter: s.connection.scanRetryAfter, Err: errors.New("429 Too Many Requests")}
+	}
+	return s.ItemScan.NextPage(ctx)
 }
 
 func (c *recordingConnection) OpenItemSink(ctx context.Context, path []string) (adapter.ItemSink, error) {

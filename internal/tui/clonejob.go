@@ -467,17 +467,6 @@ func (m Model) abandonClone() Model {
 	return m.releaseClone()
 }
 
-// warnBeforeQuit shows the running clone, and what quitting would leave,
-// before the quit that stops it. It reports whether it did.
-func (m Model) warnBeforeQuit() (Model, bool) {
-	if !m.job.active() || !m.cloning.running() || m.cloning.quitWarned {
-		return m, false
-	}
-	m.cloning.quitWarned = true
-	m.overlay = overlayCloneProgress
-	return m.syncClone(), true
-}
-
 // deletable reports whether a clone that ended short created what d would
 // delete: the container for a container clone, the database for a database
 // clone. A database made only to hold a cloned container is left alone.

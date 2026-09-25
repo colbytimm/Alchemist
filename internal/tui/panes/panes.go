@@ -4,8 +4,11 @@
 package panes
 
 import (
+	"slices"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
@@ -107,10 +110,39 @@ func (f frame) render(content string) string {
 
 // renderWithHint draws lines inside f, padded so hint lands on its last line.
 func (f frame) renderWithHint(lines []string, hint string) string {
+	return f.renderWithHints(lines, []string{hint})
+}
+
+// renderWithHints draws lines inside f, padded so hints land on its last
+// lines.
+func (f frame) renderWithHints(lines, hints []string) string {
 	_, height := f.inner()
-	body := make([]string, max(height-1, len(lines)))
+	body := make([]string, max(height-len(hints), len(lines)))
 	copy(body, lines)
-	return f.render(strings.Join(append(body, hint), "\n"))
+	return f.render(strings.Join(append(body, hints...), "\n"))
+}
+
+// packHints packs the enabled keys into as few lines of width as they
+// take, so none is cut off at the edge of a narrow terminal.
+func packHints(hints help.Model, keys []key.Binding, width int) []string {
+	hints.Width = 0
+	var lines []string
+	var line []key.Binding
+	for _, binding := range keys {
+		if !binding.Enabled() {
+			continue
+		}
+		candidate := append(slices.Clone(line), binding)
+		if len(line) > 0 && lipgloss.Width(hints.ShortHelpView(candidate)) > width {
+			lines = append(lines, hints.ShortHelpView(line))
+			candidate = []key.Binding{binding}
+		}
+		line = candidate
+	}
+	if len(line) > 0 {
+		lines = append(lines, hints.ShortHelpView(line))
+	}
+	return lines
 }
 
 func (f frame) borderStyle() lipgloss.Style {
