@@ -203,6 +203,26 @@ func TestTheFirstQuitMidCaptureWarnsAndTheSecondQuitsKeepingNothing(t *testing.T
 	assert.Empty(t, snapshotsOf(t, root))
 }
 
+func TestAQuitMidStepLeavesTheStoreUnlocked(t *testing.T) {
+	root := t.TempDir()
+	conn := newSnapshotConnection(t)
+	m, cmd := beginSnapshot(t, newSnapshotModel(t, conn, root), "")
+	m, step := step(m, cmd)
+	m = pressAll(t, m, keyMsg(tea.KeyEscape))
+
+	m = pressAll(t, m, keyRune('q'))
+	_, quit := m.Update(keyRune('q'))
+	require.NotNil(t, quit)
+	messages(step) // the step in flight ends after the session has gone, and nothing reads its message
+
+	store, err := snapshot.Open(snapshot.Location{Root: root, Account: mock.Name, Database: firstDatabase, Container: firstContainer})
+	require.NoError(t, err)
+	capture, err := store.Begin(snapshot.Source{Container: ordersPath, Items: conn.scanner}, snapshot.CaptureOptions{})
+	require.NoError(t, err, "the step released the lock itself")
+	require.NoError(t, capture.Abort())
+	assert.Empty(t, snapshotsOf(t, root))
+}
+
 func TestAHiddenCaptureShowsInTheStatusBarAcrossAccountsAndVReopensIt(t *testing.T) {
 	o := newOpener(t)
 	o.options["prod"] = []mock.Option{mock.WithItemCount(ordersPath, snapshotItemCount)}

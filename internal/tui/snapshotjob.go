@@ -18,9 +18,6 @@ const (
 	// captureStepTimeout bounds one page of a capture, so a request that
 	// hangs fails the capture instead of wedging it.
 	captureStepTimeout = 2 * time.Minute
-	// throttleWait is how long a throttled page waits when the service
-	// named no delay.
-	throttleWait       = time.Second
 	captureQuitWarning = "A snapshot is running. Quit again to cancel it and quit; nothing will be kept."
 )
 
@@ -173,10 +170,16 @@ func captureSources(ctx context.Context, entry accountEntry, loc snapshot.Locati
 	return sources, nil
 }
 
+// stepCapture runs one step. A step cancelled under it, by x or by a quit,
+// aborts its capture itself, releasing the store's lock even when the
+// session has gone and its message is never read.
 func stepCapture(ctx context.Context, cancel context.CancelFunc, id jobID, c capturer) tea.Cmd {
 	return func() tea.Msg {
 		defer cancel()
 		step, err := c.next(ctx)
+		if errors.Is(ctx.Err(), context.Canceled) {
+			err = errors.Join(err, c.abort())
+		}
 		return SnapshotProgressMsg{Step: step, Err: err, capturer: c, job: id}
 	}
 }
@@ -197,7 +200,7 @@ func (m Model) acceptCaptureStep(msg SnapshotProgressMsg) (Model, tea.Cmd) {
 	case errors.As(msg.Err, &throttled) && run.throttles < snapshot.MaxThrottles:
 		run.throttles++
 		m.logger.Warn("snapshot page throttled", "store", run.loc, "wait", throttled.RetryAfter, "in a row", run.throttles)
-		return m.syncCapture(), waitForRetry(m.job.id, throttled.RetryAfter)
+		return m.syncCapture(), waitForRetry(m.job.id, throttled.Wait())
 	case msg.Err != nil:
 		return m.endCapture(panes.CaptureFailed, msg.Err)
 	}
@@ -224,9 +227,6 @@ func (m Model) dropCapturer(c capturer, step captureStep) {
 }
 
 func waitForRetry(id jobID, wait time.Duration) tea.Cmd {
-	if wait <= 0 {
-		wait = throttleWait
-	}
 	return tea.Tick(wait, func(time.Time) tea.Msg { return snapshotRetryMsg{job: id} })
 }
 

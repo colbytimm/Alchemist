@@ -89,3 +89,15 @@ type ThrottledError struct {
 func (e *ThrottledError) Error() string { return e.Err.Error() }
 
 func (e *ThrottledError) Unwrap() error { return e.Err }
+
+// defaultRetryAfter is the pause after a throttle that named no delay.
+const defaultRetryAfter = time.Second
+
+// Wait is how long to pause before trying again: RetryAfter, or a second
+// when the backend named no delay.
+func (e *ThrottledError) Wait() time.Duration {
+	if e.RetryAfter <= 0 {
+		return defaultRetryAfter
+	}
+	return e.RetryAfter
+}

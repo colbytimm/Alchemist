@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 )
 
-// Body is one body as Walk finds it in a pack.
 type Body struct {
 	Hash Hash
 	Data []byte

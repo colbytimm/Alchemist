@@ -16,7 +16,6 @@ type VerifyOptions struct {
 	RebuildIndex bool
 }
 
-// VerifyReport is what a verify looked at.
 type VerifyReport struct {
 	Snapshots int
 	Packs     int

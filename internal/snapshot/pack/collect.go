@@ -15,7 +15,6 @@ import (
 // files.
 const maxPacks = 64
 
-// Collected is what one collection did.
 type Collected struct {
 	Removed   int
 	Rewritten int

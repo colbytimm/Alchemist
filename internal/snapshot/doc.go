@@ -14,7 +14,7 @@
 //	  <container~hash>/
 //	    FORMAT                         "alchemist-snapshot-store 1"
 //	    store.json                     the real names
-//	    lock                           present while a capture, delete or prune runs
+//	    lock                           flocked while a capture, delete or prune runs
 //	    records/<id>.json              a snapshot; its rename publishes it
 //	    changes/<parent>..<id>.changes parent → snapshot
 //	    manifests/<id>.manifest        the newest snapshot's only

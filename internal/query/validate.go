@@ -1,7 +1,6 @@
 package query
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -253,20 +252,15 @@ func fieldName(path string) string {
 	return strings.ReplaceAll(strings.TrimPrefix(path, "/"), "/", ".")
 }
 
-// sameKey compares two key values by the join-key rule: 1, 1.0 and 1e0 are
-// equal, and types are strict.
+// sameKey compares two partition key values: 1, 1.0 and 1e0 are equal, and
+// types are strict, as for a join key; but a negative zero is not zero,
+// since the service hashes a number by its bits and may file them apart.
 func sameKey(a, b json.RawMessage) bool {
-	return canonicalJSON(a) == canonicalJSON(b)
+	return partitionKeyText(a) == partitionKeyText(b)
 }
 
-func canonicalJSON(raw json.RawMessage) string {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var value any
-	if decoder.Decode(&value) != nil {
-		return string(raw)
-	}
-	rendered, err := json.Marshal(canonical.Numbers(value))
+func partitionKeyText(raw json.RawMessage) string {
+	rendered, err := canonical.PartitionKeyValue(raw)
 	if err != nil {
 		return string(raw)
 	}

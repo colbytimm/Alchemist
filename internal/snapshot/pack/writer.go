@@ -72,7 +72,6 @@ func lastSequence(dir, prefix string) (int, error) {
 	return last, nil
 }
 
-// Has reports whether this writer has taken h already.
 func (w *Writer) Has(h Hash) bool { return w.added[h] }
 
 // Add appends body under h, which the caller has checked is not stored

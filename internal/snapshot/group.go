@@ -192,7 +192,6 @@ func (g *GroupCapture) Abort() error {
 	return err
 }
 
-// GroupChange is one container of a group diff.
 type GroupChange struct {
 	Container string
 	State     GroupChangeState
@@ -215,7 +214,6 @@ const (
 	ContainerNotCompared
 )
 
-// DiffGroups compares two database snapshots container by container.
 func DiffGroups(loc Location, from, to Group) ([]GroupChange, error) {
 	before, after := members(from), members(to)
 	names := make([]string, 0, len(before)+len(after))

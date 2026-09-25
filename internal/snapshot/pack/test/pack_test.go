@@ -294,3 +294,13 @@ func assertRefused(t *testing.T, err error) {
 	t.Helper()
 	assert.True(t, errors.Is(err, pack.ErrCorrupt) || errors.Is(err, pack.ErrUnknownFormat), "refused with %v", err)
 }
+
+func TestRemoveDurablyRemovesAndToleratesWhatIsGone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "record.json")
+	require.NoError(t, os.WriteFile(path, []byte("{}"), 0o600))
+
+	require.NoError(t, pack.RemoveDurably(path))
+	require.NoError(t, pack.RemoveDurably(path), "a second removal finds nothing and is no error")
+
+	assert.NoFileExists(t, path)
+}

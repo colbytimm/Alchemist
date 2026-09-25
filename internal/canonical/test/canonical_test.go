@@ -30,6 +30,8 @@ func TestDocumentsAReaderCallsEqualHashEqual(t *testing.T) {
 		{name: "whitespace", a: `{"a":[1,2]}`, b: "{ \"a\" :\n\t[ 1 , 2 ] }"},
 		{name: "one and one point oh", a: `{"n":1}`, b: `{"n":1.0}`},
 		{name: "one and one e zero", a: `{"n":1}`, b: `{"n":1e0}`},
+		{name: "negative zero and zero", a: `{"n":-0.0}`, b: `{"n":0}`},
+		{name: "negative integer zero and zero", a: `{"n":-0}`, b: `{"n":0}`},
 		{name: "escaped and literal forms of one string", a: `{"s":"Aé"}`, b: `{"s":"Aé"}`},
 		{name: "escaped slash", a: `{"s":"a/b"}`, b: `{"s":"a\/b"}`},
 		{name: "the last of two equal keys wins", a: `{"a":1,"a":2}`, b: `{"a":2}`},
@@ -134,4 +136,25 @@ func writeShuffled(value any, random *rand.Rand) string {
 	}
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
+}
+
+func TestAPartitionKeyValueKeepsNegativeZeroApart(t *testing.T) {
+	tests := []struct {
+		value string
+		want  string
+	}{
+		{value: `-0.0`, want: `-0`},
+		{value: `-0`, want: `-0`},
+		{value: `0.0`, want: `0`},
+		{value: `1e0`, want: `1`},
+		{value: `"-0"`, want: `"-0"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			got, err := canonical.PartitionKeyValue([]byte(tt.value))
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, string(got))
+		})
+	}
 }

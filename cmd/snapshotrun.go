@@ -23,10 +23,6 @@ import (
 	"github.com/colbytimm/alchemist/internal/tui/panes"
 )
 
-// throttleWait is how long a capture waits out a throttle whose response
-// named no delay.
-const throttleWait = time.Second
-
 // liveSnapshot is a connection and what a capture needs from its profile.
 type liveSnapshot struct {
 	conn     adapter.Connection
@@ -211,7 +207,7 @@ func drive[P any](ctx context.Context, next func(context.Context) (P, error), re
 		var throttled *adapter.ThrottledError
 		if errors.As(err, &throttled) && throttles < snapshot.MaxThrottles {
 			throttles++
-			if err := wait(ctx, throttled.RetryAfter); err != nil {
+			if err := wait(ctx, throttled.Wait()); err != nil {
 				return progress, err
 			}
 			continue
@@ -228,9 +224,6 @@ func drive[P any](ctx context.Context, next func(context.Context) (P, error), re
 }
 
 func wait(ctx context.Context, d time.Duration) error {
-	if d <= 0 {
-		d = throttleWait
-	}
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
@@ -403,7 +396,6 @@ type listFlags struct {
 	json  bool
 }
 
-// listedStore is one store as list reports it.
 type listedStore struct {
 	Account   string            `json:"account"`
 	Database  string            `json:"database"`

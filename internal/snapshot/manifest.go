@@ -140,6 +140,7 @@ func encodeStream(out io.Writer, kind string, count int, records func(emit func(
 
 func readManifest(path string) (Manifest, error) {
 	m := Manifest{}
+	var previous Key
 	err := readStream(path, manifestKind, func(r *streamReader) error {
 		k, err := r.key()
 		if err != nil {
@@ -149,10 +150,10 @@ func readManifest(path string) (Manifest, error) {
 		if err != nil {
 			return err
 		}
-		if _, dup := m[k]; dup {
-			return fmt.Errorf("key listed twice: %w", ErrCorrupt)
+		if len(m) > 0 && k <= previous {
+			return fmt.Errorf("manifest out of order: %w", ErrCorrupt)
 		}
-		m[k] = e
+		m[k], previous = e, k
 		return nil
 	})
 	return m, err

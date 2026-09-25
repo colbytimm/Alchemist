@@ -12,10 +12,6 @@ import (
 	"github.com/colbytimm/alchemist/internal/writers"
 )
 
-// readRetryAfter is the pause before a throttled read is tried again, when
-// the backend named no delay.
-const readRetryAfter = time.Second
-
 // writeTimeout bounds one upsert, retries included.
 const writeTimeout = 30 * time.Second
 
@@ -172,12 +168,8 @@ func (c *Copy) readPage(ctx context.Context) (adapter.ItemPage, Progress, error)
 }
 
 func (c *Copy) waitOut(ctx context.Context, throttled *adapter.ThrottledError) error {
-	wait := throttled.RetryAfter
-	if wait <= 0 {
-		wait = readRetryAfter
-	}
 	select {
-	case <-c.clock.After(wait):
+	case <-c.clock.After(throttled.Wait()):
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

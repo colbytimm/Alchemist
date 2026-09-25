@@ -71,3 +71,20 @@ func TestAThrottledErrorUnwrapsItsCause(t *testing.T) {
 	assert.ErrorIs(t, err, cause)
 	assert.Equal(t, cause.Error(), err.Error())
 }
+
+func TestAThrottleWaitsWhatTheBackendNamedOrASecond(t *testing.T) {
+	tests := []struct {
+		name       string
+		retryAfter time.Duration
+		want       time.Duration
+	}{
+		{name: "a named delay", retryAfter: 250 * time.Millisecond, want: 250 * time.Millisecond},
+		{name: "none named", want: time.Second},
+		{name: "a nonsense delay", retryAfter: -time.Second, want: time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, (&adapter.ThrottledError{RetryAfter: tt.retryAfter}).Wait())
+		})
+	}
+}

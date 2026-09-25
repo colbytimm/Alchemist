@@ -93,7 +93,6 @@ func Compose(first, second ChangeSet) ChangeSet {
 	return composed.sorted()
 }
 
-// Invert is the change set that undoes c.
 func (c ChangeSet) Invert() ChangeSet {
 	inverted := make(ChangeSet, len(c))
 	for i, change := range c {

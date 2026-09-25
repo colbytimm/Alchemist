@@ -45,7 +45,6 @@ func kindOf(c Change) ChangeKind {
 	return Unchanged
 }
 
-// ItemChange is one item a diff lists.
 type ItemChange struct {
 	Kind     ChangeKind
 	Key      Key
@@ -54,7 +53,6 @@ type ItemChange struct {
 	After    *Entry
 }
 
-// Diff is what changed between two snapshots of one container.
 type Diff struct {
 	From       Record
 	To         Record

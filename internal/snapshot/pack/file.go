@@ -3,6 +3,7 @@ package pack
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -41,6 +42,19 @@ func Discard(temp *os.File) {
 	_ = temp.Close()           // the file is being thrown away
 	_ = os.Remove(temp.Name()) // and whatever is left is debris the store's Open removes
 }
+
+// RemoveDurably removes path and makes the removal durable, for a removal
+// that commits a change: without the sync, a power loss can bring back a
+// file whose data was since reclaimed. A path already gone is no error.
+func RemoveDurably(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("pack: %w", err)
+	}
+	return syncDir(filepath.Dir(path))
+}
+
+// SyncDir makes the renames and removals in dir durable.
+func SyncDir(dir string) error { return syncDir(dir) }
 
 // WriteFile writes data to path through a temporary file, so a reader sees
 // the old file or the new one and never part of either.

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -12,90 +12,83 @@ import (
 	"github.com/colbytimm/alchemist/internal/snapshot/pack"
 )
 
-// abandonedLockAge is how old a lock file with nothing readable in it must
-// be before it is taken for one whose writer died between creating it and
-// filling it in.
-const abandonedLockAge = time.Minute
-
-// holder is what a lock file says about who holds it.
+// holder is what a lock file says about who holds it, for the message a
+// refusal shows. The lock itself is the operating system's.
 type holder struct {
 	PID     int       `json:"pid"`
 	Host    string    `json:"host"`
 	Started time.Time `json:"started"`
 }
 
-// storeLock is the store's lock file, present while a capture, a delete or
-// a prune runs. It keeps other processes out, cron and a TUI alike.
+// storeLock holds the store's lock file under an exclusive advisory lock
+// while a capture, a delete or a prune runs, keeping other processes out,
+// cron and a TUI alike, and other captures in this process too. The
+// operating system releases it when its process dies, so a lock is never
+// left stale and never taken over; the file itself stays.
 type storeLock struct {
-	path string
+	file *os.File
 }
 
-// takeLock creates the lock, taking over one whose process is gone from
-// this host. A lock held by a live process, or by another host, is
-// ErrLocked.
+// takeLock locks the store in dir, or is ErrLocked naming who holds it.
 func takeLock(dir string, now time.Time) (*storeLock, error) {
 	path := filepath.Join(dir, lockFile)
-	for range 2 {
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, pack.FileMode) // #nosec G304 -- the store's own lock file
-		if err == nil {
-			return fillLock(file, now)
-		}
-		if !errors.Is(err, fs.ErrExist) {
-			return nil, fmt.Errorf("snapshot: %w", err)
-		}
-		held, err := heldBy(path, now)
-		if err != nil {
-			return nil, err
-		}
-		if held != "" {
-			return nil, fmt.Errorf("snapshot: %s is held by %s: %w", dir, held, ErrLocked)
-		}
-		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("snapshot: take over %s: %w", path, err)
-		}
-	}
-	return nil, fmt.Errorf("snapshot: %s: %w", dir, ErrLocked)
-}
-
-func fillLock(file *os.File, now time.Time) (*storeLock, error) {
-	host, _ := os.Hostname() // an unnamed host still locks; only takeover needs the name
-	data, err := json.Marshal(holder{PID: os.Getpid(), Host: host, Started: now.UTC()})
-	if err == nil {
-		_, err = file.Write(data)
-	}
-	if err = errors.Join(err, file.Close()); err != nil {
-		_ = os.Remove(file.Name()) // a lock that could not be written is no lock
-		return nil, fmt.Errorf("snapshot: write lock: %w", err)
-	}
-	return &storeLock{path: file.Name()}, nil
-}
-
-// heldBy describes the live holder of the lock at path, and is empty when
-// it may be taken over.
-func heldBy(path string, now time.Time) (string, error) {
-	info, err := os.Stat(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", nil
-	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, pack.FileMode) // #nosec G304 -- the store's own lock file
 	if err != nil {
-		return "", fmt.Errorf("snapshot: %w", err)
+		return nil, fmt.Errorf("snapshot: %w", err)
 	}
-	var h holder
-	if readJSON(path, &h) != nil || h.PID == 0 {
-		if now.Sub(info.ModTime()) > abandonedLockAge {
-			return "", nil
-		}
-		return "a process that is starting", nil
+	locked, err := lockFileExclusive(file)
+	if err != nil {
+		_ = file.Close() // the lock failed; the handle holds nothing
+		return nil, fmt.Errorf("snapshot: lock %s: %w", path, err)
 	}
-	host, _ := os.Hostname() // no name matches no lock, so none is taken over
-	if h.Host == host && host != "" && !processAlive(h.PID) {
-		return "", nil
+	if !locked {
+		held := heldBy(file)
+		_ = file.Close() // it never held the lock
+		return nil, fmt.Errorf("snapshot: %s is held by %s: %w", dir, held, ErrLocked)
 	}
-	return fmt.Sprintf("process %d on %s since %s", h.PID, h.Host, h.Started.Format(time.RFC3339)), nil
+	if err := sayHolder(file, now); err != nil {
+		return nil, errors.Join(err, unlockFile(file), file.Close())
+	}
+	return &storeLock{file: file}, nil
 }
 
+// sayHolder writes this process into the lock file, for a refusal to name.
+func sayHolder(file *os.File, now time.Time) error {
+	host, _ := os.Hostname() // an unnamed host still locks; the message only reads less well
+	data, err := json.Marshal(holder{PID: os.Getpid(), Host: host, Started: now.UTC()})
+	if err != nil {
+		return fmt.Errorf("snapshot: write lock: %w", err)
+	}
+	if err := file.Truncate(0); err != nil {
+		return fmt.Errorf("snapshot: write lock: %w", err)
+	}
+	if _, err := file.WriteAt(data, 0); err != nil {
+		return fmt.Errorf("snapshot: write lock: %w", err)
+	}
+	return nil
+}
+
+// heldBy describes the lock's holder from what it wrote, which the holder
+// may not have written yet, or a platform may not let others read.
+func heldBy(file *os.File) string {
+	data, err := io.ReadAll(io.NewSectionReader(file, 0, 1<<12))
+	var h holder
+	if err != nil || json.Unmarshal(data, &h) != nil || h.PID == 0 {
+		return "another process"
+	}
+	return fmt.Sprintf("process %d on %s since %s", h.PID, h.Host, h.Started.Format(time.RFC3339))
+}
+
+// release unlocks the store. It never removes the file: a process waiting
+// on the name could otherwise lock one file while the next creates another.
+// A second release does nothing.
 func (l *storeLock) release() error {
-	if err := os.Remove(l.path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if l.file == nil {
+		return nil
+	}
+	file := l.file
+	l.file = nil
+	if err := errors.Join(unlockFile(file), file.Close()); err != nil {
 		return fmt.Errorf("snapshot: release lock: %w", err)
 	}
 	return nil

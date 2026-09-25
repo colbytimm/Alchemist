@@ -109,7 +109,7 @@ func (s *Store) remove(id string) error {
 
 func (s *Store) removeOnly() error {
 	dir, record := s.loc.Dir(), s.records[0]
-	if err := removeAll([]string{recordPath(dir, record.ID)}); err != nil {
+	if err := pack.RemoveDurably(recordPath(dir, record.ID)); err != nil {
 		return err
 	}
 	return removeAll([]string{manifestPath(dir, record.ID)})
@@ -132,7 +132,7 @@ func (s *Store) removeHead() error {
 	if err := writeManifest(manifestPath(dir, parent.ID), m); err != nil {
 		return err
 	}
-	if err := removeAll([]string{recordPath(dir, head.ID)}); err != nil {
+	if err := pack.RemoveDurably(recordPath(dir, head.ID)); err != nil {
 		return err
 	}
 	return removeAll([]string{manifestPath(dir, head.ID), filepath.Join(dir, changesDir, changesName(parent.ID, head.ID))})
@@ -198,9 +198,13 @@ func tally(changes ChangeSet) (added, removed, modified int64) {
 }
 
 // collect marks every body a surviving snapshot can reach, the head's
-// manifest, every change set's before and after, every definition, and
-// has the packs reclaim the rest.
+// manifest, every change set's before and after, every definition, and has
+// the packs reclaim the rest. The records are synced first: a record a
+// power loss brought back would name bodies already reclaimed.
 func (s *Store) collect(now time.Time) error {
+	if err := pack.SyncDir(filepath.Join(s.loc.Dir(), recordsDir)); err != nil {
+		return err
+	}
 	live, err := s.reachable()
 	if err != nil {
 		return err

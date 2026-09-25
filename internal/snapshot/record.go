@@ -18,7 +18,6 @@ import (
 // sortable, and meaningful to ls.
 const idLayout = "20060102T150405Z"
 
-// Mode is how a capture read its container.
 type Mode string
 
 const (

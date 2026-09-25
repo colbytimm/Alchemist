@@ -60,7 +60,11 @@ func keyValue(item json.RawMessage, path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: item key: %w", err)
 	}
-	return canonicalValue(values[0])
+	encoded, err := canonical.PartitionKeyValue(values[0])
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: item key: %w", err)
+	}
+	return encoded, nil
 }
 
 func canonicalValue(value json.RawMessage) ([]byte, error) {

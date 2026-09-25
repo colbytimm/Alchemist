@@ -23,7 +23,6 @@ const DefaultMaxItems = 5_000_000
 // waiting and calling Next again is safe.
 const MaxThrottles = 5
 
-// Phase is what a capture is doing.
 type Phase string
 
 const (

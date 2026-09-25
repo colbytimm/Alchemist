@@ -1110,12 +1110,32 @@ What landed differs from the text above in these ways:
 - **Capture.** `Begin` creates the store and takes the lock; the first `Next` reads
   the definition and loads the manifest and indexes. A page that fails closes the scan,
   and the next `Next` reopens it at the last position, as 18's copy does.
-  `snapshot.MaxThrottles` (5) is shared by the TUI and the CLI. `Progress` gained
+  `snapshot.MaxThrottles` (5) is shared by the TUI and the CLI, and the wait before a
+  retry is `adapter.ThrottledError.Wait()` everywhere, clones and the writer pool
+  included. `Progress` gained
   `PhaseItems` and `Expected` for the status bar's percentage. An id that would repeat
   or go back (two captures in one second, a clock stepped back) is a second past the
   newest; database snapshots get the same rule, so `BeginGroup` reads the groups and
   returns an error. The definition blob is `{partitionKeys, backend, policies,
   throughput}` in canonical form; a throughput read that fails fails the capture.
+- **The lock is the operating system's**, not the file's existence: `lock` is held
+  under `flock` (`LockFileEx` on Windows) while a capture, delete, prune or tidy runs,
+  and holds the holder's pid, host and start only for a refusal to name. A process that
+  dies releases it, so there is no stale lock to take over and no takeover race; the
+  file stays, and `release` only unlocks. A capture step cancelled by `x` or a quit
+  aborts its capture itself, so the lock goes even when no one reads the step's
+  message. `golang.org/x/sys`, already in `go.mod` indirectly, is now a direct
+  requirement for the Windows lock.
+- **Removals that commit are durable.** Removing the head's or the only snapshot's
+  record syncs `records/`, and garbage collection syncs it before it reclaims
+  anything, so a power loss cannot bring back a record whose bodies are gone.
+  `readManifest` refuses keys out of order, as `readChanges` does.
+- **Negative zero.** Canonical form, and so join keys and item bodies, treat `-0` as
+  `0`, IEEE equality being what a join means. A partition key does not: the service
+  hashes a key number by its bits, so iteration 17's batch check (`query.sameKey`)
+  and a snapshot's item key keep any negative zero apart from zero through
+  `canonical.PartitionKeyValue`. That is stricter than 17 was for the integer `-0`,
+  which it counted as `0`.
 - **Retention and verify take a time** (`Delete(id, now)`, `Prune(policy, now)`,
   `Pruned`, `Verify(options, now)`), and `Verify` holds the lock. Deleting a database
   snapshot, or exporting one, is not offered: its containers' snapshots are deleted
@@ -1134,7 +1154,7 @@ What landed differs from the text above in these ways:
   adjusted. `PutItem` files an item with no key value under the empty partition, as
   seeding does.
 - **`canonical`** respells `-0` as `0`: fuzzing found `-0.0` did not survive a second
-  pass. Join keys therefore treat `-0` and `0` as equal, as the numbers are.
+  pass. See "Negative zero" above for where that applies.
 - **TUI.** A capture's failures travel in `SnapshotProgressMsg.Err`, with the job id and
   the capturer to abort; `ErrMsg{Op: OpSnapshot}` carries a list that could not be
   read. There is no `SnapshotDoneMsg`: the step that publishes ends the capture, as 18's

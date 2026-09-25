@@ -22,9 +22,6 @@ const (
 	MaxThrottles = 10
 )
 
-// defaultRetryAfter is the pause after a throttle that named no delay.
-const defaultRetryAfter = time.Second
-
 // ErrNotStarted is the outcome of a write its step ended before starting.
 var ErrNotStarted = errors.New("writers: not started: the step ended first")
 
@@ -166,7 +163,7 @@ func (s *step) perform(ctx context.Context, write Write) Outcome {
 		if s.pool.stepDown() {
 			s.retired.Add(1)
 		}
-		if err := s.gate.hold(ctx, s.pool.clock, retryAfter(throttled)); err != nil {
+		if err := s.gate.hold(ctx, s.pool.clock, throttled.Wait()); err != nil {
 			return s.end(outcome, err)
 		}
 	}
@@ -176,13 +173,6 @@ func (s *step) end(outcome Outcome, err error) Outcome {
 	s.ended.Store(true)
 	outcome.Err = err
 	return outcome
-}
-
-func retryAfter(throttled *adapter.ThrottledError) time.Duration {
-	if throttled.RetryAfter <= 0 {
-		return defaultRetryAfter
-	}
-	return throttled.RetryAfter
 }
 
 // gate holds every writer of a step while one of them waits out a throttle.

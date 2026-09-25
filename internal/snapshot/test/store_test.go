@@ -2,11 +2,15 @@ package snapshot_test
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -133,17 +137,73 @@ func deadPID(t *testing.T) int {
 	return 1 << 22
 }
 
-func TestALockHeldElsewhereIsRespected(t *testing.T) {
+func TestALockedStoreNamesItsHolder(t *testing.T) {
 	f := newFixture(t, orders(3)...)
-	f.take(snapshot.CaptureOptions{})
-	held, err := json.Marshal(map[string]any{"pid": os.Getpid(), "host": "another-host", "started": time.Now()})
+	first, err := f.open().Begin(f.source(), f.withClock(snapshot.CaptureOptions{}))
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(f.loc.Dir(), "lock"), held, 0o600))
+	t.Cleanup(func() { _ = first.Abort() })
 
 	_, err = f.open().Begin(f.source(), f.withClock(snapshot.CaptureOptions{}))
 
 	require.ErrorIs(t, err, snapshot.ErrLocked)
-	assert.Contains(t, err.Error(), "another-host")
+	assert.Contains(t, err.Error(), fmt.Sprintf("process %d on ", os.Getpid()))
+}
+
+// TestTwoTakersOfAStaleLockNeverBothHoldIt starts takers together on a
+// store whose lock file a dead process left, each holding what it takes
+// until every one has tried. The stores are opened first, since opening
+// one takes the lock for a moment to tidy.
+func TestTwoTakersOfAStaleLockNeverBothHoldIt(t *testing.T) {
+	const takers = 8
+	f := newFixture(t, orders(3)...)
+	f.take(snapshot.CaptureOptions{})
+	for round := range 30 {
+		stale, err := json.Marshal(map[string]any{"pid": 1 << 22, "host": "here", "started": time.Now()})
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(f.loc.Dir(), "lock"), stale, 0o600))
+		var won atomic.Int32
+		var tried, release sync.WaitGroup
+		tried.Add(takers)
+		release.Add(1)
+		var done sync.WaitGroup
+		for range takers {
+			store := f.open()
+			done.Add(1)
+			go func() {
+				defer done.Done()
+				capture, err := store.Begin(f.source(), snapshot.CaptureOptions{})
+				if err == nil {
+					won.Add(1)
+				} else if !errors.Is(err, snapshot.ErrLocked) {
+					t.Error(err)
+				}
+				tried.Done()
+				release.Wait()
+				if capture != nil {
+					assert.NoError(t, capture.Abort())
+				}
+			}()
+		}
+		tried.Wait()
+		assert.Equal(t, int32(1), won.Load(), "round %d", round)
+		release.Done()
+		done.Wait()
+	}
+}
+
+func TestAReleaseNeverFreesAnotherHoldersLock(t *testing.T) {
+	f := newFixture(t, orders(3)...)
+	first, err := f.open().Begin(f.source(), f.withClock(snapshot.CaptureOptions{}))
+	require.NoError(t, err)
+	require.NoError(t, first.Abort())
+	second, err := f.open().Begin(f.source(), f.withClock(snapshot.CaptureOptions{}))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = second.Abort() })
+
+	require.NoError(t, first.Abort(), "a second abort does nothing")
+
+	_, err = f.open().Begin(f.source(), f.withClock(snapshot.CaptureOptions{}))
+	require.ErrorIs(t, err, snapshot.ErrLocked)
 }
 
 func TestAnUnknownFormatIsRefused(t *testing.T) {

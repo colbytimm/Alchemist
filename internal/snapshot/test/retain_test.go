@@ -1,6 +1,10 @@
 package snapshot_test
 
 import (
+	"bytes"
+	"compress/flate"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -212,10 +216,14 @@ func TestPruneDeletesAndCollects(t *testing.T) {
 
 func TestVerifyFindsWhatHasRotted(t *testing.T) {
 	tests := []struct {
-		name string
-		rot  func(t *testing.T, dir string)
-		deep bool
+		name     string
+		rot      func(t *testing.T, dir string)
+		deep     bool
+		contains string
 	}{
+		{name: "a manifest out of key order", rot: func(t *testing.T, dir string) {
+			writeManifest(t, filepath.Join(dir, "manifests", filesIn(t, dir, "manifests")[0]), "b", "a")
+		}, contains: "out of order"},
 		{name: "a record gone from the middle", rot: func(t *testing.T, dir string) {
 			records := filesIn(t, dir, "records")
 			require.NoError(t, os.Remove(filepath.Join(dir, "records", records[1])))
@@ -247,6 +255,7 @@ func TestVerifyFindsWhatHasRotted(t *testing.T) {
 
 			require.Error(t, err)
 			assert.True(t, isRefused(err), "%v", err)
+			assert.Contains(t, err.Error(), tt.contains)
 		})
 	}
 }
@@ -293,4 +302,30 @@ func TestVerifyRebuildsIndexes(t *testing.T) {
 	for id, want := range contents {
 		assert.Equal(t, want, exported(t, store, id))
 	}
+}
+
+// writeManifest writes a well-framed manifest holding keys in the order
+// given, each with an entry of zeros: its trailer agrees with it, so only
+// the order can be wrong.
+func writeManifest(t *testing.T, path string, keys ...string) {
+	t.Helper()
+	var raw bytes.Buffer
+	for _, k := range keys {
+		raw.Write(binary.AppendUvarint(nil, uint64(len(k))))
+		raw.WriteString(k)
+		raw.Write(make([]byte, sha256.Size+8))
+		raw.Write(binary.AppendUvarint(nil, 0))
+		raw.Write(binary.AppendVarint(nil, 0))
+	}
+	var file bytes.Buffer
+	file.WriteString("alchemist-manifest 1\n")
+	compressor, err := flate.NewWriter(&file, flate.DefaultCompression)
+	require.NoError(t, err)
+	_, err = compressor.Write(raw.Bytes())
+	require.NoError(t, err)
+	require.NoError(t, compressor.Close())
+	sum := sha256.Sum256(raw.Bytes())
+	file.Write(binary.LittleEndian.AppendUint64(nil, uint64(len(keys))))
+	file.Write(sum[:])
+	require.NoError(t, os.WriteFile(path, file.Bytes(), 0o600))
 }
