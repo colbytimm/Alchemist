@@ -97,36 +97,15 @@ func (m Model) applyCloneDefaults() Model {
 }
 
 // defaultCapacity is Minimum, so a source at 40,000 RU/s is never copied at
-// that price by pressing enter twice, unless the source provisions nothing
-// or draws on a database the copy can draw on too.
+// that price by pressing enter twice, and None for a source with no capacity
+// of its own. It is read from the source alone, so it stays put while the
+// target account connects or its tree loads.
 func (m Model) defaultCapacity() clone.Capacity {
 	survey := m.cloneForm.Survey()
-	if !m.cloneForm.Surveyed() || !survey.Source.Container() || len(survey.Containers) != 1 {
-		return clone.Minimum
-	}
-	source := survey.Containers[0]
-	switch {
-	case !source.ThroughputKnown:
-		return clone.Minimum
-	case source.Throughput.Mode == adapter.ThroughputNone:
-		return clone.None
-	case source.Throughput.Mode == adapter.ThroughputShared && m.targetDatabaseListed():
+	if m.cloneForm.Surveyed() && survey.ThroughputKnown && !survey.Provisioned() {
 		return clone.None
 	}
 	return clone.Minimum
-}
-
-// targetDatabaseListed reports whether the target's tree has listed the
-// database the form names, which is as much as the session knows without
-// asking.
-func (m Model) targetDatabaseListed() bool {
-	choice := m.cloneForm.Choice()
-	entry, ok := m.accounts.get(choice.Target.Account)
-	if !ok || !entry.connected() {
-		return false
-	}
-	_, listed := entry.pane.Node(choice.Target.Path[:1])
-	return listed
 }
 
 func surveyClone(dialog dialogID, reader clone.Source, source clone.Endpoint) tea.Cmd {
@@ -265,7 +244,7 @@ func (m Model) planCloneOn(target accountEntry) (Model, tea.Cmd) {
 		Capacity: choice.Capacity,
 		Writers:  writersFor(target.account),
 	}
-	writer := clone.Target{Catalog: target.catalog, Admin: permitted.Admin, Items: permitted.Writer}
+	writer := clone.Target{Catalog: target.catalog, Admin: permitted.Admin, Throughput: permitted.Throughput, Items: permitted.Writer}
 	m.cloneForm = m.cloneForm.SetStatus(fmt.Sprintf("checking %s…", choice.Target))
 	return m, planClone(m.dialog, cloneJob, m.cloneForm.Survey(), m.clonePrompt.reader, writer)
 }

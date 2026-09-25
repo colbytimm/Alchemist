@@ -95,17 +95,7 @@ func NewCloneForm(icons theme.IconSet, source clone.Endpoint, targets []CloneTar
 }
 
 func (f CloneForm) newFields() []formField {
-	target := formField{name: FieldTarget, label: "Target account"}
-	if len(f.targets) == 0 {
-		target.options = []string{"none"}
-	}
-	for i, t := range f.targets {
-		target.options = append(target.options, t.Name+" · "+accountStateText(t.State))
-		if t.Name == f.source.Account {
-			target.choice = i
-		}
-	}
-	fields := []formField{target}
+	fields := []formField{f.targetField(f.source.Account)}
 	if f.source.Container() {
 		database := textField(FieldDatabase, "Database", "sales", errNoTargetDatabase)
 		database.input.SetValue(f.source.Path[0])
@@ -118,6 +108,33 @@ func (f CloneForm) newFields() []formField {
 		choiceField(FieldCapacity, "Throughput", f.capacities),
 	)
 	return fields
+}
+
+// targetField offers every target with its state, on the one called chosen
+// when it is among them.
+func (f CloneForm) targetField(chosen string) formField {
+	target := formField{name: FieldTarget, label: "Target account"}
+	if len(f.targets) == 0 {
+		target.options = []string{"none"}
+	}
+	for i, t := range f.targets {
+		target.options = append(target.options, t.Name+" · "+accountStateText(t.State))
+		if t.Name == chosen {
+			target.choice = i
+		}
+	}
+	return target
+}
+
+// SetTargets lists the targets as the accounts stand now, staying on the one
+// chosen.
+func (f CloneForm) SetTargets(targets []CloneTarget, readOnly []string) CloneForm {
+	chosen := f.Target()
+	f.targets, f.readOnly = targets, readOnly
+	f.fields = slices.Clone(f.fields)
+	i := slices.IndexFunc(f.fields, func(field formField) bool { return field.name == FieldTarget })
+	f.fields[i] = f.targetField(chosen)
+	return f
 }
 
 func choiceField[T fmt.Stringer](name FormField, label string, values []T) formField {
@@ -371,8 +388,11 @@ func (f CloneForm) notes() []string {
 }
 
 func SizeText(size adapter.SizeEstimate) string {
-	if !size.Known {
+	switch {
+	case !size.Known:
 		return "size unknown: the account did not say"
+	case size.Items == 0:
+		return "no items, as the account reports it"
 	}
 	return fmt.Sprintf("about %s items · %s", FormatCount(size.Items), FormatBytes(size.Bytes))
 }

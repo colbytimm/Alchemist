@@ -110,9 +110,10 @@ type Source struct {
 }
 
 type Target struct {
-	Catalog adapter.Catalog
-	Admin   adapter.CatalogAdmin
-	Items   adapter.ItemWriter // nil allowed for DefinitionOnly
+	Catalog    adapter.Catalog
+	Admin      adapter.CatalogAdmin
+	Throughput adapter.ThroughputEditor // nil: a database there is taken to have no capacity
+	Items      adapter.ItemWriter       // nil allowed for DefinitionOnly
 }
 
 // Survey is what the source holds, read before anything about the target is
@@ -159,18 +160,41 @@ func SurveySource(ctx context.Context, source Source, endpoint Endpoint) (Survey
 	if err != nil {
 		return Survey{}, err
 	}
+	database, databaseKnown, err := readThroughput(ctx, source.Throughput, endpoint.Path[:1])
+	if err != nil {
+		return Survey{}, err
+	}
 	for _, path := range paths {
 		container, err := surveyContainer(ctx, source, path)
 		if err != nil {
 			return Survey{}, err
 		}
-		survey.Containers = append(survey.Containers, container)
+		survey.Containers = append(survey.Containers, withoutPhantomSharing(container, database))
 	}
-	survey.Throughput, survey.ThroughputKnown, err = readThroughput(ctx, source.Throughput, endpoint.Path)
-	if err != nil {
-		return Survey{}, err
+	survey.Throughput, survey.ThroughputKnown = database, databaseKnown
+	if endpoint.Container() {
+		survey.Throughput, survey.ThroughputKnown = survey.Containers[0].Throughput, survey.Containers[0].ThroughputKnown
 	}
 	return survey, nil
+}
+
+// withoutPhantomSharing restates a container said to draw on its database
+// when the database has no capacity to draw on, as the emulator answers for
+// every container: it is provisioned with nothing at all.
+func withoutPhantomSharing(container SourceContainer, database adapter.Throughput) SourceContainer {
+	if container.Throughput.Mode == adapter.ThroughputShared && !database.Provisioned() {
+		container.Throughput = adapter.Throughput{}
+	}
+	return container
+}
+
+// Provisioned reports whether anything the survey read has capacity of its
+// own, database or container.
+func (s Survey) Provisioned() bool {
+	if s.Throughput.Provisioned() {
+		return true
+	}
+	return slices.ContainsFunc(s.Containers, func(c SourceContainer) bool { return c.Throughput.Provisioned() })
 }
 
 func containerPaths(ctx context.Context, catalog adapter.Catalog, endpoint Endpoint) ([][]string, error) {
@@ -265,8 +289,12 @@ func Prepare(ctx context.Context, job Job, survey Survey, source Source, target 
 	if !job.Target.Container() {
 		plan.Database.Throughput = databaseThroughput(job.Capacity, survey)
 	}
+	capacity, err := plan.databaseCapacity(ctx, databaseExists)
+	if err != nil {
+		return Plan{}, err
+	}
 	for _, container := range survey.Containers {
-		planned, err := planContainer(ctx, job, container, source, databaseExists)
+		planned, err := planContainer(ctx, job, container, source, capacity)
 		if err != nil {
 			return Plan{}, err
 		}
@@ -298,11 +326,21 @@ func checkTargetAbsent(ctx context.Context, catalog adapter.Catalog, target Endp
 	return true, nil
 }
 
+// databaseCapacity reports whether the target database has, or is created
+// with, capacity its containers can draw on.
+func (p Plan) databaseCapacity(ctx context.Context, exists bool) (bool, error) {
+	if !exists {
+		return p.Database.Throughput.Provisioned(), nil
+	}
+	throughput, _, err := readThroughput(ctx, p.target.Throughput, p.Job.Target.Path[:1])
+	return throughput.Provisioned(), err
+}
+
 func named(name string) func(adapter.Node) bool {
 	return func(n adapter.Node) bool { return n.Name == name }
 }
 
-func planContainer(ctx context.Context, job Job, container SourceContainer, source Source, databaseExists bool) (ContainerPlan, error) {
+func planContainer(ctx context.Context, job Job, container SourceContainer, source Source, databaseCapacity bool) (ContainerPlan, error) {
 	definition := container.Definition
 	if job.Fidelity != adapter.DefinitionFull {
 		var err error
@@ -321,7 +359,7 @@ func planContainer(ctx context.Context, job Job, container SourceContainer, sour
 			Database:      job.Target.database(),
 			Name:          name,
 			PartitionKeys: definition.PartitionKeys,
-			Throughput:    containerThroughput(job, container, databaseExists),
+			Throughput:    containerThroughput(job, container.Throughput, databaseCapacity),
 			Policies:      definition.Policies,
 		},
 		Size: definition.Size,
@@ -337,19 +375,26 @@ func databaseThroughput(capacity Capacity, survey Survey) adapter.Throughput {
 	return scaled(capacity, survey.Throughput)
 }
 
-// containerThroughput keeps a container drawing on its database doing so
-// wherever the target database can have capacity to draw on: in a database
-// clone, which copies that capacity, or in a database that exists. Anywhere
-// else the capacity choice decides.
-func containerThroughput(job Job, container SourceContainer, databaseExists bool) adapter.Throughput {
-	shared := container.Throughput.Mode == adapter.ThroughputShared
-	if shared && (!job.Target.Container() || databaseExists) {
-		return adapter.Throughput{Mode: adapter.ThroughputShared}
+// containerThroughput is what the capacity choice makes of a container's
+// own throughput. In a database clone the choice was made for the database,
+// so a container that drew on the source database draws on the copy
+// whenever the copy has capacity. A container left with nothing of its own
+// draws on its database when that has capacity.
+func containerThroughput(job Job, source adapter.Throughput, databaseCapacity bool) adapter.Throughput {
+	nothing := adapter.Throughput{}
+	if databaseCapacity {
+		nothing = adapter.Throughput{Mode: adapter.ThroughputShared}
 	}
-	if job.Capacity == SameAsSource && !container.Throughput.Provisioned() && !shared {
-		return adapter.Throughput{}
+	shared := source.Mode == adapter.ThroughputShared
+	switch {
+	case shared && !job.Target.Container():
+		return nothing
+	case job.Capacity == None:
+		return nothing
+	case job.Capacity == SameAsSource && !source.Provisioned():
+		return nothing
 	}
-	return scaled(job.Capacity, container.Throughput)
+	return scaled(job.Capacity, source)
 }
 
 func scaled(capacity Capacity, source adapter.Throughput) adapter.Throughput {

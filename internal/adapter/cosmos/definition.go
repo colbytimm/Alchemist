@@ -80,9 +80,13 @@ func portable(props azcosmos.ContainerProperties) azcosmos.ContainerProperties {
 	return props
 }
 
+// sizeEstimate knows a size only when the header counts some documents.
+// The emulator reports zeros for every container, full or not, so a zero is
+// no evidence of an empty container, and saying "unknown" of one that is
+// empty costs nothing: its copy is over at once.
 func sizeEstimate(usageHeader string) adapter.SizeEstimate {
 	usage, ok := ParseResourceUsage(usageHeader)
-	if !ok {
+	if !ok || usage.Documents <= 0 {
 		return adapter.SizeEstimate{}
 	}
 	return adapter.SizeEstimate{Items: usage.Documents, Bytes: usage.DocumentsKB * bytesPerKilobyte, Known: true}

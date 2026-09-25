@@ -3,12 +3,14 @@ package tui_test
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/adapter/mock"
 	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui"
@@ -258,4 +260,55 @@ func TestQuittingMidCloneClosesBothAccountsOnce(t *testing.T) {
 	assert.Contains(t, messages(cmd), tea.QuitMsg{})
 	assert.Equal(t, 1, o.last("prod").closes)
 	assert.Equal(t, 1, o.last("staging").closes)
+}
+
+func TestTheTargetsStateFollowsItsConnection(t *testing.T) {
+	m := toStagingArchive(t, cloneFormOnProd(t, newCloneAccountsModel(t, newOpener(t))))
+	require.Contains(t, plain(m.View()), "staging · not connected")
+
+	m = pressAll(t, m, keyMsg(tea.KeyEnter), keyMsg(tea.KeyEscape))
+
+	assert.Contains(t, plain(m.View()), "staging · connected")
+	assert.NotContains(t, plain(m.View()), "staging · not connected")
+}
+
+func TestTheTargetsCycleInTheSwitchersOrder(t *testing.T) {
+	m := cloneFormOnProd(t, newCloneAccountsModel(t, newOpener(t)))
+
+	var cycled []string
+	for range accountNames() {
+		for _, name := range accountNames() {
+			if strings.Contains(plain(m.View()), "◂ "+name+" · ") {
+				cycled = append(cycled, name)
+			}
+		}
+		m = pressAll(t, m, keyMsg(tea.KeyRight))
+	}
+
+	require.Equal(t, "prod", cycled[0], "the source's own account first, as the plan asks")
+	start := slices.Index(accountNames(), "prod")
+	want := append(slices.Clone(accountNames()[start:]), accountNames()[:start]...)
+	assert.Equal(t, want, cycled, "then on in the switcher's order, wrapping round")
+}
+
+func TestAMinimumChosenForASharedSourceIsWhatTheReviewSaysAndWhatIsCreated(t *testing.T) {
+	o := newOpener(t)
+	m := newCloneAccountsModel(t, o)
+	m = pressAll(t, m, keyMsg(tea.KeyDown), keyMsg(tea.KeyDown), keyMsg(tea.KeyDown), keyMsg(tea.KeyEnter),
+		keyMsg(tea.KeyDown), keyRune('y'))
+	require.Contains(t, plain(m.View()), "prod / telemetry.events")
+	require.Contains(t, plain(m.View()), "◂ none ▸", "a source with no capacity of its own defaults to none")
+
+	m = pressAll(t, toStagingArchive(t, m), keyMsg(tea.KeyShiftTab), keyMsg(tea.KeyShiftTab), keyMsg(tea.KeyRight))
+	require.Contains(t, plain(m.View()), "◂ minimum")
+	m = pressAll(t, m, keyMsg(tea.KeyEnter))
+
+	assert.Contains(t, plain(m.View()), "Creates container events at 400 RU/s manual.")
+	m = pressAll(t, m, keyMsg(tea.KeyEscape))
+	assert.Contains(t, plain(m.View()), "◂ minimum", "connecting the target changed nothing the user chose")
+	m, cmd := confirmClone(t, pressAll(t, m, keyMsg(tea.KeyEnter)), "staging")
+	runSteps(m, cmd)
+	staging := o.last("staging")
+	require.Len(t, staging.containers, 1)
+	assert.Equal(t, adapter.Throughput{Mode: adapter.ThroughputManual, RUs: 400}, staging.containers[0].Throughput)
 }

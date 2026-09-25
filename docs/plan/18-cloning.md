@@ -1272,6 +1272,32 @@ What landed differs from the text above in these ways:
 - A copy that ends on the skip limit has written its page: the model takes the copy's
   position, and a copy that had read its last page is finished on `r` rather than read
   again.
+- **A size is known only when the usage header counts some documents.** The emulator
+  answers `documentsCount=0;documentsSize=0;collectionSize=0` for every container, full
+  or empty, so a zero is no evidence; a genuinely empty container reads unknown too,
+  which costs nothing, since its copy is over at once. With an unknown size the form,
+  the review and the progress view show counts and rate only. An estimate stops being
+  measured against once the copy overtakes it (`panes.EstimateHolds`): no bar, no
+  percentage, no time left, no projection, and never "N of about 0". A done clone shows
+  what it spent in place of the projection.
+- **The throughput choice is applied as chosen.** `minimum` always gives a container
+  400 RU/s manual of its own in a container clone, and `none` gives it nothing of its
+  own, drawing on its database only where that database has capacity: the target
+  database's throughput is read through `clone.Target.Throughput`, and one the clone
+  creates has what the plan gives it. In a database clone the choice is made for the
+  database when the source database has capacity, and containers that drew on it draw
+  on the copy. A container that reads as drawing on a database with no capacity, as
+  every emulator container does, is surveyed as provisioned with nothing. The default
+  is taken from the source alone, `none` when nothing in it has capacity of its own
+  and `minimum` otherwise, so it no longer changes when the target connects or its
+  tree loads; the plan's "none when the target database exists" gave way to that.
+- The target field's states follow the accounts while the form is open. Its order is
+  the switcher's, starting on the source's own account when that is writable, as
+  planned, and wrapping round.
+- After `x` inside a page the view says the target holds "at least" the counted items:
+  writes in flight finish, and are counted only once their page is written again.
+- `esc` out of the progress view disarms the quit warning, so a later `q` warns again
+  (the snapshot capture of iteration 19 does the same).
 - `alchemist profile add --writers` sets the new key.
 - The emulator integration tests (`test/integration/clone_test.go`) ran against the
   `vnext-preview` image in this iteration's environment, and passed; so did the rest of

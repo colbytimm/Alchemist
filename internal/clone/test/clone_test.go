@@ -74,8 +74,9 @@ func targetOf(t *testing.T, a *mock.Adapter) clone.Target {
 	t.Helper()
 	conn := connect(t, a)
 	admin, _ := conn.(adapter.CatalogAdmin)
+	throughput, _ := conn.(adapter.ThroughputEditor)
 	items, _ := conn.(adapter.ItemWriter)
-	return clone.Target{Catalog: conn.Catalog(), Admin: admin, Items: items}
+	return clone.Target{Catalog: conn.Catalog(), Admin: admin, Throughput: throughput, Items: items}
 }
 
 func containerJob(writers int, target []string) clone.Job {
@@ -267,8 +268,12 @@ func TestCapacityChoices(t *testing.T) {
 		{name: "dedicated, minimum", source: ordersPath, target: copyPath, sourceRU: autoscale, capacity: clone.Minimum, want: manual400},
 		{name: "dedicated, same as source", source: ordersPath, target: copyPath, sourceRU: autoscale, capacity: clone.SameAsSource, want: autoscale},
 		{name: "dedicated, none", source: ordersPath, target: copyPath, sourceRU: autoscale, capacity: clone.None, want: adapter.Throughput{}},
-		{name: "shared into an existing database stays shared", source: []string{"telemetry", "events"}, target: []string{"telemetry", "events-copy"}, capacity: clone.Minimum, want: shared},
+		{name: "shared into a database with capacity, minimum", source: []string{"telemetry", "events"}, target: []string{"telemetry", "events-copy"}, capacity: clone.Minimum, want: manual400},
+		{name: "shared into a database with capacity, none", source: []string{"telemetry", "events"}, target: []string{"telemetry", "events-copy"}, capacity: clone.None, want: shared},
+		{name: "shared into a database with capacity, same as source", source: []string{"telemetry", "events"}, target: []string{"telemetry", "events-copy"}, capacity: clone.SameAsSource, want: shared},
+		{name: "shared into a database without capacity, none", source: []string{"telemetry", "events"}, target: []string{"sales", "events"}, capacity: clone.None, want: adapter.Throughput{}},
 		{name: "shared into a new database, minimum", source: []string{"telemetry", "events"}, target: []string{"archive", "events"}, capacity: clone.Minimum, want: manual400},
+		{name: "shared into a new database, same as source", source: []string{"telemetry", "events"}, target: []string{"archive", "events"}, capacity: clone.SameAsSource, want: adapter.Throughput{}},
 		{name: "shared into a new database, none", source: []string{"telemetry", "events"}, target: []string{"archive", "events"}, capacity: clone.None, want: adapter.Throughput{}},
 		{name: "capacity-less, minimum", source: ordersPath, target: copyPath, sourceRU: adapter.Throughput{}, capacity: clone.Minimum, want: manual400},
 		{name: "capacity-less, same as source", source: ordersPath, target: copyPath, sourceRU: adapter.Throughput{}, capacity: clone.SameAsSource, want: adapter.Throughput{}},
@@ -626,4 +631,76 @@ func TestAStoppedPageLetsTheWritesInFlightFinish(t *testing.T) {
 		assert.Equal(t, a.Upserts(), len(a.Items(copyPath)), "every write that started was written")
 		assert.Empty(t, c.Position(), "the page is written again on resume")
 	})
+}
+
+// phantomSharing adds sales.phantom, which reads as drawing on a database
+// that has no capacity, as every container of the emulator does.
+func phantomSharing(t *testing.T, a *mock.Adapter) {
+	t.Helper()
+	admin, ok := connect(t, a).(adapter.CatalogAdmin)
+	require.True(t, ok)
+	require.NoError(t, admin.CreateContainer(context.Background(), adapter.ContainerSpec{
+		Database: "sales", Name: "phantom", PartitionKeys: []string{"/customerId"},
+		Throughput: adapter.Throughput{Mode: adapter.ThroughputShared},
+	}))
+}
+
+func TestAContainerSharingNothingIsSurveyedAsHavingNothing(t *testing.T) {
+	a := mock.New()
+	phantomSharing(t, a)
+
+	survey, err := clone.SurveySource(context.Background(), sourceOf(t, a), clone.Endpoint{Path: []string{"sales", "phantom"}})
+
+	require.NoError(t, err)
+	assert.Equal(t, adapter.Throughput{}, survey.Throughput)
+	assert.False(t, survey.Provisioned())
+}
+
+func TestADatabaseCloneFollowsTheCapacityChoice(t *testing.T) {
+	manual400 := adapter.Throughput{Mode: adapter.ThroughputManual, RUs: clone.MinimumRUs}
+	tests := []struct {
+		name          string
+		source        string
+		capacity      clone.Capacity
+		wantDatabase  adapter.Throughput
+		wantContainer map[string]adapter.Throughput
+	}{
+		{
+			name: "no capacity anywhere, minimum", source: "sales", capacity: clone.Minimum,
+			wantContainer: map[string]adapter.Throughput{"phantom": manual400, "orders": manual400},
+		},
+		{
+			name: "no capacity anywhere, none", source: "sales", capacity: clone.None,
+			wantContainer: map[string]adapter.Throughput{"phantom": {}, "orders": {}},
+		},
+		{
+			name: "shared capacity, minimum", source: "telemetry", capacity: clone.Minimum, wantDatabase: manual400,
+			wantContainer: map[string]adapter.Throughput{"events": {Mode: adapter.ThroughputShared}, "devices": manual400},
+		},
+		{
+			name: "shared capacity, none", source: "telemetry", capacity: clone.None,
+			wantContainer: map[string]adapter.Throughput{"events": {}, "devices": {}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := mock.New()
+			phantomSharing(t, a)
+			editor, ok := connect(t, a).(adapter.ThroughputEditor)
+			require.True(t, ok)
+			setThroughput(t, editor, ordersPath, adapter.Throughput{})
+			job := containerJob(1, []string{tt.source + "-copy"})
+			job.Source.Path = []string{tt.source}
+			job.Capacity = tt.capacity
+
+			plan := prepare(t, job, a, a)
+
+			assert.Equal(t, tt.wantDatabase, plan.Database.Throughput)
+			for _, container := range plan.Containers {
+				if want, ok := tt.wantContainer[container.Spec.Name]; ok {
+					assert.Equal(t, want, container.Spec.Throughput, container.Spec.Name)
+				}
+			}
+		})
+	}
 }

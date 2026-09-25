@@ -374,7 +374,7 @@ func (m Model) withSessionAccess(account Account) Account {
 }
 
 // syncAccountRows redraws the switcher, showing an account a connect form is
-// connecting as connecting too.
+// connecting as connecting too, and the clone form's list of targets.
 func (m Model) syncAccountRows() (Model, tea.Cmd) {
 	rows := m.accounts.rows()
 	for i, row := range rows {
@@ -387,6 +387,9 @@ func (m Model) syncAccountRows() (Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.accountsPane, cmd = m.accountsPane.SetRows(rows, m.accounts.active)
+	if m.clonePrompt.source.Account != "" {
+		m.cloneForm = m.cloneForm.SetTargets(m.cloneTargets())
+	}
 	return m, cmd
 }
 

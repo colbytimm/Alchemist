@@ -38,8 +38,10 @@ type cloneRun struct {
 	stopping         bool
 	err              error
 	// drained marks a container whose every page was read, though the
-	// clone ended before it was marked done.
-	drained bool
+	// clone ended before it was marked done. partialPage marks a clone that
+	// ended during a page, some of whose writes may have landed uncounted.
+	drained     bool
+	partialPage bool
 	// unanswered marks a create that was sent and never answered: what it
 	// was creating may exist.
 	unanswered  bool
@@ -219,6 +221,7 @@ func (m Model) failClone(msg CloneFailedMsg) (Model, tea.Cmd) {
 	m.closeCopy(msg.copy)
 	m.logSkips(msg.Progress.Skips)
 	m.cloning = m.cloning.tally(msg.Progress)
+	m.cloning.partialPage = msg.copy != nil && msg.Progress.Read == 0
 	if msg.copy != nil {
 		m.cloning.position, m.cloning.drained = msg.copy.Position(), msg.copy.Done()
 	}
@@ -411,8 +414,9 @@ func (m Model) handleCloneProgressKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.quit()
 	case key.Matches(msg, m.keys.Close):
 		if run.running() {
+			m.cloning.quitWarned = false
 			m.overlay = overlayNone
-			return m, nil
+			return m.syncClone(), nil
 		}
 		return m.releaseClone(), nil
 	case run.running() && key.Matches(msg, m.keys.StopClone):
@@ -440,6 +444,7 @@ func (m Model) stopClone() Model {
 // not finish, or after the last page written in full.
 func (m Model) resumeClone() (Model, tea.Cmd) {
 	m.cloning.end, m.cloning.err, m.cloning.quitWarned, m.cloning.unanswered = panes.CloneRunning, nil, false, false
+	m.cloning.partialPage = false
 	m.logger.Info("clone resumed", "target", m.cloning.plan.Job.Target, "container", m.cloning.index, "position", m.cloning.position)
 	if m.cloning.drained {
 		m.cloning.drained = false
@@ -563,7 +568,7 @@ func (r cloneRun) label() string {
 	}
 	job := r.plan.Job
 	label := fmt.Sprintf("clone %s → %s", job.Source, job.Target.Account)
-	if total := r.plan.Size(); r.items() && total.Known && total.Items > 0 {
+	if total := r.plan.Size(); r.items() && panes.EstimateHolds(r.done(), total) {
 		label += fmt.Sprintf(" %d%%", min(100, int(100*r.done()/total.Items)))
 	}
 	return label + " (y)"
@@ -651,7 +656,7 @@ func (r cloneRun) rate() float64 {
 func (r cloneRun) projected() float64 {
 	total := r.plan.Size()
 	done := r.done()
-	if !total.Known || done == 0 {
+	if done == 0 || !panes.EstimateHolds(done, total) {
 		return 0
 	}
 	return (r.readCharge + r.writeCharge) / float64(done) * float64(total.Items)
@@ -671,7 +676,11 @@ func (r cloneRun) leftBehind() string {
 		return fmt.Sprintf("%s/%s was created and holds nothing of the clone.", target.Account, target.Path[0])
 	case target.Container():
 		row := r.rows[0]
-		return fmt.Sprintf("%s holds %s items and is incomplete.", target, panes.OfAbout(row.Written, row.Estimate))
+		atLeast := ""
+		if r.partialPage {
+			atLeast = "at least "
+		}
+		return fmt.Sprintf("%s holds %s%s items and is incomplete.", target, atLeast, panes.OfAbout(row.Written, row.Estimate))
 	}
 	created := r.index
 	if r.containerCreated {

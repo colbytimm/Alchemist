@@ -97,9 +97,12 @@ func copies(plan clone.Plan) string {
 		return "Copies the definition only: no item is read or written."
 	}
 	size := plan.Size()
-	count := "an unknown number of items: the account did not say how many"
-	if size.Known {
-		count = "about " + FormatCount(size.Items) + " items"
+	count := "about " + FormatCount(size.Items) + " items"
+	switch {
+	case !size.Known:
+		count = "an unknown number of items: the account did not say how many"
+	case size.Items == 0:
+		count = "whatever items it finds, though the account reports none"
 	}
 	return fmt.Sprintf("Copies %s. Items changed on %s while the copy runs may or may not be included.",
 		count, plan.Job.Source.Account)

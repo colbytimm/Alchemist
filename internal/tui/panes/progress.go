@@ -125,7 +125,7 @@ func (p CloneProgress) View() string {
 // a percentage of a guess would be a lie.
 func (p CloneProgress) bar(width int) string {
 	s := p.status
-	if !s.Items || !s.Estimate.Known || s.Estimate.Items <= 0 || s.End == CloneDone {
+	if !s.Items || !EstimateHolds(s.Written+s.Skipped, s.Estimate) || s.End == CloneDone {
 		return ""
 	}
 	fraction := min(float64(s.Written+s.Skipped)/float64(s.Estimate.Items), 1)
@@ -168,10 +168,7 @@ func (p CloneProgress) counterLines(width int) []string {
 		rate = fmt.Sprintf("%s items/s", FormatCount(int64(s.Rate+0.5)))
 		left = timeLeft(s)
 	}
-	projected := "after the first page"
-	if s.Projected > 0 {
-		projected = "about " + FormatCount(int64(s.Projected+0.5)) + " RU in total"
-	}
+	projectionLabel, projected := s.projection()
 	throttled := ""
 	if s.Throttles > 0 {
 		throttled = "throttled " + times(s.Throttles)
@@ -181,7 +178,7 @@ func (p CloneProgress) counterLines(width int) []string {
 		{"Rate", rate, left},
 		{"RU read", FormatCharge(s.ReadCharge) + " on " + s.Source.Account, ""},
 		{"RU write", FormatCharge(s.WriteCharge) + " on " + s.Target.Account, ""},
-		{"Projected", projected, ""},
+		{projectionLabel, projected, ""},
 		{"Writers", fmt.Sprintf("%d of %d", s.Writers, s.MaxWriters), throttled},
 	}
 	lines := make([]string, 0, len(rows))
@@ -192,10 +189,24 @@ func (p CloneProgress) counterLines(width int) []string {
 	return lines
 }
 
+// projection is what the whole clone is expected to cost, and once it is
+// done what it cost.
+func (s CloneStatus) projection() (label, value string) {
+	switch {
+	case s.End == CloneDone:
+		return "Spent", FormatCharge(s.ReadCharge+s.WriteCharge) + " RU in total"
+	case !EstimateHolds(s.Written+s.Skipped, s.Estimate):
+		return "Projected", "none: size not known"
+	case s.Projected > 0:
+		return "Projected", "about " + FormatCount(int64(s.Projected+0.5)) + " RU in total"
+	}
+	return "Projected", "after the first page"
+}
+
 // timeLeft is what the rate and the estimate say is left, and nothing when
 // the estimate is not known.
 func timeLeft(s CloneStatus) string {
-	if !s.Estimate.Known || s.End != CloneRunning {
+	if !EstimateHolds(s.Written+s.Skipped, s.Estimate) || s.End != CloneRunning {
 		return ""
 	}
 	remaining := time.Duration(float64(s.Estimate.Items-s.Written-s.Skipped) / s.Rate * float64(time.Second))
@@ -208,12 +219,19 @@ func timeLeft(s CloneStatus) string {
 	return "about " + formatWait(remaining)
 }
 
-// OfAbout is a count against its estimate: 12,400 of about 30,112.
+// OfAbout is a count against its estimate, 12,400 of about 30,112, or the
+// count alone once the estimate no longer holds.
 func OfAbout(done int64, estimate adapter.SizeEstimate) string {
-	if !estimate.Known {
+	if !EstimateHolds(done, estimate) {
 		return FormatCount(done)
 	}
 	return FormatCount(done) + " of about " + FormatCount(estimate.Items)
+}
+
+// EstimateHolds reports whether estimate is worth measuring done against: it
+// is known, counts something, and has not been overtaken by the copy.
+func EstimateHolds(done int64, estimate adapter.SizeEstimate) bool {
+	return estimate.Known && estimate.Items > 0 && done <= estimate.Items
 }
 
 func (p CloneProgress) endLines(width int) []string {
