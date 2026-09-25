@@ -95,7 +95,7 @@ func TestAnUndefinedKeyValueAndNullAreDifferentKeys(t *testing.T) {
 
 func TestKeysSpellNumbersOneWay(t *testing.T) {
 	assert.Equal(t, key(t, `{"id":"a","n":1}`, "/n"), key(t, `{"id":"a","n":1.0}`, "/n"))
-	assert.NotEqual(t, key(t, `{"id":"a","n":0}`, "/n"), key(t, `{"id":"a","n":-0.0}`, "/n"), "the service may file -0 apart")
+	assert.Equal(t, key(t, `{"id":"a","n":0}`, "/n"), key(t, `{"id":"a","n":-0.0}`, "/n"), "the service files -0 with 0")
 	assert.NotEqual(t, key(t, `{"id":"a","n":1}`, "/n"), key(t, `{"id":"a","n":"1"}`, "/n"))
 }
 

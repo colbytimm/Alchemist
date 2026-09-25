@@ -384,12 +384,12 @@ func (m Model) finishSnapshotExport(msg SnapshotExportedMsg) (Model, tea.Cmd) {
 	}
 	model.logger.Info("snapshot exported", "path", msg.Path)
 	model.overlay = model.exportReturn()
-	var notice tea.Cmd
-	model.statusBar, notice = model.statusBar.SetNotice("exported to " + msg.Path)
 	if model.overlay == overlaySnapshots {
 		model.snapshotsPane = model.snapshotsPane.SetNotice("exported to " + msg.Path)
+	} else {
+		model.diffPane = model.diffPane.SetNotice("exported to " + msg.Path)
 	}
-	return model, tea.Batch(cmd, notice)
+	return model, cmd
 }
 
 // diffSelected is enter: the marked pair, or the row under the cursor

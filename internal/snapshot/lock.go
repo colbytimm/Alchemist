@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/colbytimm/alchemist/internal/snapshot/pack"
@@ -22,15 +23,59 @@ type holder struct {
 
 // storeLock holds the store's lock file under an exclusive advisory lock
 // while a capture, a delete or a prune runs, keeping other processes out,
-// cron and a TUI alike, and other captures in this process too. The
-// operating system releases it when its process dies, so a lock is never
-// left stale and never taken over; the file itself stays.
+// cron and a TUI alike. The operating system releases it when its process
+// dies, so a lock is never left stale and never taken over; the file itself
+// stays.
 type storeLock struct {
+	dir  string
 	file *os.File
+}
+
+// heldHere are the stores this process has locked, by cleaned absolute
+// path. The advisory lock alone does not keep this process out: an NFS
+// client emulates flock with a lock per process, which a second lock in
+// the process shares and a close of any of its handles drops.
+var (
+	heldHereMu sync.Mutex
+	heldHere   = map[string]bool{}
+)
+
+// holdHere claims dir for this process, and reports false when a lock in
+// this process already has it.
+func holdHere(dir string) bool {
+	heldHereMu.Lock()
+	defer heldHereMu.Unlock()
+	if heldHere[dir] {
+		return false
+	}
+	heldHere[dir] = true
+	return true
+}
+
+func letGoHere(dir string) {
+	heldHereMu.Lock()
+	defer heldHereMu.Unlock()
+	delete(heldHere, dir)
 }
 
 // takeLock locks the store in dir, or is ErrLocked naming who holds it.
 func takeLock(dir string, now time.Time) (*storeLock, error) {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: %w", err)
+	}
+	if !holdHere(dir) {
+		return nil, fmt.Errorf("snapshot: %s is held by this process: %w", dir, ErrLocked)
+	}
+	lock, err := lockStore(dir, now)
+	if err != nil {
+		letGoHere(dir)
+		return nil, err
+	}
+	return lock, nil
+}
+
+func lockStore(dir string, now time.Time) (*storeLock, error) {
 	path := filepath.Join(dir, lockFile)
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, pack.FileMode) // #nosec G304 -- the store's own lock file
 	if err != nil {
@@ -49,7 +94,7 @@ func takeLock(dir string, now time.Time) (*storeLock, error) {
 	if err := sayHolder(file, now); err != nil {
 		return nil, errors.Join(err, unlockFile(file), file.Close())
 	}
-	return &storeLock{file: file}, nil
+	return &storeLock{dir: dir, file: file}, nil
 }
 
 // sayHolder writes this process into the lock file, for a refusal to name.
@@ -88,6 +133,7 @@ func (l *storeLock) release() error {
 	}
 	file := l.file
 	l.file = nil
+	defer letGoHere(l.dir)
 	if err := errors.Join(unlockFile(file), file.Close()); err != nil {
 		return fmt.Errorf("snapshot: release lock: %w", err)
 	}

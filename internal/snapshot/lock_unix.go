@@ -9,7 +9,8 @@ import (
 )
 
 // lockFileExclusive takes flock's exclusive lock without waiting; false is
-// a lock another open file holds, in this process or another.
+// a lock another open file holds. On NFS it is per process, which is why
+// takeLock keeps this process out first.
 func lockFileExclusive(file *os.File) (bool, error) {
 	err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) // #nosec G115 -- a file descriptor fits an int
 	if errors.Is(err, syscall.EWOULDBLOCK) {

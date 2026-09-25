@@ -252,15 +252,14 @@ func fieldName(path string) string {
 	return strings.ReplaceAll(strings.TrimPrefix(path, "/"), "/", ".")
 }
 
-// sameKey compares two partition key values: 1, 1.0 and 1e0 are equal, and
-// types are strict, as for a join key; but a negative zero is not zero,
-// since the service hashes a number by its bits and may file them apart.
+// sameKey compares two partition key values by the join-key rule: 1, 1.0
+// and 1e0 are equal, and so are -0 and 0, and types are strict.
 func sameKey(a, b json.RawMessage) bool {
-	return partitionKeyText(a) == partitionKeyText(b)
+	return canonicalJSON(a) == canonicalJSON(b)
 }
 
-func partitionKeyText(raw json.RawMessage) string {
-	rendered, err := canonical.PartitionKeyValue(raw)
+func canonicalJSON(raw json.RawMessage) string {
+	rendered, err := canonical.Marshal(raw)
 	if err != nil {
 		return string(raw)
 	}

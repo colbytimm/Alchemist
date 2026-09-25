@@ -1122,7 +1122,10 @@ What landed differs from the text above in these ways:
   under `flock` (`LockFileEx` on Windows) while a capture, delete, prune or tidy runs,
   and holds the holder's pid, host and start only for a refusal to name. A process that
   dies releases it, so there is no stale lock to take over and no takeover race; the
-  file stays, and `release` only unlocks. A capture step cancelled by `x` or a quit
+  file stays, and `release` only unlocks. Within one process the stores held are
+  also kept in a mutex-guarded set by absolute path, checked before the advisory lock:
+  an NFS client emulates `flock` with a lock per process, which a second lock in the
+  process would share and a close of any handle would drop. A capture step cancelled by `x` or a quit
   aborts its capture itself, so the lock goes even when no one reads the step's
   message. `golang.org/x/sys`, already in `go.mod` indirectly, is now a direct
   requirement for the Windows lock.
@@ -1130,12 +1133,13 @@ What landed differs from the text above in these ways:
   record syncs `records/`, and garbage collection syncs it before it reclaims
   anything, so a power loss cannot bring back a record whose bodies are gone.
   `readManifest` refuses keys out of order, as `readChanges` does.
-- **Negative zero.** Canonical form, and so join keys and item bodies, treat `-0` as
-  `0`, IEEE equality being what a join means. A partition key does not: the service
-  hashes a key number by its bits, so iteration 17's batch check (`query.sameKey`)
-  and a snapshot's item key keep any negative zero apart from zero through
-  `canonical.PartitionKeyValue`. That is stricter than 17 was for the integer `-0`,
-  which it counted as `0`.
+- **Negative zero.** Canonical form treats `-0` as `0` everywhere: join keys, item
+  bodies, iteration 17's batch check (`query.sameKey`) and a snapshot's item keys.
+  On the `vnext-preview` emulator, a create of `{"id":"a","pk":-0.0}` under a `-0`
+  key after `{"id":"a","pk":0}` was a 409 Conflict (one logical partition), a `-0.0`
+  body under a `0` key was accepted and so was the reverse, and the service returned
+  `-0.0` as `0`. Not verified on a real account. For 17 this is a change only for
+  `-0.0`, which it used to keep apart; the integer `-0` it already counted as `0`.
 - **Retention and verify take a time** (`Delete(id, now)`, `Prune(policy, now)`,
   `Pruned`, `Verify(options, now)`), and `Verify` holds the lock. Deleting a database
   snapshot, or exporting one, is not offered: its containers' snapshots are deleted

@@ -63,6 +63,7 @@ type Diff struct {
 	list       filterList[diffRow]
 	fields     map[snapshot.Key]string
 	definition bool
+	notice     string
 }
 
 func NewDiff(icons theme.IconSet, keys []key.Binding) Diff {
@@ -91,9 +92,16 @@ func (d Diff) SetDiff(scope string, diff snapshot.Diff) Diff {
 	d.diff = diff
 	d.fields = map[snapshot.Key]string{}
 	d.definition = len(diff.Definition.Changes) > 0 || diff.Definition.State != snapshot.DefinitionCompared
-	d.filter = 0
+	d.filter, d.notice = 0, ""
 	d.list = d.list.clearFilter()
 	return d.refilter()
+}
+
+// SetNotice says something about the last key in place of the footer,
+// until the cursor moves.
+func (d Diff) SetNotice(notice string) Diff {
+	d.notice = notice
+	return d
 }
 
 func (d Diff) refilter() Diff {
@@ -144,12 +152,12 @@ func (d Diff) Update(msg tea.KeyMsg) (Diff, tea.Cmd) {
 }
 
 func (d Diff) CursorUp() Diff {
-	d.list = d.list.moveCursor(-1)
+	d.list, d.notice = d.list.moveCursor(-1), ""
 	return d
 }
 
 func (d Diff) CursorDown() Diff {
-	d.list = d.list.moveCursor(1)
+	d.list, d.notice = d.list.moveCursor(1), ""
 	return d
 }
 
@@ -205,6 +213,9 @@ func (d Diff) summary() string {
 }
 
 func (d Diff) footer() string {
+	if d.notice != "" {
+		return d.notice
+	}
 	items := 0
 	for _, row := range d.list.matching() {
 		if !row.definition {

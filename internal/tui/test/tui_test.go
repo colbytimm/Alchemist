@@ -339,6 +339,59 @@ func settle(m tea.Model, cmd tea.Cmd) (tea.Model, []tea.Msg) {
 	return m, delivered
 }
 
+// settleNow is settle for flows that do slow work and start no long timer:
+// captures, diffs and exports of snapshots. It runs every command to its
+// answer, however long a step takes under the race detector, where settle
+// would take a slow step for a timer and drop it. Animation ticks are
+// delivered but not followed, as settle does.
+func settleNow(m tea.Model, cmd tea.Cmd) tea.Model {
+	pending := answers(cmd)
+	for len(pending) > 0 {
+		var next []tea.Msg
+		for _, msg := range pending {
+			model, cmd := m.Update(msg)
+			m = model
+			if _, animating := msg.(spinner.TickMsg); animating {
+				continue
+			}
+			next = append(next, answers(cmd)...)
+		}
+		pending = next
+	}
+	return m
+}
+
+// answers runs cmd to its end, flattening batches, and waits on every
+// command however long it takes.
+func answers(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		if msg == nil {
+			return nil
+		}
+		return []tea.Msg{msg}
+	}
+	var msgs []tea.Msg
+	for _, c := range batch {
+		msgs = append(msgs, answers(c)...)
+	}
+	return msgs
+}
+
+// pressNow is press, driven by settleNow.
+func pressNow(t *testing.T, m tea.Model, keys ...tea.KeyMsg) tea.Model {
+	t.Helper()
+	for _, key := range keys {
+		model, cmd := m.Update(key)
+		m = settleNow(model, cmd)
+	}
+	return m
+}
+
 // timerGrace is how long messages waits on a command before taking it for a
 // timer. Every command a test does follow answers from memory, in microseconds.
 const timerGrace = 50 * time.Millisecond

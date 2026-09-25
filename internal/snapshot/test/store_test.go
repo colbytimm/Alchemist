@@ -3,7 +3,6 @@ package snapshot_test
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -135,18 +134,6 @@ func deadPID(t *testing.T) int {
 		t.Skip("process liveness is checked by handle on Windows")
 	}
 	return 1 << 22
-}
-
-func TestALockedStoreNamesItsHolder(t *testing.T) {
-	f := newFixture(t, orders(3)...)
-	first, err := f.open().Begin(f.source(), f.withClock(snapshot.CaptureOptions{}))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = first.Abort() })
-
-	_, err = f.open().Begin(f.source(), f.withClock(snapshot.CaptureOptions{}))
-
-	require.ErrorIs(t, err, snapshot.ErrLocked)
-	assert.Contains(t, err.Error(), fmt.Sprintf("process %d on ", os.Getpid()))
 }
 
 // TestTwoTakersOfAStaleLockNeverBothHoldIt starts takers together on a
@@ -310,4 +297,29 @@ func TestStoresListsEveryStoreOnDiskByItsRealNames(t *testing.T) {
 func TestSegmentsKeepNamesThatDifferOnlyInCaseApart(t *testing.T) {
 	assert.NotEqual(t, strings.ToLower(snapshot.Segment("Orders")), strings.ToLower(snapshot.Segment("orders")))
 	assert.True(t, strings.HasPrefix(snapshot.Segment("a b.c"), "a_b_c~"))
+}
+
+// TestOneProcessNeverLocksAStoreTwice holds the store with one capture and
+// asks for it again from this process, by two spellings of its path: the
+// second is refused whatever the file system's advisory locks allow.
+func TestOneProcessNeverLocksAStoreTwice(t *testing.T) {
+	f := newFixture(t, orders(3)...)
+	first, err := f.open().Begin(f.source(), f.withClock(snapshot.CaptureOptions{}))
+	require.NoError(t, err)
+	t.Chdir(f.loc.Root)
+	relative := f.loc
+	relative.Root = "."
+
+	_, err = snapshot.Open(relative)
+	require.NoError(t, err, "opening tidies only when it can lock, and leaves a held store alone")
+	store, err := snapshot.Open(relative)
+	require.NoError(t, err)
+	_, err = store.Begin(f.source(), f.withClock(snapshot.CaptureOptions{}))
+
+	require.ErrorIs(t, err, snapshot.ErrLocked)
+	assert.Contains(t, err.Error(), "held by this process")
+	require.NoError(t, first.Abort())
+	second, err := store.Begin(f.source(), f.withClock(snapshot.CaptureOptions{}))
+	require.NoError(t, err, "a release lets this process lock it again")
+	require.NoError(t, second.Abort())
 }

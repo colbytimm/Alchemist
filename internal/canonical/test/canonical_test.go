@@ -137,24 +137,3 @@ func writeShuffled(value any, random *rand.Rand) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
 }
-
-func TestAPartitionKeyValueKeepsNegativeZeroApart(t *testing.T) {
-	tests := []struct {
-		value string
-		want  string
-	}{
-		{value: `-0.0`, want: `-0`},
-		{value: `-0`, want: `-0`},
-		{value: `0.0`, want: `0`},
-		{value: `1e0`, want: `1`},
-		{value: `"-0"`, want: `"-0"`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.value, func(t *testing.T) {
-			got, err := canonical.PartitionKeyValue([]byte(tt.value))
-
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, string(got))
-		})
-	}
-}

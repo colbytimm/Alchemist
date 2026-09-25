@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"strconv"
 )
 
@@ -58,24 +57,6 @@ func Numbers(value any) any {
 		}
 	}
 	return value
-}
-
-// PartitionKeyValue is value, a scalar, in canonical form, but for a
-// negative zero, which stays -0: the service hashes a partition key number
-// by its bits, so -0 and 0 may name two partitions.
-func PartitionKeyValue(value []byte) ([]byte, error) {
-	decoder := json.NewDecoder(bytes.NewReader(value))
-	decoder.UseNumber()
-	var decoded any
-	if err := decoder.Decode(&decoded); err != nil {
-		return nil, fmt.Errorf("canonical: decode: %w", err)
-	}
-	if n, ok := decoded.(json.Number); ok {
-		if float, err := n.Float64(); err == nil && float == 0 && math.Signbit(float) {
-			return []byte("-0"), nil
-		}
-	}
-	return Marshal(value)
 }
 
 func number(n json.Number) json.Number {
