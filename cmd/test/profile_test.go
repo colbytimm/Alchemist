@@ -263,3 +263,65 @@ func TestProfileRemoveCountsFilesTheOverlaySkips(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "kept 1 saved query in "+queries.AccountPath("staging"))
 }
+
+func readOnlyOf(t *testing.T, h harness, name string) bool {
+	t.Helper()
+	accounts, err := h.profiles(t).Accounts()
+	require.NoError(t, err)
+	for _, account := range accounts {
+		if account.Name == name {
+			return account.ReadOnly
+		}
+	}
+	require.Failf(t, "no such account", "%s", name)
+	return false
+}
+
+func TestAProfileIsReadOnlyUnlessItsEndpointIsLocal(t *testing.T) {
+	h := newHarness(t)
+	h.addProfile(t, "emulator")
+	_, err := h.run("", "profile", "add", "prod", "--endpoint", "https://myaccount.documents.azure.com:443/")
+	require.NoError(t, err)
+
+	assert.False(t, readOnlyOf(t, h, "emulator"))
+	assert.True(t, readOnlyOf(t, h, "prod"))
+}
+
+func TestProfileAddReadOnlyFalseAllowsWritesOnARemoteAccount(t *testing.T) {
+	h := newHarness(t)
+
+	_, err := h.run("", "profile", "add", "prod", "--endpoint", "https://myaccount.documents.azure.com:443/", "--read-only=false")
+
+	require.NoError(t, err)
+	assert.False(t, readOnlyOf(t, h, "prod"))
+}
+
+func TestProfileSetReadOnly(t *testing.T) {
+	h := newHarness(t)
+	h.addProfile(t, "emulator")
+
+	out, err := h.run("", "profile", "set-read-only", "emulator", "true")
+	require.NoError(t, err)
+	assert.Contains(t, out, "profile emulator is read-only")
+	assert.True(t, readOnlyOf(t, h, "emulator"))
+
+	out, err = h.run("", "profile", "set-read-only", "emulator", "false")
+	require.NoError(t, err)
+	assert.Contains(t, out, "profile emulator allows writes")
+	assert.False(t, readOnlyOf(t, h, "emulator"))
+}
+
+func TestProfileSetReadOnlyRefusesAnythingButABool(t *testing.T) {
+	h := newHarness(t)
+	h.addProfile(t, "emulator")
+
+	_, err := h.run("", "profile", "set-read-only", "emulator", "maybe")
+
+	require.ErrorContains(t, err, "give true or false")
+}
+
+func TestProfileSetReadOnlyUnknownProfile(t *testing.T) {
+	_, err := newHarness(t).run("", "profile", "set-read-only", "ghost", "false")
+
+	require.ErrorIs(t, err, config.ErrNoProfiles)
+}

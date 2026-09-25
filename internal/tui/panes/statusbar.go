@@ -24,6 +24,8 @@ const (
 	// simulatedBadge marks a result merged client-side, so its summed charge
 	// is never mistaken for one server-side query.
 	simulatedBadge = "simulated (client-side)"
+	// ReadOnlyBadge marks an account every write to is refused.
+	ReadOnlyBadge = "read-only"
 	// pending stands in for a statistic no run has produced yet.
 	pending = "—"
 )
@@ -38,6 +40,31 @@ type NoticeExpiredMsg struct {
 	Notice int
 }
 
+// BatchState is how far a batch has got, as the status bar names it.
+type BatchState int
+
+const (
+	BatchNone BatchState = iota
+	BatchCommitting
+	BatchCommitted
+	BatchRolledBack
+	BatchUnknown
+)
+
+func (b BatchState) String() string {
+	switch b {
+	case BatchCommitting:
+		return "committing…"
+	case BatchCommitted:
+		return "committed"
+	case BatchRolledBack:
+		return "rolled back"
+	case BatchUnknown:
+		return "outcome unknown"
+	}
+	return ""
+}
+
 // Progress is the state of the current query run as the status bar reports
 // it. The zero value is the bar before anything has been run.
 type Progress struct {
@@ -47,6 +74,8 @@ type Progress struct {
 	Loaded  bool // a page has arrived, so Stats are worth showing
 	// Simulated marks a run merged client-side from several containers.
 	Simulated bool
+	// Batch is set when the run is a batch, whose rows are its operations.
+	Batch BatchState
 }
 
 // StatusBar is the one-line footer: account, active scope, and the statistics
@@ -55,6 +84,7 @@ type StatusBar struct {
 	icons    theme.IconSet
 	spinner  spinner.Model
 	account  string
+	readOnly bool
 	scope    []string
 	progress Progress
 	notice   string
@@ -113,6 +143,13 @@ func (s StatusBar) SetWidth(width int) StatusBar {
 // SetAccount names the account the session is on; empty is none.
 func (s StatusBar) SetAccount(account string) StatusBar {
 	s.account = account
+	return s
+}
+
+// SetReadOnly marks the account the session is on as one that refuses
+// every write.
+func (s StatusBar) SetReadOnly(readOnly bool) StatusBar {
+	s.readOnly = readOnly
 	return s
 }
 
@@ -176,11 +213,15 @@ func (s StatusBar) gap(left string) int {
 }
 
 func (s StatusBar) fields(breakdown func(map[string]float64) string) []string {
-	fields := []string{
-		theme.TextStyle().Render(s.accountLabel()),
-		theme.TextStyle().Render(s.scopeLabel()),
+	fields := []string{theme.TextStyle().Render(s.accountLabel())}
+	if s.readOnly {
+		fields = append(fields, theme.HintStyle().Render(ReadOnlyBadge))
 	}
-	if s.progress.Simulated {
+	fields = append(fields, theme.TextStyle().Render(s.scopeLabel()))
+	switch {
+	case s.progress.Batch != BatchNone:
+		fields = append(fields, s.batchBadge())
+	case s.progress.Simulated:
 		fields = append(fields, theme.HintStyle().Render(simulatedBadge))
 	}
 	fields = append(fields,
@@ -211,11 +252,27 @@ func (s StatusBar) scopeLabel() string {
 	return strings.Join(s.scope, ".")
 }
 
-func (s StatusBar) rowsLabel() string {
-	if !s.progress.Loaded {
-		return pending + " rows"
+// batchBadge names the batch's outcome; one that is not known is styled as
+// neither success nor failure.
+func (s StatusBar) batchBadge() string {
+	switch s.progress.Batch {
+	case BatchCommitted:
+		return theme.SuccessStyle().Render(s.progress.Batch.String())
+	case BatchRolledBack:
+		return theme.ErrorStyle().Render(s.progress.Batch.String())
 	}
-	rows := fmt.Sprintf("%d rows", s.progress.Stats.RowCount)
+	return theme.HintStyle().Render(s.progress.Batch.String())
+}
+
+func (s StatusBar) rowsLabel() string {
+	unit := "rows"
+	if s.progress.Batch != BatchNone {
+		unit = "operations"
+	}
+	if !s.progress.Loaded {
+		return pending + " " + unit
+	}
+	rows := fmt.Sprintf("%d %s", s.progress.Stats.RowCount, unit)
 	if s.progress.More {
 		rows += moreHint
 	}

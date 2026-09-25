@@ -44,6 +44,7 @@ func account(profile config.Profile) tui.Account {
 		Database:     profile.Database,
 		MaxJoinRows:  profile.MaxJoinRows,
 		SampleFields: profile.SamplesFields(),
+		ReadOnly:     profile.IsReadOnly(),
 	}
 }
 

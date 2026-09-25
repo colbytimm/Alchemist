@@ -177,6 +177,20 @@ func (c Catalog) LoadPath(path []string) (Catalog, Fetch, tea.Cmd) {
 	return c.fetch(node)
 }
 
+// Node is the node at path, when the tree has fetched it.
+func (c Catalog) Node(path []string) (adapter.Node, bool) {
+	if len(path) == 0 {
+		return adapter.Node{}, false
+	}
+	return c.nodeAt(path)
+}
+
+// Listed reports whether the tree holds the children of the node at path.
+func (c Catalog) Listed(path []string) bool {
+	_, ok := c.children[pathKey(path)]
+	return ok
+}
+
 // Loading reports whether a request for the children of path is in flight.
 func (c Catalog) Loading(path []string) bool {
 	return c.loading[pathKey(path)]

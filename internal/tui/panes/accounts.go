@@ -43,6 +43,7 @@ type AccountRow struct {
 	Database string
 	State    AccountState
 	Err      error // set when State is AccountFailed
+	ReadOnly bool
 }
 
 // Accounts is the account switcher. Its value receiver hides shared pointers:
@@ -217,7 +218,7 @@ func (a Accounts) row(row AccountRow, columns accountColumns, width int, selecte
 		fit(row.Name, columns.name),
 		fit(endpointHost(row.Endpoint), columns.host),
 		fit(row.Database, columns.database),
-		a.stateLabel(row),
+		a.stateLabel(row) + readOnlyLabel(row),
 	}, "  ")
 	return a.glyph(row) + text.Render(fit(cells, max(width-glyphWidth, 1)))
 }
@@ -232,6 +233,13 @@ func (a Accounts) glyph(row AccountRow) string {
 		return theme.ErrorStyle().Render(a.icons.Failure) + " "
 	}
 	return strings.Repeat(" ", glyphWidth)
+}
+
+func readOnlyLabel(row AccountRow) string {
+	if !row.ReadOnly {
+		return ""
+	}
+	return " · " + ReadOnlyBadge
 }
 
 func (a Accounts) stateLabel(row AccountRow) string {

@@ -81,6 +81,7 @@ type sessionFlags struct {
 	verbose      bool
 	history      bool
 	sampleFields bool
+	readOnly     bool
 }
 
 func (s *sessionFlags) bind(flags *pflag.FlagSet) {
@@ -92,6 +93,8 @@ func (s *sessionFlags) bind(flags *pflag.FlagSet) {
 		fmt.Sprintf("record every query run to %s in the state directory", history.FileName))
 	flags.BoolVar(&s.sampleFields, "sample-fields", true,
 		"let autocomplete read a few items of a container for its fields (spends request units)")
+	flags.BoolVar(&s.readOnly, "read-only", false,
+		"refuse every write this session could make, on every account, whatever its profile allows")
 }
 
 // run resolves what to connect to before touching the filesystem, so an
@@ -129,6 +132,7 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 			History:      s.historyStore(logger, stateDir),
 			SampleFields: s.sampleFields,
 			Saved:        savedStore(logger),
+			ReadOnly:     s.readOnly,
 		}),
 		tea.WithAltScreen(),
 		tea.WithContext(cmd.Context()),
@@ -153,7 +157,16 @@ func management(conn adapter.Connection) tui.Management {
 	throughput, _ := conn.(adapter.ThroughputEditor)
 	inspector, _ := conn.(adapter.Inspector)
 	sampler, _ := conn.(adapter.FieldSampler)
-	return tui.Management{Admin: admin, Throughput: throughput, Inspector: inspector, Sampler: sampler}
+	batcher, _ := conn.(adapter.Batcher)
+	drafter, _ := conn.(adapter.ItemDrafter)
+	return tui.Management{
+		Admin:      admin,
+		Throughput: throughput,
+		Inspector:  inspector,
+		Sampler:    sampler,
+		Batcher:    batcher,
+		Drafter:    drafter,
+	}
 }
 
 // launch is what a session starts with: the accounts it knows, the one it

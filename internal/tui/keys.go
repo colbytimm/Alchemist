@@ -27,6 +27,9 @@ type KeyMap struct {
 	ScrollRight  key.Binding
 	FetchMore    key.Binding
 	Export       key.Binding
+	AddToBatch   key.Binding
+	Commit       key.Binding
+	Scroll       key.Binding
 	Save         key.Binding
 	Format       key.Binding
 	Complete     key.Binding
@@ -122,6 +125,20 @@ func DefaultKeyMap() KeyMap {
 		Export: key.NewBinding(
 			key.WithKeys("ctrl+e"),
 			key.WithHelp("ctrl+e", "export to file"),
+		),
+		// The editor's textarea binds ctrl+b to cursor-left, but only while it
+		// has the keyboard; this binding lives where the editor does not.
+		AddToBatch: key.NewBinding(
+			key.WithKeys("ctrl+b"),
+			key.WithHelp("ctrl+b", "add to batch"),
+		),
+		Commit: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "commit"),
+		),
+		Scroll: key.NewBinding(
+			key.WithKeys("up", "down"),
+			key.WithHelp("↑/↓", "scroll"),
 		),
 		Save: key.NewBinding(
 			key.WithKeys("enter"),
@@ -273,6 +290,13 @@ func (k KeyMap) ExportKeys() []key.Binding {
 	return []key.Binding{k.Save, k.Format}
 }
 
+// BatchKeys are the bindings only the batch review answers to, shown in a
+// hint line of its own like ExportKeys. Typed characters go to its name
+// field, so none of them is a letter.
+func (k KeyMap) BatchKeys() []key.Binding {
+	return []key.Binding{k.Commit, k.Scroll}
+}
+
 // InfoKeys are the bindings the info overlay answers to, shown in a hint line
 // of its own. Every one of them is a binding some pane already advertises.
 func (k KeyMap) InfoKeys() []key.Binding {
@@ -308,11 +332,14 @@ func (k KeyMap) forManagement(management Management) KeyMap {
 	if management.Inspector == nil {
 		k.Info.SetEnabled(false)
 	}
+	if management.Drafter == nil {
+		k.AddToBatch.SetEnabled(false)
+	}
 	return k
 }
 
 func (k KeyMap) resultsKeys() []key.Binding {
-	return []key.Binding{k.Detail, k.ScrollLeft, k.ScrollRight, k.FetchMore, k.Export}
+	return []key.Binding{k.Detail, k.ScrollLeft, k.ScrollRight, k.FetchMore, k.Export, k.AddToBatch}
 }
 
 func (k KeyMap) editorKeys() []key.Binding {

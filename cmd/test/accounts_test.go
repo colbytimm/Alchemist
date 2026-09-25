@@ -89,7 +89,7 @@ func TestConnectCompletesAProfileWithNoKey(t *testing.T) {
 	assert.Equal(t, "typed-key", h.keyring.secrets["dev"])
 	accounts, err := h.profiles(t).Accounts()
 	require.NoError(t, err)
-	assert.Equal(t, []tui.Account{{Name: "dev", Endpoint: "https://elsewhere", SampleFields: true}}, accounts)
+	assert.Equal(t, []tui.Account{{Name: "dev", Endpoint: "https://elsewhere", SampleFields: true, ReadOnly: true}}, accounts)
 }
 
 func TestConnectAddsAnyOtherNameOnlyOnceItConnects(t *testing.T) {

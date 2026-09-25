@@ -26,6 +26,8 @@ type Account struct {
 	// SampleFields lets completion read a few items of this account's
 	// containers, when the session allows it too.
 	SampleFields bool
+	// ReadOnly refuses every write the session could make on the account.
+	ReadOnly bool
 }
 
 // Opener connects the saved account called name.
@@ -63,6 +65,18 @@ type accountEntry struct {
 	// attempt is the number of the attempt connecting the account, which a
 	// result must carry to count.
 	attempt int
+}
+
+// permitted is what the session may do with the account: everything its
+// connection allows, less every write when the account is read-only. A
+// batch that only reads stays possible, so Batcher is kept; Model.batcher
+// refuses the rest.
+func (e accountEntry) permitted() Management {
+	management := e.management
+	if e.account.ReadOnly {
+		management.Admin, management.Throughput, management.Drafter = nil, nil, nil
+	}
+	return management
 }
 
 func (e accountEntry) connected() bool {
@@ -175,6 +189,7 @@ func (s accountSet) rows() []panes.AccountRow {
 			Database: entry.account.Database,
 			State:    entry.state,
 			Err:      entry.err,
+			ReadOnly: entry.account.ReadOnly,
 		})
 	}
 	return rows
@@ -244,7 +259,7 @@ func (m Model) setActive(account string) (Model, tea.Cmd) {
 	}
 	entry, _ := m.accounts.get(account)
 	m.statusBar = m.statusBar.SetAccount(account).SetScope(entry.scope)
-	m = m.closeSuggestions().withManagement(entry.management).setFocus(m.focus)
+	m = m.closeSuggestions().refreshAccess().setFocus(m.focus)
 	if !changed {
 		return m, nil
 	}
@@ -273,7 +288,7 @@ func (m Model) activeScope() []string {
 // request itself waits for the connection, and attach makes it anew.
 func (m Model) startLaunch(launch string) Model {
 	if !m.accounts.known(launch) {
-		m.accounts = m.accounts.add(Account{Name: launch}, m.blankEntry)
+		m.accounts = m.accounts.add(m.withSessionAccess(Account{Name: launch}), m.blankEntry)
 	}
 	m = m.startConnecting(launch)
 	entry, _ := m.accounts.get(launch)
@@ -329,9 +344,24 @@ func (m Model) listAccountsCmd() tea.Cmd {
 // file stays reachable, and connected, for the rest of the session.
 func (m Model) mergeAccounts(accounts []Account) (Model, tea.Cmd) {
 	for _, account := range accounts {
-		m.accounts = m.accounts.add(account, m.blankEntry)
+		m.accounts = m.accounts.add(m.withSessionAccess(account), m.blankEntry)
 	}
-	return m.syncAccountRows()
+	return m.refreshAccess().syncAccountRows()
+}
+
+// refreshAccess offers the bindings, and shows the badge, of what the active
+// account permits now.
+func (m Model) refreshAccess() Model {
+	entry, _ := m.accounts.get(m.accounts.active)
+	m.statusBar = m.statusBar.SetReadOnly(entry.account.ReadOnly)
+	return m.withManagement(entry.permitted())
+}
+
+// withSessionAccess applies the session's own read-only switch, which only
+// ever tightens what a profile allows.
+func (m Model) withSessionAccess(account Account) Account {
+	account.ReadOnly = account.ReadOnly || m.readOnly
+	return account
 }
 
 // syncAccountRows redraws the switcher, showing an account a connect form is

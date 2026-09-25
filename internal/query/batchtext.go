@@ -66,3 +66,22 @@ func lastKeyword(toks []token, keyword string) int {
 	}
 	return -1
 }
+
+// BatchPrefix is the longest start of a batch's text, at most limit bytes,
+// that ends with an operation's semicolon. Cut there, the text has lost its
+// COMMIT, so what is kept can be read but never run.
+func BatchPrefix(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	end := 0
+	for _, tok := range code(lex(text)) {
+		if tok.end > limit || tok.kind == tokIdent && tok.upper == "COMMIT" {
+			break
+		}
+		if isSymbol(tok, ";") {
+			end = tok.end
+		}
+	}
+	return text[:end]
+}

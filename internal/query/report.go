@@ -84,19 +84,24 @@ func FailedOperation(r adapter.BatchResult) (int, bool) {
 func BatchSummary(b adapter.Batch, r adapter.BatchResult) string {
 	if r.Committed {
 		return fmt.Sprintf("Committed: %s on %s, partition %s.",
-			countOperations(len(b.Operations)), strings.Join(b.Scope, "."), partitionText(b.PartitionKey))
+			countOperations(len(b.Operations)), strings.Join(b.Scope, "."), PartitionText(b.PartitionKey))
 	}
 	summary := "Rolled back: nothing was written."
 	i, ok := FailedOperation(r)
 	if !ok || i >= len(b.Operations) {
 		return summary
 	}
-	op := b.Operations[i]
-	label := strings.ToUpper(string(op.Kind))
+	return fmt.Sprintf("%s Operation %d (%s) failed: %s.", summary, i+1, OperationName(b.Operations[i]), r.Results[i].Status)
+}
+
+// OperationName names an operation by its kind and the item it acts on:
+// DELETE "o003".
+func OperationName(op adapter.Operation) string {
+	name := strings.ToUpper(string(op.Kind))
 	if id := ItemID(op); id != "" {
-		label += " " + string(jsonString(id))
+		name += " " + string(jsonString(id))
 	}
-	return fmt.Sprintf("%s Operation %d (%s) failed: %s.", summary, i+1, label, r.Results[i].Status)
+	return name
 }
 
 func countOperations(n int) string {
@@ -106,7 +111,8 @@ func countOperations(n int) string {
 	return fmt.Sprintf("%d operations", n)
 }
 
-func partitionText(key adapter.PartitionKey) string {
+// PartitionText writes a partition key the way a batch statement does.
+func PartitionText(key adapter.PartitionKey) string {
 	values := make([]string, 0, len(key))
 	for _, value := range key {
 		values = append(values, string(value))

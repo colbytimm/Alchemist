@@ -272,3 +272,38 @@ func TestAnEntryWithNoAccountBelongsToNone(t *testing.T) {
 		assert.Empty(t, entries, "Recent(%q)", account)
 	}
 }
+
+func TestAQueryLineHasNoKind(t *testing.T) {
+	log, path := openLog(t)
+	require.NoError(t, log.Append(succeeded("SELECT * FROM c")))
+
+	contents, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	assert.NotContains(t, string(contents), `"kind"`)
+}
+
+func TestABatchKeepsItsKind(t *testing.T) {
+	log, _ := openLog(t)
+	batch := succeeded(`BEGIN BATCH sales.orders PARTITION "c01"; READ "o1"; COMMIT`)
+	batch.Kind = history.KindBatch
+	require.NoError(t, log.Append(batch))
+
+	entries, err := log.Recent("emulator", 1)
+
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, history.KindBatch, entries[0].Kind)
+}
+
+func TestALineFromBeforeKindsReadsAsAQuery(t *testing.T) {
+	log, path := openLog(t)
+	writeLines(t, path, `{"ts":"2026-08-27T21:04:05Z","profile":"emulator","scope":["sales","orders"],"query":"SELECT 1","ok":true,"rows":1,"ru":1,"elapsed_ms":2}`)
+
+	entries, err := log.Recent("emulator", 1)
+
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Empty(t, entries[0].Kind)
+	assert.Equal(t, "SELECT 1", entries[0].Query)
+}

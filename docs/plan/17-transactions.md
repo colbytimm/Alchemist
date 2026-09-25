@@ -878,3 +878,46 @@ rather than failing.
 - `internal/tui` imports the adapter interfaces only, and names no status code, ETag
   field or system property; parsing and validation live in `internal/query` with no
   TUI import.
+
+## Implementation notes
+
+What landed differs from the text above in these ways:
+
+- The contract lives in `internal/adapter/batch.go` beside `adapter.go`, with two
+  additions: `OperationKind.Writes`, which is how the TUI tells a batch that only reads,
+  and `adapter.WithoutFields`, which both drafters use to drop system fields without
+  reordering the rest of the item.
+- Tests live in each package's `test/` folder and see only exported names, so two of
+  `write.go`'s helpers are exported: `cosmos.PartitionKey` and `cosmos.WriteError`.
+  `withoutRetries` stays unexported; a counting server proves that a 503, a 429 or a
+  dropped connection is sent once. The request-body tests use an `httptest` TLS server
+  standing in for the account rather than `ClientOptions.Transport`.
+- `FormatOperation` is in `query/batchtext.go` with `FormatBatch` (the header `ctrl+b`
+  writes), `AppendOperation` (inserts before `COMMIT`) and `BatchPrefix` (the 64 KiB cut
+  for history, which stops before `COMMIT`). `query` also exports `ItemID`,
+  `OperationName`, `PartitionText`, `SamePartition`, `FailedOperation`, `EstimateBytes`
+  and `FormatSize` for the review and the TUI.
+- "The container is in the catalog" is checked by the TUI while it looks up the key
+  paths, not by `CheckBatch`, which knows no catalog. A lookup waiting on the tree shows
+  nothing until the review opens or the batch is refused.
+- `--read-only` reaches the TUI as `Options.ReadOnly` and is ORed into every account,
+  so an account a connect form adds obeys it too; a new account from the form takes
+  `config.Profile{Endpoint: …}.IsReadOnly()`. Read-only removes `Admin`, `Throughput`
+  and `Drafter` from what the account permits, which takes `n`, `c`, `d`, `t` and
+  `ctrl+b` out of the keymap and the help overlay; `Model.batcher` refuses the writes.
+- `mock.WithBatchFailure` takes the status as an `int`. The mock's patch ignores the
+  condition: it has no query engine.
+- Iterations 18, 19, 21 and 22 have not landed: there is no job slot to consult and no
+  `ThrottledError`, so a 429 reads `Not applied:` with the service's own message.
+- A batch leaves a query in flight alone until it commits: the review is an overlay.
+  While it commits, `q` is refused everywhere, the editor included.
+- 11's `panes.Confirm` had landed; its name field is now `nameField`, shared with
+  `BatchReview`. The review's own hint line is `KeyMap.BatchKeys()`: `Commit` (enter)
+  and `Scroll` (↑/↓), then `Close`.
+- 13 had landed, so its part is here: in a batch buffer completion offers `BATCH`,
+  databases then containers, `PARTITION`, the operation keywords after a `;`, `MATCH`
+  after `IF`, and nothing inside a body. A report page never reaches `observePage`.
+- The editor's textarea stopped `enter` at 99 lines, short of a 100-operation batch
+  written one to a line; the limit is lifted.
+- The emulator integration tests (`test/integration/batch_test.go`) compile but have
+  not been run in this iteration's environment.
