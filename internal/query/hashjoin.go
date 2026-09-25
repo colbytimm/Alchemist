@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/canonical"
 )
 
 // joinSide is one container of a join, at its index in Plan.Leaves.
@@ -346,38 +347,9 @@ func joinKey(item json.RawMessage, path []string) (key string, ok bool, err erro
 			return "", false, nil
 		}
 	}
-	canonical, err := json.Marshal(canonicalNumbers(value))
+	rendered, err := json.Marshal(canonical.Numbers(value))
 	if err != nil {
 		return "", false, fmt.Errorf("query: join: render key: %w", err)
 	}
-	return string(canonical), true, nil
-}
-
-// canonicalNumbers respells every number so 1, 1.0 and 1e0 are one key, while
-// an integer too large for a float64 keeps every digit.
-func canonicalNumbers(value any) any {
-	switch v := value.(type) {
-	case json.Number:
-		return canonicalNumber(v)
-	case map[string]any:
-		for name, member := range v {
-			v[name] = canonicalNumbers(member)
-		}
-	case []any:
-		for i, element := range v {
-			v[i] = canonicalNumbers(element)
-		}
-	}
-	return value
-}
-
-func canonicalNumber(n json.Number) json.Number {
-	if integer, err := n.Int64(); err == nil {
-		return json.Number(strconv.FormatInt(integer, 10))
-	}
-	float, err := n.Float64()
-	if err != nil {
-		return n
-	}
-	return json.Number(strconv.FormatFloat(float, 'g', -1, 64))
+	return string(rendered), true, nil
 }

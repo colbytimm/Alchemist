@@ -174,12 +174,15 @@ func (c *conn) ScanItems(_ context.Context, request adapter.ScanRequest) (adapte
 	if pageSize <= 0 {
 		pageSize = rowsPerPage
 	}
-	return &scan{a: c.a, path: request.Container, offset: offset, pageSize: pageSize, more: true}, nil
+	return &scan{a: c.a, request: request, offset: offset, pageSize: pageSize, more: true}, nil
 }
 
+// scan walks the stored items by offset. Since and Projection are applied
+// to each page as it is read, so a filtered scan's positions are the
+// unfiltered offsets, and stay valid across writes that replace in place.
 type scan struct {
 	a        *Adapter
-	path     []string
+	request  adapter.ScanRequest
 	offset   int
 	pageSize int
 	more     bool
@@ -193,11 +196,15 @@ func (s *scan) NextPage(ctx context.Context) (adapter.ItemPage, error) {
 		return adapter.ItemPage{}, errors.New("mock: no more pages")
 	}
 	s.a.mu.Lock()
-	stored := s.a.items[pathText(s.path)]
+	stored := s.a.items[pathText(s.request.Container)]
+	keys := s.a.keyPaths(s.request.Container)
 	end := min(s.offset+s.pageSize, len(stored))
 	page := adapter.ItemPage{RequestCharge: scanCharge}
 	for _, item := range stored[min(s.offset, end):end] {
-		page.Items = append(page.Items, item.body)
+		if !s.request.Since.IsZero() && item.modified < s.request.Since.Unix() {
+			continue
+		}
+		page.Items = append(page.Items, project(item.body, keys, s.request.Projection))
 	}
 	s.a.mu.Unlock()
 	s.offset = end
@@ -206,6 +213,51 @@ func (s *scan) NextPage(ctx context.Context) (adapter.ItemPage, error) {
 		page.Next = adapter.ScanPosition(strconv.Itoa(end))
 	}
 	return page, nil
+}
+
+// project reduces body to what projection asks for: its id, the values at
+// its key paths where it has them, nested as they are, and its system
+// fields.
+func project(body json.RawMessage, keyPaths []string, projection adapter.ScanProjection) json.RawMessage {
+	if projection != adapter.ScanIdentity {
+		return body
+	}
+	var whole map[string]json.RawMessage
+	if json.Unmarshal(body, &whole) != nil {
+		return body
+	}
+	identity := map[string]any{}
+	for _, name := range []string{"id", etagField, tsField} {
+		if value, ok := whole[name]; ok {
+			identity[name] = value
+		}
+	}
+	for _, path := range keyPaths {
+		copyPath(whole, identity, strings.Split(strings.TrimPrefix(path, "/"), "/"))
+	}
+	projected, _ := json.Marshal(identity) // raw values and maps of them always marshal
+	return projected
+}
+
+func copyPath(from map[string]json.RawMessage, to map[string]any, names []string) {
+	value, ok := from[names[0]]
+	if !ok {
+		return
+	}
+	if len(names) == 1 {
+		to[names[0]] = value
+		return
+	}
+	var nested map[string]json.RawMessage
+	if json.Unmarshal(value, &nested) != nil {
+		return
+	}
+	inner, ok := to[names[0]].(map[string]any)
+	if !ok {
+		inner = map[string]any{}
+		to[names[0]] = inner
+	}
+	copyPath(nested, inner, names[1:])
 }
 
 func (s *scan) HasMore() bool { return s.more }
@@ -255,19 +307,62 @@ func (a *Adapter) upsert(path, keys []string, item json.RawMessage) (float64, er
 	if err != nil {
 		return 0, fmt.Errorf("mock: %s: %s: %w: %w", op, head.ID, adapter.ErrItemRefused, err)
 	}
-	if _, _, err := a.locateContainer("upsert", path); err != nil {
+	if err := a.store(path, partitionText(values), head.ID, item); err != nil {
 		return 0, err
 	}
-	partition := partitionText(values)
+	return charges[adapter.OperationUpsert], nil
+}
+
+// store writes item as the next version of the item called id in
+// partition, or as a new one. The caller holds a.mu.
+func (a *Adapter) store(path []string, partition, id string, item json.RawMessage) error {
+	if _, _, err := a.locateContainer("upsert", path); err != nil {
+		return err
+	}
 	stored := a.items[pathText(path)]
-	written := a.newVersion(partition, head.ID, item)
-	i := slices.IndexFunc(stored, func(s storedItem) bool { return s.partition == partition && s.id == head.ID })
+	written := a.newVersion(partition, id, item)
+	i := slices.IndexFunc(stored, func(s storedItem) bool { return s.partition == partition && s.id == id })
 	if i < 0 {
 		a.items[pathText(path)] = append(stored, written)
 	} else {
 		stored[i] = written
 	}
-	return charges[adapter.OperationUpsert], nil
+	return nil
+}
+
+// PutItem writes item into the container at path as the service would an
+// upsert, with a new version and the clock's modified time, and no
+// injected fault. An item missing a key value is filed under the empty
+// partition, as a seeded one is.
+func (a *Adapter) PutItem(path []string, item json.RawMessage) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var head struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(item, &head) != nil || head.ID == "" {
+		return fmt.Errorf("mock: put into %s: the item has no id", pathText(path))
+	}
+	partition, err := a.partitionOf(path, item)
+	if err != nil {
+		partition = ""
+	}
+	return a.store(path, partition, head.ID, item)
+}
+
+// DeleteItem removes the item called id under key from the container at
+// path.
+func (a *Adapter) DeleteItem(path []string, id string, key adapter.PartitionKey) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	partition := partitionText(key)
+	stored := a.items[pathText(path)]
+	i := slices.IndexFunc(stored, func(s storedItem) bool { return s.partition == partition && s.id == id })
+	if i < 0 {
+		return fmt.Errorf("mock: delete %s from %s: not found", id, pathText(path))
+	}
+	a.items[pathText(path)] = slices.Delete(slices.Clone(stored), i, i+1)
+	return nil
 }
 
 func (f writeFaults) take(id string) error {

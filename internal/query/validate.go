@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/canonical"
 )
 
 // The service's limits on one transactional batch.
@@ -265,11 +266,11 @@ func canonicalJSON(raw json.RawMessage) string {
 	if decoder.Decode(&value) != nil {
 		return string(raw)
 	}
-	canonical, err := json.Marshal(canonicalNumbers(value))
+	rendered, err := json.Marshal(canonical.Numbers(value))
 	if err != nil {
 		return string(raw)
 	}
-	return string(canonical)
+	return string(rendered)
 }
 
 // FormatSize renders a byte count the way the limits are stated.

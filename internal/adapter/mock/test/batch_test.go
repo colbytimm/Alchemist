@@ -80,10 +80,10 @@ func TestACommittedBatchAppliesEveryOperation(t *testing.T) {
 	}
 	assert.Equal(t, []string{"201 Created", "204 No Content", "200 OK", "200 OK"},
 		[]string{result.Results[0].Status, result.Results[1].Status, result.Results[2].Status, result.Results[3].Status})
-	etag, err := json.Marshal(result.Results[3].ETag)
+	body, meta, err := adapter.SplitSystemFields(result.Results[3].Body)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"id":"o2","customerId":"c01","status":"shipped","_etag":`+string(etag)+`}`,
-		string(result.Results[3].Body), "the read sees the patch before it")
+	assert.JSONEq(t, `{"id":"o2","customerId":"c01","status":"shipped"}`, string(body), "the read sees the patch before it")
+	assert.Equal(t, result.Results[3].ETag, meta.Version)
 	assert.Equal(t, []string{"o2", "o3"}, ids(t, a.Items(ordersPath)))
 	assert.InDelta(t, 7+7+10+1, result.Stats.RequestCharge, 0.001)
 	assert.Equal(t, 4, result.Stats.RowCount)
@@ -217,7 +217,7 @@ func TestPatchOperations(t *testing.T) {
 
 			require.NoError(t, err)
 			require.True(t, result.Committed)
-			item, err := adapter.WithoutFields(a.Items(ordersPath)[0], "_etag")
+			item, _, err := adapter.SplitSystemFields(a.Items(ordersPath)[0])
 			require.NoError(t, err)
 			assert.JSONEq(t, tt.want, string(item))
 		})

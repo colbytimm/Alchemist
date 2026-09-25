@@ -125,6 +125,13 @@ func WithLatency(d time.Duration) Option {
 	return func(a *Adapter) { a.latency = d }
 }
 
+// WithClock sets what the store stamps an item's modified time from, so a
+// test can put writes in the seconds it wants. Items seeded by options
+// before it are stamped from the real clock.
+func WithClock(clock func() time.Time) Option {
+	return func(a *Adapter) { a.clock = clock }
+}
+
 // WithPages sets how many result pages a query cursor returns.
 func WithPages(n int) Option {
 	return func(a *Adapter) { a.pages = n }
@@ -138,6 +145,7 @@ type Adapter struct {
 
 	batchFailure batchFailure
 	unknownSize  bool
+	clock        func() time.Time
 	upserts      upsertGauge
 
 	mu        sync.Mutex
@@ -154,6 +162,7 @@ func New(opts ...Option) *Adapter {
 	a := &Adapter{
 		errOps:    map[string]bool{},
 		pages:     3,
+		clock:     time.Now,
 		databases: newFixture(),
 		items:     map[string][]storedItem{},
 		faults:    writeFaults{throttles: map[string]throttle{}, failures: map[string]bool{}},

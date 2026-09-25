@@ -314,3 +314,25 @@ func TestACreateIsSentOnce(t *testing.T) {
 		})
 	}
 }
+
+func TestIdentityProjectionNamesTheIdSystemFieldsAndKeyPaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		keyPaths []string
+		want     string
+	}{
+		{name: "a plain key", keyPaths: []string{"/customerId"},
+			want: `{"id": c["id"], "_rid": c["_rid"], "_self": c["_self"], "_etag": c["_etag"], "_attachments": c["_attachments"], "_ts": c["_ts"], "customerId": c["customerId"]}`},
+		{name: "a nested key", keyPaths: []string{"/shipTo/region"},
+			want: `{"id": c["id"], "_rid": c["_rid"], "_self": c["_self"], "_etag": c["_etag"], "_attachments": c["_attachments"], "_ts": c["_ts"], "shipTo": {"region": c["shipTo"]["region"]}}`},
+		{name: "two keys under one parent, one a name no identifier allows", keyPaths: []string{"/a/device-id", "/a/b"},
+			want: `{"id": c["id"], "_rid": c["_rid"], "_self": c["_self"], "_etag": c["_etag"], "_attachments": c["_attachments"], "_ts": c["_ts"], "a": {"device-id": c["a"]["device-id"], "b": c["a"]["b"]}}`},
+		{name: "the id as a key", keyPaths: []string{"/id"},
+			want: `{"id": c["id"], "_rid": c["_rid"], "_self": c["_self"], "_etag": c["_etag"], "_attachments": c["_attachments"], "_ts": c["_ts"]}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, cosmos.IdentityProjection(tt.keyPaths))
+		})
+	}
+}

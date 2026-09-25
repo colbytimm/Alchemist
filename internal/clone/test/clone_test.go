@@ -349,13 +349,13 @@ func TestEveryItemArrivesWithoutItsSystemFields(t *testing.T) {
 		assert.Positive(t, sum.ReadCharge)
 		assert.Positive(t, sum.WriteCharge)
 		for _, copied := range a.Items(copyPath) {
-			for _, field := range []string{`"_rid"`, `"_self"`, `"_attachments"`, `"_ts"`} {
+			for _, field := range []string{`"_rid"`, `"_self"`, `"_attachments"`, `"_ts":1700000000`} {
 				assert.NotContains(t, string(copied), field)
 			}
 		}
 		assert.Contains(t, string(itemCalled(t, a.Items(copyPath), "o1")),
 			`{"id":"o1","customerId":"c01","ttl":3600,"big":12345678901234567890,"_etag":`,
-			"the body is byte-identical but for the etag the target gave it")
+			"the body is byte-identical but for the system fields the target gave it")
 	})
 }
 

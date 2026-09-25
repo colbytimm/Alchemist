@@ -36,8 +36,13 @@ var charges = map[adapter.OperationKind]float64{
 
 const failedCharge = 1
 
-// etagField is the system field the store adds to every item it holds.
-const etagField = "_etag"
+// The system fields the store adds to every item it holds: a version tag
+// no earlier write had, and the modified time, in Unix seconds, from the
+// adapter's clock.
+const (
+	etagField = "_etag"
+	tsField   = "_ts"
+)
 
 // WithItems seeds the container at path with items, each filed under the
 // partition its own key values name.
@@ -65,6 +70,7 @@ type storedItem struct {
 	id        string
 	body      json.RawMessage
 	etag      string
+	modified  int64
 }
 
 // Items lists what the container at path holds, each with the version tag
@@ -91,11 +97,14 @@ func (a *Adapter) seed(path []string, body json.RawMessage) {
 	a.items[pathText(path)] = append(a.items[pathText(path)], a.newVersion(partition, head.ID, body))
 }
 
-// newVersion stamps body with a version tag no earlier write had.
+// newVersion stamps body with its system fields.
 func (a *Adapter) newVersion(partition, id string, body json.RawMessage) storedItem {
 	a.etags++
 	etag := fmt.Sprintf(`"mock-%d"`, a.etags)
-	return storedItem{partition: partition, id: id, body: withField(body, etagField, etag), etag: etag}
+	modified := a.clock().Unix()
+	stamped := withField(body, etagField, etag)
+	stamped = withRawField(stamped, tsField, json.RawMessage(strconv.FormatInt(modified, 10)))
+	return storedItem{partition: partition, id: id, body: stamped, etag: etag, modified: modified}
 }
 
 func (a *Adapter) partitionOf(path []string, body json.RawMessage) (string, error) {
@@ -394,21 +403,25 @@ func (c *conn) DraftReplace(item json.RawMessage) (adapter.Operation, error) {
 	if err := json.Unmarshal(item, &head); err != nil || head.ID == "" {
 		return adapter.Operation{}, fmt.Errorf("mock: draft replace: the item has no id")
 	}
-	body, err := adapter.WithoutFields(item, etagField)
+	body, err := adapter.WithoutFields(item, etagField, tsField)
 	if err != nil {
 		return adapter.Operation{}, fmt.Errorf("mock: draft replace: %w", err)
 	}
 	return adapter.Operation{Kind: adapter.OperationReplace, ID: head.ID, Body: body, IfMatch: head.ETag}, nil
 }
 
-// withField sets name to value at the top level of body, keeping the rest
-// of it as written.
+// withField sets name to the string value at the top level of body,
+// keeping the rest of it as written.
 func withField(body json.RawMessage, name, value string) json.RawMessage {
+	encoded, _ := json.Marshal(value) // a string always marshals
+	return withRawField(body, name, encoded)
+}
+
+func withRawField(body json.RawMessage, name string, value json.RawMessage) json.RawMessage {
 	fields, err := topLevelFields(body)
 	if err != nil {
 		return body
 	}
-	encoded, _ := json.Marshal(value) // a string always marshals
 	i := slices.IndexFunc(fields, func(f field) bool { return f.name == name })
-	return joinFields(setField(fields, i, field{name: name, value: encoded}))
+	return joinFields(setField(fields, i, field{name: name, value: value}))
 }
