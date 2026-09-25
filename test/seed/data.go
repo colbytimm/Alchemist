@@ -72,10 +72,13 @@ func orders(prefix string, count, offset int) []item {
 		items = append(items, item{
 			"id":         fmt.Sprintf("%s%03d", prefix, n),
 			"customerId": fmt.Sprintf("c%02d", n%customersNamed),
-			"status":     pick(statuses, n),
-			"total":      float64(n%17)*12.5 + 20,
-			"shipTo":     item{"city": pick(cities, n), "region": pick(regions, n)},
-			"tags":       []string{pick(categories, n), pick(statuses, n+1)},
+			// sku repeats the first line's, so a cross-container join, which
+			// cannot reach into lines, has a key for products.
+			"sku":    fmt.Sprintf("p%02d", n%productCount),
+			"status": pick(statuses, n),
+			"total":  float64(n%17)*12.5 + 20,
+			"shipTo": item{"city": pick(cities, n), "region": pick(regions, n)},
+			"tags":   []string{pick(categories, n), pick(statuses, n+1)},
 			"lines": []item{
 				{"sku": fmt.Sprintf("p%02d", n%productCount), "quantity": n%4 + 1},
 			},

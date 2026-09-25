@@ -87,7 +87,8 @@ func TestAnEmptyBuildSideYieldsNoRowsAndNoError(t *testing.T) {
 
 	assert.Empty(t, rows(pages))
 	assert.False(t, cursor.HasMore())
-	assert.Equal(t, 2, conn.closed, "the probe side is closed unread")
+	assert.Len(t, conn.queries, 1, "the streamed side is never queried")
+	assert.Equal(t, conn.opened, conn.closed)
 }
 
 func TestProbePagesWithNoMatchAreSkippedRatherThanServedEmpty(t *testing.T) {
@@ -191,7 +192,8 @@ func TestABuildSideOverTheCapAbortsWithNothingPartial(t *testing.T) {
 	require.ErrorIs(t, err, query.ErrJoinTooLarge)
 	assert.ErrorContains(t, err, "sales.customers")
 	assert.Empty(t, served.Rows)
-	assert.Equal(t, 2, conn.closed, "both leaves are closed")
+	assert.Len(t, conn.queries, 1, "the streamed side is never queried")
+	assert.Equal(t, conn.opened, conn.closed)
 }
 
 func TestABuildSideExactlyAtTheCapIsJoined(t *testing.T) {
@@ -221,6 +223,8 @@ func TestCancellingMidJoinClosesEveryLeafCursor(t *testing.T) {
 func TestClosingAJoinTwiceClosesEachLeafOnce(t *testing.T) {
 	conn := salesContainers(t)
 	cursor := execute(t, conn, joinQuery)
+	_, err := cursor.NextPage(context.Background())
+	require.NoError(t, err)
 
 	require.NoError(t, cursor.Close())
 	require.NoError(t, cursor.Close())

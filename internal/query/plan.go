@@ -32,7 +32,7 @@ const (
 type Plan struct {
 	Merge  Merge
 	Leaves []Leaf
-	Join   Join // set for HashJoin, whose Leaves are its left and right side
+	Join   Join // set for HashJoin, whose Leaves are its sides in written order
 }
 
 type Leaf struct {
@@ -43,9 +43,18 @@ type Leaf struct {
 }
 
 type Join struct {
-	LeftKey  []string // field path within a left-side item
-	RightKey []string
-	Columns  []JoinColumn // empty for SELECT *
+	// Steps has one entry per JOIN, in written order: Steps[i] attaches
+	// Plan.Leaves[i+1] to an earlier leaf.
+	Steps   []JoinStep
+	Columns []JoinColumn // empty for SELECT *
+}
+
+// JoinStep is one ON equality between the leaf a JOIN introduced and an
+// earlier one.
+type JoinStep struct {
+	Left     int      // index into Plan.Leaves of the earlier leaf
+	LeftKey  []string // field path within an item of Leaves[Left]
+	RightKey []string // field path within an item of the joined leaf
 }
 
 // JoinColumn is one projected field; Side indexes Plan.Leaves.
@@ -147,7 +156,7 @@ func checkMergeable(containers []source) error {
 
 func planUnion(text string, sources, containers []source) (Plan, error) {
 	if slices.ContainsFunc(containers, func(c source) bool { return c.joined }) {
-		return Plan{}, unsupported("a join over more than two containers")
+		return Plan{}, unsupported(shapeListWithJoin)
 	}
 	if !isPlainList(sources, containers) {
 		return Plan{}, unsupported("a container list mixed with other sources")

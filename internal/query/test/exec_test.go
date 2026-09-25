@@ -18,13 +18,17 @@ import (
 
 // containers is a connection serving canned pages per db.container, which
 // the mock adapter cannot: it answers every scope with the same rows. It
-// tallies the cursors it opened and the ones closed since.
+// tallies the cursors it opened, the ones closed since, and the most ever
+// open at once.
 type containers struct {
 	adapter.Connection
-	pages   map[string][]adapter.Page
-	queries []adapter.Query
-	opened  int
-	closed  int
+	pages    map[string][]adapter.Page
+	queries  []adapter.Query
+	opened   int
+	closed   int
+	mostOpen int
+	// onQuery, when set, runs as each leaf is opened, with its db.container.
+	onQuery func(label string)
 }
 
 func newContainers(pages map[string][]adapter.Page) *containers {
@@ -37,7 +41,12 @@ func (c *containers) Query(ctx context.Context, q adapter.Query) (adapter.Cursor
 	}
 	c.queries = append(c.queries, q)
 	c.opened++
-	return &cannedCursor{owner: c, pages: c.pages[strings.Join(q.Scope, ".")]}, nil
+	c.mostOpen = max(c.mostOpen, c.opened-c.closed)
+	label := strings.Join(q.Scope, ".")
+	if c.onQuery != nil {
+		c.onQuery(label)
+	}
+	return &cannedCursor{owner: c, pages: c.pages[label]}, nil
 }
 
 type cannedCursor struct {

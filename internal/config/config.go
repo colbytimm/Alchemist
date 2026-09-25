@@ -41,7 +41,8 @@ type Profile struct {
 	InsecureSkipVerify bool   `toml:"insecure_skip_verify,omitempty"`
 	Database           string `toml:"database,omitempty"`
 	PageSize           int    `toml:"page_size,omitzero"`
-	// MaxJoinRows caps the side of a cross-container join held in memory.
+	// MaxJoinRows caps the rows a cross-container join holds in memory,
+	// across all the sides it holds.
 	MaxJoinRows int `toml:"max_join_rows,omitzero"`
 	// SampleFields lets completion read a few items of a container for its
 	// fields; unset means true, which a plain bool cannot say.

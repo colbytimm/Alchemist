@@ -170,9 +170,8 @@ Query capability split, explicitly:
 - **Cross-container** (several containers): impossible in Cosmos SQL and the SDK, so
   it is **simulated client-side** in the adapter-agnostic query engine — iteration 10.
 
-Future work on the cross-container engine, beyond the iterations above (16 plans
-multi-way joins; 20 plans CTEs and the other join types): `WHERE` conditions that read
-both sides of a join, `ORDER BY` and aggregation over a merged result, semi-join key
+Future work on the cross-container engine, beyond the iterations above (20 plans CTEs
+and the other join types): `WHERE` conditions that read more than one side of a join, `ORDER BY` and aggregation over a merged result, semi-join key
 pushdown, cross-account or cross-adapter joins, and spill-to-disk for a build side past
 `max_join_rows`.
 

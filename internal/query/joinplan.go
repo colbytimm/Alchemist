@@ -1,6 +1,7 @@
 package query
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
@@ -8,40 +9,44 @@ import (
 
 // Shapes of a cross-container join the planner refuses.
 const (
-	shapeMultiWay   = "a join over more than two containers"
-	shapeOn         = "an ON clause other than one equality between a field of each side"
-	shapeProjection = "a join SELECT list other than * or alias.field [AS name] items"
+	shapeOn           = "an ON clause other than one equality between a field of the joined container and a field of an earlier one"
+	shapeProjection   = "a join SELECT list other than * or alias.field [AS name] items"
+	shapePropertyJoin = "JOIN ... IN alongside a cross-container join"
+	shapeListWithJoin = "a container list mixed with a join"
 )
 
-// whereBreakers are the keywords that decide how a join's WHERE clause can be
-// divided between its sides.
-var whereBreakers = map[string]bool{
-	"AND": true, "OR": true, "BETWEEN": true,
-	"ORDER": true, "GROUP": true, "OFFSET": true, "LIMIT": true,
-}
+var (
+	// whereBreakers are the keywords that decide how a join's WHERE clause
+	// can be divided between its sides.
+	whereBreakers = map[string]bool{
+		"AND": true, "OR": true, "BETWEEN": true,
+		"ORDER": true, "GROUP": true, "OFFSET": true, "LIMIT": true,
+	}
+	// trailingClauses may follow a WHERE clause, or stand in for one.
+	trailingClauses = map[string]bool{"ORDER": true, "GROUP": true, "OFFSET": true, "LIMIT": true}
+)
 
-// joinPlanner reads `SELECT list FROM left JOIN right ON a.x = b.y [WHERE ...]`.
-// Sides are indexed 0 for left and 1 for right throughout.
+// joinPlanner reads `SELECT list FROM first (JOIN next ON a.x = b.y)+ [WHERE ...]`.
+// A side is the index of its container in written order throughout.
 type joinPlanner struct {
 	text    string
 	toks    []token
-	aliases [2]string
+	aliases []string
 }
 
 func planJoin(text string, toks []token, containers []source) (Plan, error) {
-	if len(containers) != 2 || containers[0].joined {
-		return Plan{}, unsupported(shapeMultiWay)
+	j := joinPlanner{text: text, toks: toks}
+	for _, c := range containers {
+		j.aliases = append(j.aliases, joinAlias(c))
 	}
-	left, right := containers[0], containers[1]
-	j := joinPlanner{text: text, toks: toks, aliases: [2]string{joinAlias(left), joinAlias(right)}}
-	if err := j.checkSources(left, right); err != nil {
+	if err := j.checkSources(containers); err != nil {
 		return Plan{}, err
 	}
-	columns, err := j.parseProjection(left.firstTok - 1)
+	columns, err := j.parseProjection(containers[0].firstTok - 1)
 	if err != nil {
 		return Plan{}, err
 	}
-	keys, next, err := j.parseOn(right.nextTok)
+	steps, next, err := j.parseChain(containers)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -49,11 +54,11 @@ func planJoin(text string, toks []token, containers []source) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	return Plan{
-		Merge:  HashJoin,
-		Leaves: []Leaf{j.leaf(0, left, filters[0]), j.leaf(1, right, filters[1])},
-		Join:   Join{LeftKey: keys[0], RightKey: keys[1], Columns: columns},
-	}, nil
+	leaves := make([]Leaf, 0, len(containers))
+	for side, c := range containers {
+		leaves = append(leaves, j.leaf(side, c, filters[side]))
+	}
+	return Plan{Merge: HashJoin, Leaves: leaves, Join: Join{Steps: steps, Columns: columns}}, nil
 }
 
 // joinAlias falls back to the container name, so `orders.customerId` works
@@ -65,19 +70,85 @@ func joinAlias(s source) string {
 	return s.path[1].text
 }
 
-func (j joinPlanner) checkSources(left, right source) error {
+func (j joinPlanner) checkSources(containers []source) error {
 	switch {
-	case j.aliases[0] == j.aliases[1]:
+	case hasDuplicate(j.aliases):
 		return unsupported("a join whose sides share an alias")
-	case !keywordAt(j.toks, left.firstTok-1, "FROM"):
+	case !keywordAt(j.toks, containers[0].firstTok-1, "FROM"):
 		return unsupported("a container list mixed with other sources")
+	case slices.ContainsFunc(containers[1:], func(c source) bool { return !c.joined }):
+		return unsupported(shapeListWithJoin)
 	}
-	for _, tok := range j.toks[left.nextTok:right.firstTok] {
-		if tok.upper != "JOIN" && tok.upper != "INNER" {
-			return unsupported("JOIN ... IN alongside a cross-container join")
+	return nil
+}
+
+func hasDuplicate(names []string) bool {
+	seen := map[string]bool{}
+	for _, name := range names {
+		if seen[name] {
+			return true
+		}
+		seen[name] = true
+	}
+	return false
+}
+
+// parseChain reads the ON clause of every joined container and returns the
+// index just past the last one.
+func (j joinPlanner) parseChain(containers []source) ([]JoinStep, int, error) {
+	var steps []JoinStep
+	end := containers[0].nextTok
+	for joined := 1; joined < len(containers); joined++ {
+		if err := j.checkJoinKeywords(j.toks[end:containers[joined].firstTok]); err != nil {
+			return nil, end, err
+		}
+		step, next, err := j.parseStep(containers[joined].nextTok, joined)
+		if err != nil {
+			return nil, next, err
+		}
+		steps = append(steps, step)
+		end = next
+	}
+	if keywordAt(j.toks, end, "JOIN") {
+		return nil, end, unsupported(shapePropertyJoin)
+	}
+	return steps, end, nil
+}
+
+// checkJoinKeywords accepts the tokens from the end of one side's clause to
+// the next container: only `JOIN` or `INNER JOIN`. Anything else right after
+// an ON equality extends that ON clause.
+func (j joinPlanner) checkJoinKeywords(between []token) error {
+	for i, tok := range between {
+		switch {
+		case tok.upper == "JOIN" || tok.upper == "INNER":
+		case i == 0:
+			return unsupported(shapeOn)
+		default:
+			return unsupported(shapePropertyJoin)
 		}
 	}
 	return nil
+}
+
+// parseStep reads the ON clause of the container at index joined and
+// returns the index just past it.
+func (j joinPlanner) parseStep(i, joined int) (JoinStep, int, error) {
+	if !keywordAt(j.toks, i, "ON") {
+		return JoinStep{}, i, unsupported(shapeOn)
+	}
+	newSide, newPath, i, ok := j.parseFieldRef(i + 1)
+	if !ok || i >= len(j.toks) || !isSymbol(j.toks[i], "=") {
+		return JoinStep{}, i, unsupported(shapeOn)
+	}
+	earlierSide, earlierPath, i, ok := j.parseFieldRef(i + 1)
+	if earlierSide == joined {
+		newSide, newPath, earlierSide, earlierPath = earlierSide, earlierPath, newSide, newPath
+	}
+	if !ok || newSide != joined || earlierSide >= joined {
+		return JoinStep{}, i, unsupported(shapeOn)
+	}
+	return JoinStep{Left: earlierSide, LeftKey: earlierPath, RightKey: newPath}, i, nil
 }
 
 func (j joinPlanner) leaf(side int, s source, filters []string) Leaf {
@@ -155,25 +226,6 @@ func columnHeader(alias string, column JoinColumn) string {
 	return alias + "." + column.Field
 }
 
-// parseOn returns the key path of each side and the index just past the
-// clause.
-func (j joinPlanner) parseOn(i int) ([2][]string, int, error) {
-	var keys [2][]string
-	if !keywordAt(j.toks, i, "ON") {
-		return keys, i, unsupported(shapeOn)
-	}
-	firstSide, firstPath, i, ok := j.parseFieldRef(i + 1)
-	if !ok || i >= len(j.toks) || !isSymbol(j.toks[i], "=") {
-		return keys, i, unsupported(shapeOn)
-	}
-	secondSide, secondPath, i, ok := j.parseFieldRef(i + 1)
-	if !ok || firstSide == secondSide {
-		return keys, i, unsupported(shapeOn)
-	}
-	keys[firstSide], keys[secondSide] = firstPath, secondPath
-	return keys, i, nil
-}
-
 // parseFieldRef reads `alias.field[.field...]`.
 func (j joinPlanner) parseFieldRef(i int) (side int, path []string, next int, ok bool) {
 	if i >= len(j.toks) {
@@ -193,13 +245,16 @@ func (j joinPlanner) parseFieldRef(i int) (side int, path []string, next int, ok
 
 // parseWhere divides the conditions after ON between the sides, as the text
 // each leaf query filters by. A condition is pushed down only whole: one that
-// reads both sides would have to be evaluated client-side.
-func (j joinPlanner) parseWhere(i int) ([2][]string, error) {
-	var filters [2][]string
+// reads several sides would have to be evaluated client-side.
+func (j joinPlanner) parseWhere(i int) ([][]string, error) {
+	filters := make([][]string, len(j.aliases))
 	if i == len(j.toks) {
 		return filters, nil
 	}
-	if !keywordAt(j.toks, i, "WHERE") {
+	switch tok := j.toks[i]; {
+	case tok.kind == tokIdent && trailingClauses[tok.upper]:
+		return filters, unsupported(tok.upper + " in a cross-container join")
+	case !keywordAt(j.toks, i, "WHERE"):
 		return filters, unsupported(shapeOn)
 	}
 	conjuncts, err := j.splitConjuncts(j.toks[i+1:])
@@ -211,12 +266,12 @@ func (j joinPlanner) parseWhere(i int) ([2][]string, error) {
 			return filters, unsupported("an empty WHERE condition")
 		}
 		reads := j.sidesRead(conjunct)
-		if reads[0] && reads[1] {
-			return filters, unsupported("a WHERE condition over both sides of a join")
+		if len(reads) > 1 {
+			return filters, unsupported("a WHERE condition over more than one side of a join")
 		}
 		condition := j.text[conjunct[0].start:conjunct[len(conjunct)-1].end]
 		for side := range filters {
-			if !reads[1-side] {
+			if len(reads) == 0 || reads[side] {
 				filters[side] = append(filters[side], condition)
 			}
 		}
@@ -270,8 +325,9 @@ func (j joinPlanner) topLevelBreakers(toks []token) []int {
 	return breakers
 }
 
-func (j joinPlanner) sidesRead(toks []token) [2]bool {
-	var reads [2]bool
+// sidesRead is the set of sides toks read.
+func (j joinPlanner) sidesRead(toks []token) map[int]bool {
+	reads := map[int]bool{}
 	for i, tok := range toks {
 		if side, ok := j.side(tok); ok && !followsDot(toks, i) {
 			reads[side] = true

@@ -125,7 +125,7 @@ func (a *addFlags) bind(flags *pflag.FlagSet) {
 	flags.StringVar(&a.profile.Database, "database", "", "database to open in the catalog on start")
 	flags.IntVar(&a.profile.PageSize, "page-size", 0, "rows per result page (the adapter's default when 0)")
 	flags.IntVar(&a.profile.MaxJoinRows, "max-join-rows", 0,
-		fmt.Sprintf("rows a cross-container join may hold in memory (%d when 0)", query.DefaultMaxJoinRows))
+		fmt.Sprintf("rows a cross-container join may hold in memory, across all the sides held (%d when 0)", query.DefaultMaxJoinRows))
 	flags.BoolVar(&a.makeDefault, "default", false, "make this the default profile")
 }
 

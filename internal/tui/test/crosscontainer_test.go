@@ -15,13 +15,22 @@ import (
 const (
 	simulatedBadge = "simulated (client-side)"
 	mockJoin       = "SELECT o.id, cu.note FROM sales.orders o JOIN sales.customers cu ON o.pk = cu.pk"
+	mockThreeWay   = mockJoin + " JOIN sales.products p ON o.pk = p.pk"
+	// threeWayCharge is what the first page of mockThreeWay costs: both held
+	// sides whole and one page of orders.
+	threeWayCharge = "17.50 RU (sales.customers 7.50 + sales.orders 2.50 + sales.products 7.50)"
 )
 
 // newWideModel is sized so the status bar has room for every field of a
 // simulated run.
 func newWideModel(t *testing.T, conn adapter.Connection, opts tui.Options) tea.Model {
 	t.Helper()
-	m, _ := newModelWith(t, conn, opts).Update(tea.WindowSizeMsg{Width: 3 * testWidth, Height: testHeight})
+	return newModelOfWidth(t, conn, opts, 3*testWidth)
+}
+
+func newModelOfWidth(t *testing.T, conn adapter.Connection, opts tui.Options, width int) tea.Model {
+	t.Helper()
+	m, _ := newModelWith(t, conn, opts).Update(tea.WindowSizeMsg{Width: width, Height: testHeight})
 	model, _ := settle(m, m.Init())
 	return model
 }
@@ -70,7 +79,8 @@ func TestAJoinOverTheRowCapFailsWithTheFixAndRendersNothing(t *testing.T) {
 	view := plain(m.View())
 	assert.Contains(t, view, "WHERE filter")
 	assert.NotContains(t, view, "item-1-0")
-	assert.Equal(t, 2, conn.closed, "both leaf cursors are closed")
+	require.Len(t, conn.queries, 1, "the streamed side is never opened")
+	assert.Equal(t, 1, conn.closed, "the held side's cursor is closed")
 }
 
 func TestASingleContainerRunClearsTheSimulatedBadge(t *testing.T) {
@@ -80,4 +90,59 @@ func TestASingleContainerRunClearsTheSimulatedBadge(t *testing.T) {
 
 	assert.Contains(t, m.View(), "10 rows (+more)", "the second run did load")
 	assert.NotContains(t, m.View(), simulatedBadge)
+}
+
+func TestAThreeContainerJoinTotalsEveryLeafCharge(t *testing.T) {
+	m := runQuery(t, newWideModel(t, newConnection(t), tui.Options{}), mockThreeWay)
+
+	view := m.View()
+	assert.Contains(t, view, "o.id")
+	assert.Contains(t, view, "cu.note")
+	assert.Contains(t, view, simulatedBadge)
+	assert.Contains(t, view, threeWayCharge)
+}
+
+func TestANarrowStatusBarFoldsTheBreakdownAndKeepsTheElapsedTime(t *testing.T) {
+	m := runQuery(t, newModelOfWidth(t, newConnection(t), tui.Options{}, 120), mockThreeWay)
+
+	view := plain(m.View())
+	assert.Contains(t, view, "17.50 RU (3 containers)")
+	assert.Contains(t, view, "1000 rows (+more)")
+	assert.Contains(t, view, "ms ", "the elapsed time is still shown")
+}
+
+func TestATotalOverTheRowCapFailsNamingTheSideThatCrossedIt(t *testing.T) {
+	conn := newConnection(t)
+	opts := tui.Options{Accounts: []tui.Account{{Name: mock.Name, MaxJoinRows: 50}}}
+
+	m := runQuery(t, newWideModel(t, conn, opts), mockThreeWay)
+
+	view := plain(m.View())
+	assert.Contains(t, view, "sales.products takes the rows held in memory past 50 (sales.customers 30)")
+	assert.NotContains(t, view, "item-1-0")
+	assert.Equal(t, len(conn.queries), conn.closed, "every leaf cursor opened is closed")
+}
+
+func TestFetchingMoreOfAFannedOutJoinServesRowsAlreadyRead(t *testing.T) {
+	conn := newConnection(t)
+	m := runQuery(t, newWideModel(t, conn, tui.Options{}), mockThreeWay)
+	require.Contains(t, m.View(), "1000 rows (+more)")
+
+	m = pressAll(t, focusResults(t, m), keyRune('m'))
+
+	assert.Contains(t, m.View(), "1062 rows (+more)")
+	assert.Contains(t, m.View(), threeWayCharge, "the appended rows cost nothing more")
+	assert.Len(t, conn.queries, 3, "no leaf is queried again")
+}
+
+func TestARefusedMultiWayShapeIsShownAndRecorded(t *testing.T) {
+	store := &recordingStore{}
+	refused := mockJoin + " LEFT JOIN sales.products p ON o.pk = p.pk"
+
+	m := runQuery(t, newWideModel(t, newConnection(t), tui.Options{History: store}), refused)
+
+	assert.Contains(t, plain(m.View()), "LEFT JOIN")
+	require.Len(t, store.entries, 1)
+	assert.False(t, store.entries[0].OK)
+	assert.Contains(t, store.entries[0].Error, "LEFT JOIN")
 }
