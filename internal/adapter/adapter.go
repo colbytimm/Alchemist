@@ -65,6 +65,37 @@ type ThroughputEditor interface {
 	SetThroughput(ctx context.Context, path []string, t Throughput) error
 }
 
+// Inspector serves the metadata behind one catalog node. A Connection
+// implements it when its backend has metadata worth a screen; callers detect
+// support with a comma-ok type assertion.
+type Inspector interface {
+	Inspect(ctx context.Context, n Node) (Details, error)
+}
+
+// Details is one node's metadata, pre-rendered into ordered sections the way
+// Page pre-renders rows. The TUI lays it out without interpreting it: only
+// the adapter knows what its backend's fields mean, what to call them, or
+// what order they read in. Raw is the backend's own representation of the
+// node.
+type Details struct {
+	Sections []Section
+	Raw      json.RawMessage
+}
+
+// Section is one titled group. Note explains an empty Properties list — a
+// resource with no throughput of its own, a value the account declined to
+// serve — so a section never disappears without saying why.
+type Section struct {
+	Title      string
+	Properties []Property
+	Note       string
+}
+
+type Property struct {
+	Name  string
+	Value string
+}
+
 // ErrUnsupported marks a request no backend can carry out, as distinct from
 // one the service refused.
 var ErrUnsupported = errors.New("unsupported")

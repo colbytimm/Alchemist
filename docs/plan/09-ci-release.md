@@ -81,8 +81,8 @@ main, and a tag-driven release workflow ships cross-platform binaries.
   `--version` in a downloaded binary prints the tag.
 
 **Manual checklist:**
-- [ ] All PR checks green on the iteration's own PR.
-- [ ] Emulator integration job passes in CI (not just locally).
+- [x] All PR checks green on the iteration's own PR.
+- [x] Emulator integration job passes in CI (not just locally).
 - [ ] rc tag release verified end-to-end, then deleted/superseded by `v0.1.0`.
 
 ## Acceptance criteria
