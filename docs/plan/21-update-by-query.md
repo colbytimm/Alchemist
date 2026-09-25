@@ -350,8 +350,8 @@ on prod/sales.orders: w in the catalog shows it`; queries run as usual.
   key; an `UNSET` that made the dry run read whole items; items that need no operation
   at all (`38 items already lack /tmp and are left out`); the snapshot line.
 - **The snapshot line** appears only when 19 has landed (`Options.Snapshots` is set).
-  It is one call in a `tea.Cmd`, 19's `snapshot.Newest(root, account, database,
-  container) (Record, error)`, which reads the newest record file and nothing else:
+  It is one call in a `tea.Cmd`, 19's `snapshot.Newest(loc snapshot.Location)
+  (Record, error)`, which reads the newest record file and nothing else:
   the line shows that snapshot's age, or, on `snapshot.ErrNoSnapshot`, that there is
   none. It is advice, not a key: the confirmation field has the keyboard, a capture is
   itself a job, and only one job runs at a time. Without 19 the line names 18's clone.
@@ -868,6 +868,15 @@ account. A rerun always selects afresh: a target list is never reused across run
   19's own rule. The one-job rule is shared. The review's snapshot line is
   `snapshot.Newest`, and the preview's rows are drawn by 19's renderer, when 19 has
   landed. If 19 has not, step 1 introduces `Projection` to 19's text.
+  **19 has landed** (see its "Implementation notes"): `ScanRequest.Since`,
+  `Projection`, `ScanIdentity` and `adapter.ReadItemMeta` are there, Cosmos builds the
+  identity projection as a `SELECT VALUE {…}` object literal (`cosmos.IdentityProjection`),
+  and the mock honors both fields. `snapshot.Newest` takes a `snapshot.Location` whose
+  `Root` is `Options.Snapshots`. The structural diff is `snapshot.Structural`, whose
+  `FieldChange` is `{op, path, value, before}`, and the line renderer is
+  `panes.ItemDiff`. The job slot has `jobCapture`, whose status bar field is set from
+  the capture's state, and `job.waitText` words a refusal (`a snapshot is running:
+  updates wait for it (v)`); `warnBeforeQuit` lives in `job.go` and switches on the kind.
 - **20, CTEs and join types.** If its descent parser has landed, `ParseMutation` is
   written on its token helpers (`parseFieldRef` is most of `path`); the condition stays
   an opaque token range either way. No dependency. A `WITH` before `UPDATE` is refused.

@@ -129,7 +129,6 @@ func (s *Store) indexOf(id string) (int, error) {
 	return i, nil
 }
 
-// Body is the canonical body stored under h.
 func (s *Store) Body(h pack.Hash) ([]byte, error) {
 	if s.bodies == nil {
 		set, err := pack.OpenSet(filepath.Join(s.loc.Dir(), packsDir))
