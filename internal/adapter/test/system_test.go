@@ -69,5 +69,5 @@ func TestAThrottledErrorUnwrapsItsCause(t *testing.T) {
 	var throttled *adapter.ThrottledError
 	require.ErrorAs(t, err, &throttled)
 	assert.ErrorIs(t, err, cause)
-	assert.Contains(t, err.Error(), "retry after 1s")
+	assert.Equal(t, cause.Error(), err.Error())
 }

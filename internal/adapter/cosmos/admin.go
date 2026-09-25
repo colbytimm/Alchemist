@@ -41,13 +41,14 @@ func (c *connection) CreateContainer(ctx context.Context, spec adapter.Container
 	if err != nil {
 		return err
 	}
-	props := azcosmos.ContainerProperties{
-		ID:                     spec.Name,
-		PartitionKeyDefinition: azcosmos.PartitionKeyDefinition{Paths: spec.PartitionKeys},
+	op := fmt.Sprintf("create container %s.%s", spec.Database, spec.Name)
+	props, err := containerProperties(spec)
+	if err != nil {
+		return fmt.Errorf("cosmos: %s: %w", op, err)
 	}
 	opts := &azcosmos.CreateContainerOptions{ThroughputProperties: createOffer(spec.Throughput)}
 	if _, err := db.CreateContainer(ctx, props, opts); err != nil {
-		return wrap(fmt.Sprintf("create container %s.%s", spec.Database, spec.Name), err)
+		return wrap(op, err)
 	}
 	return nil
 }
