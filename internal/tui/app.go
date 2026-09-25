@@ -642,6 +642,8 @@ func (m Model) handleCatalogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
 	case m.job.active() && reopensJob(msg, m.keys.Clone):
 		return m.showCloneProgress()
+	case m.clonePrompt.refused && reopensJob(msg, m.keys.Clone):
+		return m.reopenRefusedClone()
 	case key.Matches(msg, m.keys.Clone):
 		return m.openClone()
 	case key.Matches(msg, m.keys.Up):

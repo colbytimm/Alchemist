@@ -22,6 +22,9 @@ type clonePrompt struct {
 	reader     clone.Source
 	connecting string
 	plan       clone.Plan
+	// refused marks a form whose clone the service refused at create while
+	// another overlay was open, waiting for y to show it again.
+	refused bool
 }
 
 // openClone opens the clone prompt for the node under the cursor, and reads
@@ -47,6 +50,14 @@ func (m Model) openClone() (Model, tea.Cmd) {
 	m = m.applyCloneDefaults()
 	m.overlay = overlayCloneForm
 	return m, surveyClone(m.dialog, reader, source)
+}
+
+// reopenRefusedClone shows the form of a clone refused at create, as it was
+// left, with the service's words under its fields.
+func (m Model) reopenRefusedClone() (Model, tea.Cmd) {
+	m.clonePrompt.refused = false
+	m.overlay = overlayCloneForm
+	return m, nil
 }
 
 // cloneTargets are the accounts a clone may write to, in the switcher's
