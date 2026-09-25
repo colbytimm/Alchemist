@@ -36,7 +36,7 @@ func createContainer(t *testing.T, m tea.Model, name, partitionKey string) tea.M
 // backend implementing neither optional interface leaves it.
 func newUnmanagedModel(t *testing.T, conn adapter.Connection) tea.Model {
 	t.Helper()
-	m := newModelWith(t, tui.Options{Connection: conn})
+	m := newModelWith(t, conn, tui.Options{})
 	model, _ := settle(m, m.Init())
 	return model
 }
@@ -295,9 +295,10 @@ func TestAStaleReadCannotUndoWhatACreateJustAdded(t *testing.T) {
 	require.Contains(t, plain(m.View()), "shipments")
 
 	stale := tui.CatalogLoadedMsg{
-		Parent: []string{firstDatabase},
-		Nodes:  []adapter.Node{{Kind: adapter.NodeContainer, Name: firstContainer, Path: []string{firstDatabase, firstContainer}}},
-		Token:  1, // the read that settled this database before the create
+		Account: mock.Name,
+		Parent:  []string{firstDatabase},
+		Nodes:   []adapter.Node{{Kind: adapter.NodeContainer, Name: firstContainer, Path: []string{firstDatabase, firstContainer}}},
+		Token:   1, // the read that settled this database before the create
 	}
 	m, _ = settle(m.Update(stale))
 
@@ -326,7 +327,7 @@ func TestABackendWithNoThroughputStillCreatesAndDeletes(t *testing.T) {
 	manageWithoutThroughput := func(c adapter.Connection) tui.Management {
 		return tui.Management{Admin: managed(c).Admin}
 	}
-	m := newModelWith(t, tui.Options{Connection: conn, Manage: manageWithoutThroughput})
+	m := newModelWith(t, conn, tui.Options{Manage: manageWithoutThroughput})
 	m, _ = settle(m, m.Init())
 
 	assert.Contains(t, plain(pressAll(t, m, keyRune('n')).View()), databaseFormTitle)

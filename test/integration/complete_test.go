@@ -63,8 +63,7 @@ func managed(conn adapter.Connection) tui.Management {
 // shows the whole list, logging to logged.
 func newCompletingSession(t *testing.T, conn adapter.Connection, sampleFields bool, logged *bytes.Buffer) tea.Model {
 	t.Helper()
-	m := newSession(t, tui.Options{
-		Connection:   conn,
+	m := newSession(t, conn, tui.Options{
 		Manage:       managed,
 		SampleFields: sampleFields,
 		Logger:       log.New(logged),

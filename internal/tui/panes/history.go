@@ -7,7 +7,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -19,7 +18,6 @@ const (
 	historyTitle  = "History"
 	noHistoryHint = "no queries recorded yet"
 	noMatchHint   = "nothing matches"
-	filterPrompt  = "/ "
 	filterHint    = "filter by query or scope"
 	// timeWidth fits the widest age label, which is a date.
 	timeWidth   = 10
@@ -38,18 +36,16 @@ const (
 	dateAfter = 30 * day
 )
 
-// History is the overlay of past runs. Like the filter input it wraps, its
-// value receiver hides shared pointers, so a caller must keep every History
-// it is handed.
+// History is the overlay of one account's past runs. Like the filter input it
+// wraps, its value receiver hides shared pointers, so a caller must keep every
+// History it is handed.
 type History struct {
 	frame   frame
 	icons   theme.IconSet
 	hints   help.Model
 	keys    []key.Binding
-	filter  textinput.Model
-	entries []history.Entry
+	list    filterList[history.Entry]
 	now     time.Time
-	cursor  int
 	failure string
 }
 
@@ -57,30 +53,29 @@ type History struct {
 func NewHistory(icons theme.IconSet, keys []key.Binding) History {
 	hints := help.New()
 	hints.Styles = helpStyles()
-	filter := newInput(filterHint, "")
-	filter.Prompt = filterPrompt
-	filter.PromptStyle = theme.HintStyle()
 	return History{
-		frame:  frame{title: historyTitle, focused: true},
-		icons:  icons,
-		hints:  hints,
-		keys:   keys,
-		filter: filter,
+		frame: frame{title: historyTitle, focused: true},
+		icons: icons,
+		hints: hints,
+		keys:  keys,
+		list:  newFilterList(filterHint, matchesFilter),
 	}
 }
 
 func (h History) SetSize(width, height int) History {
 	h.frame = h.frame.size(width, height)
 	width, _ = h.frame.inner()
-	h.filter.Width = max(width-lipgloss.Width(filterPrompt), 1)
+	h.list = h.list.setWidth(width)
 	h.hints.Width = width
 	return h
 }
 
-// SetEntries shows entries in the order given, aged against now. The filter
-// and cursor start over: the overlay opens on the whole log each time.
-func (h History) SetEntries(entries []history.Entry, now time.Time) History {
-	h.entries = entries
+// SetEntries shows the entries of account in the order given, aged against
+// now. The filter and cursor start over: the overlay opens on the whole log
+// each time.
+func (h History) SetEntries(account string, entries []history.Entry, now time.Time) History {
+	h.frame.title = accountTitle(historyTitle, account)
+	h.list = h.list.setItems(entries)
 	h.now = now
 	h.failure = ""
 	return h.ClearFilter()
@@ -88,85 +83,53 @@ func (h History) SetEntries(entries []history.Entry, now time.Time) History {
 
 // Fail shows why the log could not be read, in place of its entries.
 func (h History) Fail(err error) History {
-	h.entries = nil
+	h.list = h.list.setItems(nil)
 	h.failure = err.Error()
 	return h.ClearFilter()
 }
 
 func (h History) StartFilter() History {
-	h.filter.Focus()
+	h.list = h.list.startFilter()
 	return h
 }
 
 // Filtering reports whether typed characters go to the filter line.
 func (h History) Filtering() bool {
-	return h.filter.Focused()
+	return h.list.filtering()
 }
 
 func (h History) ClearFilter() History {
-	h.filter.Reset()
-	h.filter.Blur()
-	h.cursor = 0
+	h.list = h.list.clearFilter()
 	return h
 }
 
-// Update types into the filter line. The cursor returns to the first match
-// when the text changes, since the row it was on may no longer be listed.
 func (h History) Update(msg tea.KeyMsg) (History, tea.Cmd) {
-	before := h.filter.Value()
 	var cmd tea.Cmd
-	h.filter, cmd = h.filter.Update(msg)
-	if h.filter.Value() != before {
-		h.cursor = 0
-	}
+	h.list, cmd = h.list.update(msg)
 	return h, cmd
 }
 
 func (h History) CursorUp() History {
-	return h.moveCursor(-1)
+	h.list = h.list.moveCursor(-1)
+	return h
 }
 
 func (h History) CursorDown() History {
-	return h.moveCursor(1)
+	h.list = h.list.moveCursor(1)
+	return h
 }
 
 func (h History) Selected() (history.Entry, bool) {
-	matches := h.matches()
-	if h.cursor >= len(matches) {
-		return history.Entry{}, false
-	}
-	return matches[h.cursor], true
+	return h.list.selected()
 }
 
 func (h History) View() string {
 	width, height := h.frame.inner()
-	lines := []string{h.filter.View()}
-	lines = append(lines, h.body(width, max(height-chromeLines, 0))...)
+	bodyHeight := max(height-chromeLines, 0)
+	lines := []string{h.list.filterLine()}
+	lines = append(lines, padBody(h.rows(width, bodyHeight), bodyHeight)...)
 	lines = append(lines, h.hints.ShortHelpView(h.keys))
 	return h.frame.render(strings.Join(lines, "\n"))
-}
-
-func (h History) moveCursor(delta int) History {
-	count := len(h.matches())
-	if count == 0 {
-		return h
-	}
-	h.cursor = min(max(h.cursor+delta, 0), count-1)
-	return h
-}
-
-func (h History) matches() []history.Entry {
-	needle := strings.ToLower(strings.TrimSpace(h.filter.Value()))
-	if needle == "" {
-		return h.entries
-	}
-	var matches []history.Entry
-	for _, entry := range h.entries {
-		if matchesFilter(entry, needle) {
-			matches = append(matches, entry)
-		}
-	}
-	return matches
 }
 
 func matchesFilter(entry history.Entry, needle string) bool {
@@ -174,31 +137,23 @@ func matchesFilter(entry history.Entry, needle string) bool {
 		strings.Contains(strings.ToLower(scopeText(entry.Scope)), needle)
 }
 
-// body is exactly height lines: the rows that keep the cursor on screen,
-// padded so the hint line stays at the bottom of the frame.
-func (h History) body(width, height int) []string {
-	lines := make([]string, height)
-	copy(lines, h.rows(width, height))
-	return lines
-}
-
 // rows renders only the rows that fit, since View runs on every frame.
 func (h History) rows(width, height int) []string {
 	switch {
 	case h.failure != "":
 		return []string{theme.ErrorStyle().Render(h.icons.Failure + " " + h.failure)}
-	case len(h.entries) == 0:
+	case len(h.list.items) == 0:
 		return []string{theme.HintStyle().Render(noHistoryHint)}
 	}
-	matches := h.matches()
+	matches := h.list.matching()
 	if len(matches) == 0 {
 		return []string{theme.HintStyle().Render(noMatchHint)}
 	}
 	scopeWidth := scopeWidth(matches)
-	start, end := windowBounds(len(matches), h.cursor, height)
+	start, end := windowBounds(len(matches), h.list.cursor, height)
 	lines := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
-		lines = append(lines, h.row(matches[i], scopeWidth, width, i == h.cursor))
+		lines = append(lines, h.row(matches[i], scopeWidth, width, i == h.list.cursor))
 	}
 	return lines
 }

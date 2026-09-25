@@ -62,7 +62,7 @@ func writeProfileTable(w io.Writer, cfg config.Config, resolver config.SecretRes
 	rows.WriteString("NAME\tADAPTER\tENDPOINT\tKEY\n")
 	for _, name := range cfg.Names() {
 		profile := cfg.Profiles[name]
-		fmt.Fprintf(&rows, "%s\t%s\t%s\t%s\n", profileLabel(cfg, name), profile.Adapter, profile.Endpoint, keySource(resolver, name))
+		fmt.Fprintf(&rows, "%s\t%s\t%s\t%s\n", profileLabel(cfg, name), profile.Adapter, profile.Endpoint, keySource(resolver, profile))
 	}
 	table := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	if _, err := io.WriteString(table, rows.String()); err != nil {
@@ -81,8 +81,8 @@ func profileLabel(cfg config.Config, name string) string {
 	return name
 }
 
-func keySource(resolver config.SecretResolver, name string) string {
-	secret, err := resolver.Resolve(name)
+func keySource(resolver config.SecretResolver, profile config.Profile) string {
+	secret, err := resolver.Resolve(profile)
 	if err != nil {
 		return noKey
 	}
