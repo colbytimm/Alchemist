@@ -161,6 +161,15 @@ func (x *Index) candidates(c query.Completion) []Suggestion {
 	return nil
 }
 
+func functionSuggestions() []Suggestion {
+	functions := query.Functions()
+	suggestions := make([]Suggestion, 0, len(functions))
+	for _, f := range functions {
+		suggestions = append(suggestions, Suggestion{Text: f.Name, Insert: f.Name + "(", Kind: KindFunction, Detail: f.Signature})
+	}
+	return suggestions
+}
+
 func keywordSuggestions(keywords []string, word string) []Suggestion {
 	suggestions := make([]Suggestion, 0, len(keywords))
 	for _, keyword := range keywords {

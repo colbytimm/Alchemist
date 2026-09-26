@@ -16,6 +16,7 @@ type BatchSyntaxError struct {
 	Line    int
 	Column  int
 	Message string
+	offset  int
 }
 
 func (e *BatchSyntaxError) Error() string {
@@ -355,7 +356,7 @@ func (p *batchParser) fail(message string) error {
 		offset = p.toks[p.i].start
 	}
 	line, column := position(p.text, offset)
-	return &BatchSyntaxError{Line: line, Column: column, Message: message}
+	return &BatchSyntaxError{Line: line, Column: column, Message: message, offset: offset}
 }
 
 func position(text string, offset int) (line, column int) {

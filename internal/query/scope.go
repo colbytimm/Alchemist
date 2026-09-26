@@ -5,7 +5,10 @@
 // locally. It also marks the spans of a query worth highlighting.
 package query
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Token kinds produced by the lexer.
 const (
@@ -132,9 +135,13 @@ func lexComment(s string, i int) int {
 	return len(s)
 }
 
-// code drops the comments, which take no part in a query's structure.
+// code drops the comments, which take no part in a query's structure. Text
+// without one, the common case, keeps its tokens rather than a copy of them.
 func code(toks []token) []token {
-	var kept []token
+	if !slices.ContainsFunc(toks, func(tok token) bool { return tok.kind == tokComment }) {
+		return toks
+	}
+	kept := make([]token, 0, len(toks))
 	for _, tok := range toks {
 		if tok.kind != tokComment {
 			kept = append(kept, tok)
@@ -192,8 +199,13 @@ type parser struct {
 	aliases map[string]bool
 	// elements are the aliases a `JOIN alias IN path` declared, in order.
 	elements []element
-	clauses  int
-	depth    int
+	// declarations index the tokens that declare an alias; roots index
+	// the first token of every source path, which names a database or a
+	// container rather than reading an alias.
+	declarations []int
+	roots        []int
+	clauses      int
+	depth        int
 }
 
 // element is an alias ranging over an array: the alias the array was
@@ -237,6 +249,9 @@ func (p *parser) parseFromClause(i int) int {
 			return j
 		}
 		p.record(src)
+		if p.isKeyword(j, "IN") {
+			j = p.skipCollection(j + 1)
+		}
 		i = p.parseJoins(j)
 		if !p.isComma(i) {
 			return i
@@ -283,6 +298,7 @@ func (p *parser) parseJoinClause(i int, modifier string) int {
 	collection, k, ok := p.parseSource(j + 1)
 	if len(src.path) == 1 && src.alias == "" {
 		p.aliases[src.path[0].text] = true
+		p.declarations = append(p.declarations, src.firstTok)
 		if ok && len(collection.path) > 1 {
 			p.elements = append(p.elements, element{
 				name: src.path[0].text,
@@ -295,6 +311,17 @@ func (p *parser) parseJoinClause(i int, modifier string) int {
 		return k
 	}
 	return j + 1
+}
+
+// skipCollection passes over the path of `FROM alias IN path`, whose root
+// names the container.
+func (p *parser) skipCollection(i int) int {
+	collection, j, ok := p.parseSource(i)
+	if !ok {
+		return i
+	}
+	p.roots = append(p.roots, collection.firstTok)
+	return j
 }
 
 // skipOn passes over an ON condition to whatever may follow it: another
@@ -359,8 +386,13 @@ func (p *parser) isBareAlias(i int) bool {
 func (p *parser) record(src source) {
 	src.clause, src.depth = p.clauses, p.depth
 	p.sources = append(p.sources, src)
-	if src.alias != "" {
+	p.roots = append(p.roots, src.firstTok)
+	switch {
+	case src.alias != "":
 		p.aliases[src.alias] = true
+		p.declarations = append(p.declarations, src.nextTok-1)
+	case len(src.path) == 1:
+		p.declarations = append(p.declarations, src.firstTok)
 	}
 }
 

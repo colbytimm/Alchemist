@@ -83,21 +83,23 @@ var (
 // Context reports what can be typed at cursor, a byte offset into text. The
 // range it names lies inside text, on rune boundaries, for any cursor.
 func Context(text string, cursor int) Completion {
-	cursor = snapToRune(text, cursor)
-	toks := lex(text)
-	if insideLiteral(toks, cursor) {
+	return Analyze(text).Context(cursor)
+}
+
+func (a Analysis) Context(cursor int) Completion {
+	cursor = snapToRune(a.text, cursor)
+	if insideLiteral(a.tokens, cursor) {
 		return Completion{Start: cursor, End: cursor}
 	}
-	toks = code(toks)
-	word, before := splitAtCursor(toks, cursor)
+	word, before := splitAtCursor(a.code, cursor)
 	var completion Completion
-	if keywordAt(toks, 0, "BEGIN") && keywordAt(toks, 1, "BATCH") {
+	if a.batch {
 		completion = batchCompletion(before)
 	} else {
-		c := classifier{toks: before, parser: parseTokens(toks), typing: word.end > word.start}
+		c := classifier{toks: before, parser: a.parser, typing: word.end > word.start}
 		completion = c.classify()
 	}
-	completion.Word = text[word.start:cursor]
+	completion.Word = a.text[word.start:cursor]
 	completion.Start, completion.End = word.start, word.end
 	return completion
 }
