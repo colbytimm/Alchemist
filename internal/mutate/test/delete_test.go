@@ -161,18 +161,22 @@ func cancelled() context.Context {
 
 func TestADeleteTargetWithoutAVersionIsNeverSent(t *testing.T) {
 	a := store(orders(2, "shipped"))
-	m := parse(t, deleteShipped)
-	targets := mutate.Targets{Items: []mutate.Target{
-		{ID: "o000", Key: adapter.PartitionKey{json.RawMessage(`"c00"`)}},
-		{ID: "o001", Key: adapter.PartitionKey{json.RawMessage(`"c01"`)}, Version: "*"},
-	}}
+	m, selected := mustSelect(t, a, deleteShipped)
+	require.Len(t, selected.Items, 2)
+	unversioned := selected.Items[0]
+	unversioned.Version = ""
+	targets := mutate.Targets{Items: []mutate.Target{unversioned, selected.Items[1]}}
+	j := newJob(m, targets, editorOf(t, a), 1, &fakeClock{})
 
-	progress, err := runJob(newJob(m, targets, editorOf(t, a), 1, &fakeClock{}))
+	progress, err := runJob(j)
 
 	require.NoError(t, err)
-	assert.Equal(t, 1, progress.Counts.Failed)
-	assert.Equal(t, []string{"o001"}, a.EditedIDs())
-	assert.Contains(t, storedIDs(a), "o000")
+	assert.Equal(t, mutate.Counts{Applied: 1, Failed: 1}, progress.Counts)
+	page, err := mutate.NewReportCursor(j, 10).NextPage(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{unversioned.ID, "failed", mutate.ErrNoVersion.Error()}, []string{page.Rows[0][1], page.Rows[0][3], page.Rows[0][4]})
+	assert.Equal(t, []string{selected.Items[1].ID}, a.EditedIDs(), "the unversioned target is never sent")
+	assert.Equal(t, []string{unversioned.ID}, storedIDs(a), "and stays in the store")
 }
 
 func TestARefusedFirstDeleteEndsTheJob(t *testing.T) {
