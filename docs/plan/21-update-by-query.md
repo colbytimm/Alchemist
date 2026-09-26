@@ -1096,9 +1096,14 @@ and the progress view keep their prompt and keys at 80×24.
   article in every refusal text; 17's batch refusal now names the job's own key
   (`(w)`). The refusal of a second update is
   `an update is running on prod/sales.orders: w in the catalog shows it`.
-- **History is recorded when the slot is released**: when the ended view is closed, or
-  at quit, synchronously. Until then a stopped job can still be resumed, so its outcome
-  is not final. `Error` joins `stopped after N of M`, `F failed, U unknown` and the
+- **Only a running job refuses another.** One that has ended (done, stopped, failed)
+  keeps the slot, so its view stays reachable and a stopped one resumable, until its
+  view is closed or the next job starts (`Model.retireEndedJob`). A clone ended the
+  same way no longer holds updates and snapshots out either; a capture already gave
+  the slot up as it ended.
+- **History is recorded when the slot is released**: when the ended view is closed,
+  when the next job replaces it, or at quit, synchronously. Until then a stopped job
+  can still be resumed, so its outcome is not final. `Error` joins `stopped after N of M`, `F failed, U unknown` and the
   step's error. Quit logs the ids of the chunk in flight, read with `Job.Pending()`
   before each step, since the model does not hold the job while a step runs.
 - **Read-only** is enforced in `Model.itemEditor()` before the selection, again at the

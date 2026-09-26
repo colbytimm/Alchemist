@@ -204,7 +204,7 @@ func (m Model) handleSnapshotsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 // promptInOverlay is s in the overlay, which another job refuses.
 func (m Model) promptInOverlay() Model {
-	if m.job.active() {
+	if m.jobRunning() {
 		m.snapshotsPane = m.snapshotsPane.SetNotice(m.job.waitText("snapshots"))
 		return m
 	}
@@ -222,7 +222,7 @@ func (m Model) handleNoteKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.ConfirmTake):
 		note := m.snapshotsPane.Note()
 		m.snapshotsPane = m.snapshotsPane.Settle()
-		if m.job.active() {
+		if m.jobRunning() {
 			return m.promptInOverlay(), nil
 		}
 		return m.startCapture(note)

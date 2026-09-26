@@ -100,10 +100,10 @@ func (m Model) checkNoAccountTarget(text string) error {
 	return nil
 }
 
-// jobRefusal is why no update may start now: another job holds the slot.
-// It is asked before anything is read, so a refused update spends nothing.
+// jobRefusal is why no update may start now: another job is running. It
+// is asked before anything is read, so a refused update spends nothing.
 func (m Model) jobRefusal() error {
-	if !m.job.active() {
+	if !m.jobRunning() {
 		return nil
 	}
 	if m.job.kind == jobMutation {
