@@ -25,6 +25,11 @@ func (k MutationKind) Applied() string {
 	return "updated"
 }
 
+// Ongoing is what the statement is doing while it writes: "updating".
+func (k MutationKind) Ongoing() string {
+	return "updating"
+}
+
 // MutationSyntaxError is a mutation statement that does not parse, at the
 // line and column, both from one, where parsing stopped. Err is
 // ErrMutationUnsupported for a shape that is SQL somewhere but not built

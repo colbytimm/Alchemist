@@ -33,6 +33,9 @@ type Account struct {
 	// SnapshotMaxItems refuses a snapshot of a larger container;
 	// snapshot.DefaultMaxItems when zero.
 	SnapshotMaxItems int64
+	// MaxMutationItems refuses an update that selects more items;
+	// mutate.DefaultMaxTargets when zero.
+	MaxMutationItems int
 }
 
 // Opener connects the saved account called name.
@@ -80,6 +83,7 @@ func (e accountEntry) permitted() Management {
 	management := e.management
 	if e.account.ReadOnly {
 		management.Admin, management.Throughput, management.Drafter, management.Writer = nil, nil, nil, nil
+		management.Editor = nil
 	}
 	return management
 }

@@ -27,6 +27,11 @@ type KeyMap struct {
 	StopClone    key.Binding
 	ResumeClone  key.Binding
 	DeleteClone  key.Binding
+	// ShowMutation reopens the view of an update job; StartMutation and
+	// ShowReport work only in the update's own overlays.
+	ShowMutation  key.Binding
+	StartMutation key.Binding
+	ShowReport    key.Binding
 	// TakeSnapshot and Snapshots work on the catalog's node; the rest of
 	// the snapshot bindings only inside its overlays.
 	TakeSnapshot   key.Binding
@@ -144,6 +149,20 @@ func DefaultKeyMap() KeyMap {
 		DeleteClone: key.NewBinding(
 			key.WithKeys("d"),
 			key.WithHelp("d", "delete the partial target"),
+		),
+		// w means "show the job" while an update runs, and nothing, absent
+		// from help too, while none does.
+		ShowMutation: key.NewBinding(
+			key.WithKeys("w"),
+			key.WithHelp("w", "show update/delete job"),
+		),
+		StartMutation: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "start"),
+		),
+		ShowReport: key.NewBinding(
+			key.WithKeys("esc", "enter"),
+			key.WithHelp("esc", "report"),
 		),
 		TakeSnapshot: key.NewBinding(
 			key.WithKeys("s"),
@@ -385,6 +404,20 @@ func (k KeyMap) CloneKeys() []key.Binding {
 	return []key.Binding{k.HideClone, k.StopClone, k.ResumeClone, k.DeleteClone}
 }
 
+// MutationReviewKeys are the bindings only an update's review answers to.
+// Its hint line shows Scroll and Close beside them; typed characters go to
+// its confirmation, so none of them is a letter.
+func (k KeyMap) MutationReviewKeys() []key.Binding {
+	return []key.Binding{k.StartMutation}
+}
+
+// MutationProgressKeys are the bindings only an update's progress view
+// adds to the clone view's HideClone, StopClone and ResumeClone, which mean
+// the same there.
+func (k KeyMap) MutationProgressKeys() []key.Binding {
+	return []key.Binding{k.ShowReport}
+}
+
 // SnapshotKeys are the bindings only the snapshot overlays answer to: the
 // list, its note prompt and its delete confirmation. Each hint line shows
 // the ones that apply, beside TakeSnapshot, Export and Close.
@@ -415,7 +448,7 @@ func (k KeyMap) catalogKeys() []key.Binding {
 	return []key.Binding{
 		k.Up, k.Down, k.Select, k.Refresh, k.Info,
 		k.NewDatabase, k.NewContainer, k.Delete, k.Throughput, k.Clone,
-		k.TakeSnapshot, k.Snapshots,
+		k.TakeSnapshot, k.Snapshots, k.ShowMutation,
 	}
 }
 

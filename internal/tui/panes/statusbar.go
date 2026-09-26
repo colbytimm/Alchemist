@@ -76,6 +76,16 @@ type Progress struct {
 	Simulated bool
 	// Batch is set when the run is a batch, whose rows are its operations.
 	Batch BatchState
+	// Mutation is set while an update selects its items, and for its
+	// report, whose rows are those items.
+	Mutation MutationBadge
+}
+
+// MutationBadge names how far an update has got: "selecting…",
+// "updated", "stopped". The zero value is no update.
+type MutationBadge struct {
+	Text   string
+	Failed bool
 }
 
 // StatusBar is the one-line footer: account, active scope, and the statistics
@@ -235,6 +245,10 @@ func (s StatusBar) fields(breakdown func(map[string]float64) string) []string {
 	switch {
 	case s.progress.Batch != BatchNone:
 		fields = append(fields, s.batchBadge())
+	case s.progress.Mutation.Failed:
+		fields = append(fields, theme.ErrorStyle().Render(s.progress.Mutation.Text))
+	case s.progress.Mutation.Text != "":
+		fields = append(fields, theme.HintStyle().Render(s.progress.Mutation.Text))
 	case s.progress.Simulated:
 		fields = append(fields, theme.HintStyle().Render(simulatedBadge))
 	}
@@ -277,8 +291,11 @@ func (s StatusBar) batchBadge() string {
 
 func (s StatusBar) rowsLabel() string {
 	unit := "rows"
-	if s.progress.Batch != BatchNone {
+	switch {
+	case s.progress.Batch != BatchNone:
 		unit = "operations"
+	case s.progress.Mutation.Text != "":
+		unit = "items"
 	}
 	if !s.progress.Loaded {
 		return pending + " " + unit

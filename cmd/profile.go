@@ -14,6 +14,7 @@ import (
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/adapter/cosmos"
 	"github.com/colbytimm/alchemist/internal/config"
+	"github.com/colbytimm/alchemist/internal/mutate"
 	"github.com/colbytimm/alchemist/internal/query"
 	"github.com/colbytimm/alchemist/internal/saved"
 	"github.com/colbytimm/alchemist/internal/snapshot"
@@ -129,6 +130,8 @@ func (a *addFlags) bind(flags *pflag.FlagSet) {
 		fmt.Sprintf("rows a cross-container join may hold in memory, across all the sides held (%d when 0)", query.DefaultMaxJoinRows))
 	flags.IntVar(&a.profile.Writers, "writers", 0,
 		fmt.Sprintf("item writes a clone into this account keeps in flight, from 1 to %d (%d when 0)", writers.MaxSize, writers.DefaultSize))
+	flags.IntVar(&a.profile.MaxMutationItems, "max-mutation-items", 0,
+		fmt.Sprintf("items one update may select before it is refused (%d when 0)", mutate.DefaultMaxTargets))
 	flags.BoolVar(&a.makeDefault, "default", false, "make this the default profile")
 	flags.BoolVar(&a.readOnly, "read-only", false,
 		"refuse every write on this account (unset: read-only unless the endpoint is this machine)")
