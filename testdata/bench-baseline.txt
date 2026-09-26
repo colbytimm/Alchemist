@@ -1,42 +1,42 @@
 goos: linux
 goarch: amd64
 pkg: github.com/colbytimm/alchemist/internal/tui/test
-cpu: Intel(R) Xeon(R) Processor @ 2.10GHz
-BenchmarkTypingWithTheListOpen-4   	      50	  12592317 ns/op	 7347908 B/op	   28199 allocs/op
-BenchmarkTypingWithTheListOpen-4   	      50	  13064483 ns/op	 7336609 B/op	   28198 allocs/op
-BenchmarkTypingWithTheListOpen-4   	      50	  12738369 ns/op	 7336627 B/op	   28199 allocs/op
-BenchmarkTypingWithTheListOpen-4   	      50	  12582557 ns/op	 7328235 B/op	   28198 allocs/op
-BenchmarkTypingWithTheListOpen-4   	      50	  12825975 ns/op	 7346520 B/op	   28200 allocs/op
-BenchmarkTypingPlainBuffer/lines=200-4         	      50	   5785445 ns/op	 2161676 B/op	    9708 allocs/op
-BenchmarkTypingPlainBuffer/lines=200-4         	      50	   6229464 ns/op	 2153240 B/op	    9708 allocs/op
-BenchmarkTypingPlainBuffer/lines=200-4         	      50	   6129295 ns/op	 2163232 B/op	    9710 allocs/op
-BenchmarkTypingPlainBuffer/lines=200-4         	      50	   5866947 ns/op	 2167583 B/op	    9710 allocs/op
-BenchmarkTypingPlainBuffer/lines=200-4         	      50	   6117332 ns/op	 2160347 B/op	    9709 allocs/op
-BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  25103080 ns/op	 8546817 B/op	   74553 allocs/op
-BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  24799634 ns/op	 8544094 B/op	   74554 allocs/op
-BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  25848383 ns/op	 8549666 B/op	   74554 allocs/op
-BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  24809961 ns/op	 8543956 B/op	   74553 allocs/op
-BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  25501862 ns/op	 8548272 B/op	   74554 allocs/op
-BenchmarkViewWithoutEdit/lines=200-4           	      50	   1371158 ns/op	  489649 B/op	    1616 allocs/op
-BenchmarkViewWithoutEdit/lines=200-4           	      50	   1361940 ns/op	  486784 B/op	    1615 allocs/op
-BenchmarkViewWithoutEdit/lines=200-4           	      50	   1538010 ns/op	  485365 B/op	    1615 allocs/op
-BenchmarkViewWithoutEdit/lines=200-4           	      50	   1583830 ns/op	  491048 B/op	    1616 allocs/op
-BenchmarkViewWithoutEdit/lines=200-4           	      50	   1366128 ns/op	  486824 B/op	    1615 allocs/op
-BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1317198 ns/op	  489543 B/op	    1615 allocs/op
-BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1386081 ns/op	  488118 B/op	    1615 allocs/op
-BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1651042 ns/op	  485286 B/op	    1614 allocs/op
-BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1644714 ns/op	  488115 B/op	    1615 allocs/op
-BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1475293 ns/op	  486701 B/op	    1615 allocs/op
+cpu: Intel(R) Xeon(R) Processor @ 2.80GHz
+BenchmarkTypingWithTheListOpen-4   	      50	  15175795 ns/op	 7810360 B/op	   28198 allocs/op
+BenchmarkTypingWithTheListOpen-4   	      50	  17490020 ns/op	 7817477 B/op	   28200 allocs/op
+BenchmarkTypingWithTheListOpen-4   	      50	  17326951 ns/op	 7818861 B/op	   28199 allocs/op
+BenchmarkTypingWithTheListOpen-4   	      50	  19379593 ns/op	 7815967 B/op	   28198 allocs/op
+BenchmarkTypingWithTheListOpen-4   	      50	  15545869 ns/op	 7810247 B/op	   28197 allocs/op
+BenchmarkTypingPlainBuffer/lines=200-4         	      50	   8059738 ns/op	 2279243 B/op	    9710 allocs/op
+BenchmarkTypingPlainBuffer/lines=200-4         	      50	   6866094 ns/op	 2272207 B/op	    9709 allocs/op
+BenchmarkTypingPlainBuffer/lines=200-4         	      50	   7034755 ns/op	 2274781 B/op	    9707 allocs/op
+BenchmarkTypingPlainBuffer/lines=200-4         	      50	   7520265 ns/op	 2282138 B/op	    9710 allocs/op
+BenchmarkTypingPlainBuffer/lines=200-4         	      50	   8171240 ns/op	 2275009 B/op	    9709 allocs/op
+BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  34074826 ns/op	 8664384 B/op	   74554 allocs/op
+BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  34563855 ns/op	 8658654 B/op	   74553 allocs/op
+BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  34450022 ns/op	 8664386 B/op	   74554 allocs/op
+BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  33515688 ns/op	 8655800 B/op	   74552 allocs/op
+BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  33395254 ns/op	 8661534 B/op	   74554 allocs/op
+BenchmarkViewWithoutEdit/lines=200-4           	      50	   1879595 ns/op	  506076 B/op	    1616 allocs/op
+BenchmarkViewWithoutEdit/lines=200-4           	      50	   1951461 ns/op	  503189 B/op	    1615 allocs/op
+BenchmarkViewWithoutEdit/lines=200-4           	      50	   2077029 ns/op	  508888 B/op	    1616 allocs/op
+BenchmarkViewWithoutEdit/lines=200-4           	      50	   1781220 ns/op	  506008 B/op	    1616 allocs/op
+BenchmarkViewWithoutEdit/lines=200-4           	      50	   2186899 ns/op	  511753 B/op	    1617 allocs/op
+BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1443981 ns/op	  501660 B/op	    1614 allocs/op
+BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1537989 ns/op	  494569 B/op	    1614 allocs/op
+BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1523940 ns/op	  501703 B/op	    1615 allocs/op
+BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1372358 ns/op	  505910 B/op	    1615 allocs/op
+BenchmarkViewWithoutEdit/lines=2000-4          	      50	   2111510 ns/op	  504565 B/op	    1615 allocs/op
 PASS
-ok  	github.com/colbytimm/alchemist/internal/tui/test	17.355s
+ok  	github.com/colbytimm/alchemist/internal/tui/test	21.792s
 goos: linux
 goarch: amd64
 pkg: github.com/colbytimm/alchemist/internal/query/test
-cpu: Intel(R) Xeon(R) Processor @ 2.10GHz
-BenchmarkDiagnose-4   	      50	   1789559 ns/op	     480 B/op	       9 allocs/op
-BenchmarkDiagnose-4   	      50	   1751832 ns/op	     480 B/op	       9 allocs/op
-BenchmarkDiagnose-4   	      50	   1961922 ns/op	     480 B/op	       9 allocs/op
-BenchmarkDiagnose-4   	      50	   2120230 ns/op	     480 B/op	       9 allocs/op
-BenchmarkDiagnose-4   	      50	   1941243 ns/op	     480 B/op	       9 allocs/op
+cpu: Intel(R) Xeon(R) Processor @ 2.80GHz
+BenchmarkDiagnose-4   	      50	   1999939 ns/op	     496 B/op	      10 allocs/op
+BenchmarkDiagnose-4   	      50	   2113441 ns/op	     496 B/op	      10 allocs/op
+BenchmarkDiagnose-4   	      50	   2065349 ns/op	     496 B/op	      10 allocs/op
+BenchmarkDiagnose-4   	      50	   2026518 ns/op	     496 B/op	      10 allocs/op
+BenchmarkDiagnose-4   	      50	   1966610 ns/op	     496 B/op	      10 allocs/op
 PASS
-ok  	github.com/colbytimm/alchemist/internal/query/test	0.719s
+ok  	github.com/colbytimm/alchemist/internal/query/test	0.738s
