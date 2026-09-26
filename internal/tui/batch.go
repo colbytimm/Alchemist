@@ -78,7 +78,8 @@ func (m Model) startBatch() (Model, tea.Cmd) {
 	}
 	request.batch = b
 	if m.job.writesTo(request.account, b.Scope) {
-		return m.refuseBatch(request, fmt.Errorf("a %s is writing %s: the batch waits for it (y)", m.job.kind, strings.Join(b.Scope, ".")))
+		return m.refuseBatch(request, fmt.Errorf("%s is writing %s: the batch waits for it (%s)",
+			m.job.named(), strings.Join(b.Scope, "."), m.job.kind.reopenKey()))
 	}
 	if _, err := m.batcher(entry, b); err != nil {
 		return m.refuseBatch(request, err)
@@ -111,24 +112,48 @@ func (m Model) checkBatch(request batchRequest) (Model, tea.Cmd) {
 		return m.refuseBatch(request, errRunAbandoned)
 	}
 	scope := request.batch.Scope
+	m, node, found, load := m.lookupContainer(entry, scope)
+	switch found {
+	case containerMissing:
+		return m.refuseBatch(request, noSuchContainer(scope))
+	case containerLoading:
+		m.pendingBatch = pendingBatch{request: request, database: scope[:1], waiting: true}
+		return m, load
+	}
+	return m.reviewBatch(request, keyPaths(node))
+}
+
+// lookup is how far finding a statement's container in the tree has got.
+type lookup int
+
+const (
+	containerFound lookup = iota
+	containerMissing
+	containerLoading
+)
+
+// lookupContainer finds the container a statement names in entry's tree,
+// asking for its database's listing when the tree has none: only the
+// container's node knows its key paths. While that listing loads, the
+// returned command is what loads it.
+func (m Model) lookupContainer(entry accountEntry, scope []string) (Model, adapter.Node, lookup, tea.Cmd) {
 	if node, ok := entry.pane.Node(scope); ok {
-		return m.reviewBatch(request, keyPaths(node))
+		return m, node, containerFound, nil
 	}
 	database := scope[:1]
 	if entry.pane.Listed(database) {
-		return m.refuseBatch(request, noSuchContainer(scope))
+		return m, adapter.Node{}, containerMissing, nil
 	}
 	pane, fetch, tick := entry.pane.LoadPath(database)
 	entry.pane = pane
 	m.accounts.put(entry)
-	if !fetch.Needed && !pane.Loading(database) {
-		return m.refuseBatch(request, noSuchContainer(scope))
+	switch {
+	case !fetch.Needed && !pane.Loading(database):
+		return m, adapter.Node{}, containerMissing, nil
+	case !fetch.Needed:
+		return m, adapter.Node{}, containerLoading, tick
 	}
-	m.pendingBatch = pendingBatch{request: request, database: database, waiting: true}
-	if !fetch.Needed {
-		return m, tick
-	}
-	return m, tea.Batch(tick, m.load(entry, fetch))
+	return m, adapter.Node{}, containerLoading, tea.Batch(tick, m.load(entry, fetch))
 }
 
 func noSuchContainer(scope []string) error {

@@ -35,8 +35,11 @@ const (
 	fileMode = 0o600
 )
 
-// KindBatch marks an entry recording a batch; an empty Kind is a query.
-const KindBatch = "batch"
+// Kinds of entry beside a query, whose Kind is empty.
+const (
+	KindBatch  = "batch"
+	KindUpdate = "update"
+)
 
 // Entry is one recorded run.
 type Entry struct {

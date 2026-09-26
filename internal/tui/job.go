@@ -18,6 +18,7 @@ const (
 	jobNone jobKind = iota
 	jobClone
 	jobCapture
+	jobMutation
 )
 
 func (k jobKind) String() string {
@@ -26,14 +27,19 @@ func (k jobKind) String() string {
 		return "clone"
 	case jobCapture:
 		return "snapshot"
+	case jobMutation:
+		return "update"
 	}
 	return "job"
 }
 
 // reopenKey is the catalog key that shows a job of kind k.
 func (k jobKind) reopenKey() string {
-	if k == jobCapture {
+	switch k {
+	case jobCapture:
 		return "v"
+	case jobMutation:
+		return "w"
 	}
 	return "y"
 }
@@ -61,6 +67,9 @@ type job struct {
 	accounts []string
 	target   writeTarget
 	cancel   context.CancelFunc
+	// noun names the job in a refusal where its kind is too broad: an
+	// update and a delete are both mutations.
+	noun string
 }
 
 // writeTarget is where a job writes: a container, or a whole database. The
@@ -99,18 +108,30 @@ func (j job) stopStep() {
 	}
 }
 
+// named is the job with its article: "a clone", "an update".
+func (j job) named() string {
+	noun := j.noun
+	if noun == "" {
+		noun = j.kind.String()
+	}
+	if strings.ContainsRune("aeiou", rune(noun[0])) {
+		return "an " + noun
+	}
+	return "a " + noun
+}
+
 func (j job) usingText(account string) string {
-	return fmt.Sprintf("a %s is using %s: %s it first (%s in the catalog)", j.kind, account, j.kind.stopVerb(), j.kind.reopenKey())
+	return fmt.Sprintf("%s is using %s: %s it first (%s in the catalog)", j.named(), account, j.kind.stopVerb(), j.kind.reopenKey())
 }
 
 func (j job) writingText(path []string) string {
-	return fmt.Sprintf("a %s is writing %s: %s it first (%s in the catalog)", j.kind, strings.Join(path, "."), j.kind.stopVerb(), j.kind.reopenKey())
+	return fmt.Sprintf("%s is writing %s: %s it first (%s in the catalog)", j.named(), strings.Join(path, "."), j.kind.stopVerb(), j.kind.reopenKey())
 }
 
 // waitText refuses another job while this one runs: "a snapshot is
 // running: clones wait for it (v)".
 func (j job) waitText(others string) string {
-	return fmt.Sprintf("a %s is running: %s wait for it (%s)", j.kind, others, j.kind.reopenKey())
+	return fmt.Sprintf("%s is running: %s wait for it (%s)", j.named(), others, j.kind.reopenKey())
 }
 
 // warnBeforeQuit shows the running job, and what quitting would leave,
@@ -127,6 +148,10 @@ func (m Model) warnBeforeQuit() (Model, tea.Cmd, bool) {
 		m.capturing.status.Warning = captureQuitWarning
 		model, load := m.showCapture()
 		return model, load, true
+	case m.job.kind == jobMutation && m.mutating.running() && !m.mutating.quitWarned:
+		m.mutating.quitWarned = true
+		m.overlay = overlayMutationProgress
+		return m.syncMutation(), nil, true
 	}
 	return m, nil, false
 }

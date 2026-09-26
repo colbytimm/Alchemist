@@ -141,3 +141,14 @@ func TestBatchKeywordsAreKeywordsOnlyInABatch(t *testing.T) {
 	require.Equal(t, []spanText{{query.SpanKeyword, "SELECT"}, {query.SpanKeyword, "FROM"}},
 		spanTexts("SELECT read FROM c"), "READ is an alias outside a batch")
 }
+
+func TestUpdateKeywordsAreKeywordsOnlyInAnUpdate(t *testing.T) {
+	update := `UPDATE sales.orders o SET o.set = 1 UNSET o.x WHERE o.y = "a" AND true`
+
+	require.Equal(t, []spanText{
+		{query.SpanKeyword, "UPDATE"}, {query.SpanKeyword, "SET"}, {query.SpanNumber, "1"}, {query.SpanKeyword, "UNSET"},
+		{query.SpanKeyword, "WHERE"}, {query.SpanString, `"a"`}, {query.SpanKeyword, "AND"}, {query.SpanKeyword, "true"},
+	}, spanTexts(update))
+	require.Equal(t, []spanText{{query.SpanKeyword, "SELECT"}, {query.SpanKeyword, "FROM"}},
+		spanTexts("SELECT set FROM c"), "SET is an alias outside an update")
+}
