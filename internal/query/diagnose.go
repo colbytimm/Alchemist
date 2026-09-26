@@ -181,9 +181,10 @@ func (a Analysis) misspelledClauses() []Diagnostic {
 
 // namesASelectedValue reports whether the word at i follows a value in a
 // SELECT list, where it may be the value's name written without AS, as in
-// SELECT COUNT(1) orders. A * selects no one value to name.
+// SELECT COUNT(1) orders. A * selects no one value to name, and a name is
+// followed by no value, as the c of SELECT c.id FORM c is.
 func (a Analysis) namesASelectedValue(i int) bool {
-	if isSymbol(a.code[i-1], "*") {
+	if isSymbol(a.code[i-1], "*") || a.startsValue(i+1) {
 		return false
 	}
 	clause, _ := classifier{toks: a.code[:i]}.clause()

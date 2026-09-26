@@ -154,6 +154,26 @@ func TestDiagnoseFlags(t *testing.T) {
 			want:  []flagged{{"WHEER", "WHEER is not a clause: did you mean WHERE?"}},
 		},
 		{
+			name:  "a misspelled FROM after c.id",
+			input: "SELECT c.id FORM c",
+			want:  []flagged{{"FORM", "FORM is not a clause: did you mean FROM?"}},
+		},
+		{
+			name:  "a misspelled FROM after VALUE c.id",
+			input: "SELECT VALUE c.id FORM c",
+			want:  []flagged{{"FORM", "FORM is not a clause: did you mean FROM?"}},
+		},
+		{
+			name:  "a misspelled FROM after TOP 5 c.id",
+			input: "SELECT TOP 5 c.id FORM c",
+			want:  []flagged{{"FORM", "FORM is not a clause: did you mean FROM?"}},
+		},
+		{
+			name:  "a misspelled FROM after COUNT(1)",
+			input: "SELECT COUNT(1) FORM c",
+			want:  []flagged{{"FORM", "FORM is not a clause: did you mean FROM?"}},
+		},
+		{
 			name:  "several problems, in the order they appear",
 			input: "SELECT * FORM c WHERE CONTAIN(c.name, 'A')",
 			want: []flagged{
@@ -209,6 +229,7 @@ func TestDiagnoseLeavesAlone(t *testing.T) {
 		{name: "a delete's bare alias near ORDER", input: "DELETE FROM sales.orders ord WHERE true"},
 		{name: "an update's bare alias near ORDER", input: `UPDATE sales.orders ord SET ord.status = "x" WHERE true`},
 		{name: "a SELECT-list value named without AS", input: "SELECT COUNT(1) orders FROM c"},
+		{name: "a join under a subquery alias", input: "SELECT p.n FROM (SELECT * FROM c) x JOIN x.items i JOIN i.parts p WHERE i.n > 1"},
 		{name: "a SELECT-list property named without AS", input: "SELECT c.total ordr FROM c"},
 		{name: "SELECT-list names without AS near every clause", input: "SELECT c.x groups, c.a there, c.id limits, c.y frame FROM c"},
 		{name: "empty", input: ""},

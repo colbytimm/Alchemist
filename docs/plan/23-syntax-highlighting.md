@@ -509,19 +509,36 @@ What landed differs from the text above in these ways:
   `\r` as well as `\n` in the one lexer both the parser and the painter use.
 
 - **Subquery sources (review).** The parser reads past a `(subquery) [AS] alias`
-  after `FROM` or `JOIN`, walking the subquery's own FROM clauses as before, and goes
-  on to the joins and list items after it. The alias is a declaration for diagnostics
-  and highlighting, never an entry the planner reads as an alias, and the subquery is
-  no source. Run over every query string in the query, TUI and completion tests
-  against iteration 22's parser, `BuildPlan` and `Context` differ in one case only:
-  `FROM (SELECT * FROM sales.orders) x JOIN sales.customers cu ON …`, whose join the
-  old parser never reached. It used to be sent to `sales.orders` as written, which
-  the service cannot run; it is now refused as a subquery over another container, and
-  completion scopes `cu` to `sales.customers`.
+  after `FROM` or `JOIN`, walking the subquery's own FROM clauses as before, with the
+  paren depth and clause count restored after, and goes on to the joins and list items
+  after it. The alias is a declaration for diagnostics and highlighting, never an entry
+  the planner reads as an alias, and the subquery is no source. A path rooted at a
+  subquery's alias declared before it, or at the alias of such a path
+  (`JOIN x.items i JOIN i.parts p`), reads the subquery's items: it is declared, never
+  recorded as a container.
+- **What the planner sees differently.** Iteration 22's parser stopped at the first
+  subquery source, and at `FROM x IN path`. Run over the review's corpus of 5,054
+  strings from the query and TUI test packages, `BuildPlan`, `SourcePaths`,
+  `IsMutation`, `ParseMutation` and `Context` differ from iteration 22 in 51 inputs,
+  all invalid for the service or improvements:
+  - a join or list item after a subquery, or after `FROM t IN path`, is now planned as
+    the same query without the subquery is (`FROM (SELECT …) x, sales.orders`, `FROM c
+    JOIN t IN c.tags JOIN (SELECT VALUE 1) x JOIN sales.customers cu ON …`,
+    `FROM t IN sales.orders JOIN sales.customers cu ON …`), and a cross-container join
+    after a subquery join is refused as a join the planner does not run;
+  - `FROM (SELECT * FROM sales.orders) x JOIN sales.customers cu ON …` is refused as a
+    subquery over another container, where it used to be sent to `sales.orders`;
+  - `SourcePaths` lists the single-name source of a `JOIN t` after a subquery;
+  - non-ASCII names lex as one token, which changes completion's word and one source
+    list.
+
+  The five queries the review found mis-routed (`JOIN x.items i` after a subquery `x`,
+  among them one named `sales` beside `sales.orders`) plan as iteration 22 planned
+  them, and plan tests pin them.
 - **A SELECT-list value named without `AS`** (`SELECT COUNT(1) orders FROM c`) is not
-  taken for a misspelled clause; a word right after `*` still is, so `SELECT * FORM c`
-  is flagged. The emulator was not reachable to confirm the service accepts the bare
-  form, so the rule leaves it alone either way.
+  taken for a misspelled clause; the emulator confirmed the service accepts the bare
+  form. A word right after `*`, or followed by a value, still is, so `SELECT * FORM c`
+  and `SELECT c.id FORM c` are flagged.
 
 ### Benchmarks
 
