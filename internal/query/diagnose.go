@@ -197,8 +197,7 @@ func (a Analysis) readsThroughName(name string) bool {
 	return false
 }
 
-// statementStart leaves a lone BEGIN alone: it is how a batch is typed. A
-// first token the lexer split out of a multibyte rune is flagged whole.
+// statementStart leaves a lone BEGIN alone: it is how a batch is typed.
 func (a Analysis) statementStart() []Diagnostic {
 	if a.batch || a.mutation || len(a.code) == 0 || keywordAt(a.code, 0, "SELECT") {
 		return nil
@@ -207,9 +206,8 @@ func (a Analysis) statementStart() []Diagnostic {
 	if len(a.code) == 1 && first.upper == "BEGIN" {
 		return nil
 	}
-	_, size := utf8.DecodeRuneInString(a.text[first.start:])
-	end := max(first.end, first.start+size)
-	return []Diagnostic{{Start: first.start, End: end, Message: "a statement starts with SELECT, UPDATE, DELETE or BEGIN BATCH"}}
+	start, end := a.wholeRunes(first)
+	return []Diagnostic{{Start: start, End: end, Message: "a statement starts with SELECT, UPDATE, DELETE or BEGIN BATCH"}}
 }
 
 var closingBrackets = map[string]string{")": "(", "]": "[", "}": "{"}
@@ -285,8 +283,21 @@ func (a Analysis) statementSyntax(err error) []Diagnostic {
 	if at < 0 {
 		at = len(a.code) - 1
 	}
-	tok := a.code[at]
-	return []Diagnostic{{Start: tok.start, End: tok.end, Message: stopped.message}}
+	start, end := a.wholeRunes(a.code[at])
+	return []Diagnostic{{Start: start, End: end, Message: stopped.message}}
+}
+
+// wholeRunes widens tok to the runes it lies in: the lexer takes a byte it
+// does not know for a token of its own, even one inside a multibyte rune.
+func (a Analysis) wholeRunes(tok token) (start, end int) {
+	start, end = tok.start, tok.end
+	for start > 0 && !utf8.RuneStart(a.text[start]) {
+		start--
+	}
+	for end < len(a.text) && !utf8.RuneStart(a.text[end]) {
+		end++
+	}
+	return start, end
 }
 
 // offsetOf is position's inverse: the byte offset of a line and column,
