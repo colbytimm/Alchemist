@@ -55,6 +55,14 @@ func TestParseDeleteShapes(t *testing.T) {
 	}
 }
 
+func TestADeleteSendsItsConditionWithoutComments(t *testing.T) {
+	m := parseMutation(t, "DELETE FROM a.b o WHERE o.a = 1 -- note\n AND o.b = 2")
+
+	assert.NotContains(t, m.Where, "--")
+	assert.NotContains(t, m.Where, "note")
+	assert.Contains(t, m.Where, "AND o.b = 2")
+}
+
 func TestADeleteOfEveryItemIsMarked(t *testing.T) {
 	assert.True(t, parseMutation(t, "DELETE FROM a.b o WHERE true").EveryItem)
 	assert.False(t, parseMutation(t, "DELETE FROM a.b o WHERE true AND o.y = 1").EveryItem)
@@ -102,6 +110,10 @@ func TestParseDeleteRefusals(t *testing.T) {
 		{
 			name: "ORDER BY after a closing parenthesis", input: "DELETE FROM a.b o WHERE o.x = 1) ORDER BY o.x",
 			line: 1, column: 34, message: "ORDER in a DELETE", unsupported: true,
+		},
+		{
+			name: "a ) after a comment the service ends at \\r", input: "DELETE FROM a.b o WHERE o.a = 1 -- x\r) OR (true\n AND o.b = 2",
+			line: 1, column: 38, message: "unbalanced parentheses in the WHERE",
 		},
 		{name: "an unclosed parenthesis", input: "DELETE FROM a.b o WHERE (o.x = 1", line: 1, column: 32, message: "unbalanced parentheses in the WHERE"},
 		{name: "SET", input: "DELETE FROM a.b o SET o.x = 1 WHERE true", line: 1, column: 19, message: "expected WHERE"},
