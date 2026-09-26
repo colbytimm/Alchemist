@@ -350,6 +350,8 @@ WHERE o.status = "shipped" AND o.total < 50
 - `SET path = value` sets the field, creating it where it is missing. A value is a
   literal: a string in either quote, a number, `true`, `false`, `null`, or JSON.
   `UNSET path` removes a field; an item that lacks it is left out of that operation.
+  A patch creates only the last step of a path: `SET o.shipTo.region` on an item with
+  no `shipTo` would be refused, so that item is `skipped: no parent` and never sent.
 - `WHERE` is required. `ctrl+r` pressed one clause early must not select a whole
   container, so the every-item form is written out: `WHERE true`. The condition is the
   service's own dialect and is never parsed; it is sent as written, twice.
@@ -404,10 +406,11 @@ switcher refuses its account, `d` refuses its container, a batch into its contai
 waits, and so do a clone, a snapshot and another update. The first `q` shows it; the
 second stops it and quits. Closing the view once the job has ended loads the report
 into the results: one row per item with its outcome (`updated`, `skipped: changed`,
-`skipped: gone`, `skipped: no partition key`, `failed`, `unknown`, `not attempted`),
+`skipped: gone`, `skipped: no partition key`, `skipped: no parent`, `failed`, `unknown`,
+`not attempted`),
 the service's status and its charge, and a status bar that splits the charge between
 the selection and the writes. Past 10,000 items it shows every item that was not
-updated first; the totals always cover every item.
+updated first, and the log names the rest; the totals always cover every item.
 
 ## Deleting by query
 

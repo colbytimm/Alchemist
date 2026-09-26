@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -199,9 +200,9 @@ func applied(status int, kind adapter.OperationKind, etag string) adapter.Operat
 }
 
 // conditionHolds evaluates a patch condition of the one shape the mock
-// reads: FROM <alias> WHERE (<predicate>), then AND IS_DEFINED(<alias>.<field>)
-// once for each top-level field that must be there. The predicate is one a
-// test registered.
+// reads: FROM <alias> WHERE (<predicate>), then AND IS_DEFINED(<alias><path>)
+// once for each path that must be there. The predicate is one a test
+// registered.
 func (a *Adapter) conditionHolds(condition string, item json.RawMessage) (bool, error) {
 	if condition == "" {
 		return true, nil
@@ -215,11 +216,11 @@ func (a *Adapter) conditionHolds(condition string, item json.RawMessage) (bool, 
 		if !found {
 			continue
 		}
-		fields, err := definedFields(alias, tail)
+		paths, err := definedPaths(alias, tail)
 		if err != nil {
 			return false, fmt.Errorf("condition %q: %w", condition, err)
 		}
-		return a.predicates[predicate](item) && hasFields(item, fields), nil
+		return a.predicates[predicate](item) && hasEveryPath(item, paths), nil
 	}
 	return false, fmt.Errorf("condition %q names no predicate registered with WithPredicate", condition)
 }
@@ -240,47 +241,82 @@ func longestFirst(predicates map[string]func(json.RawMessage) bool) []string {
 	})
 }
 
-func definedFields(alias, tail string) ([]string, error) {
-	var fields []string
+// definedPaths reads the IS_DEFINED clauses after a condition's predicate,
+// each a path of names and indexes under alias.
+func definedPaths(alias, tail string) ([][]string, error) {
+	var paths [][]string
 	for tail != "" {
 		clause, found := strings.CutPrefix(tail, " AND IS_DEFINED("+alias)
 		end := strings.Index(clause, ")")
 		if !found || end < 0 {
 			return nil, fmt.Errorf("unexpected %q", tail)
 		}
-		name, err := topLevelName(clause[:end])
+		path, err := refSteps(clause[:end])
 		if err != nil {
 			return nil, err
 		}
-		fields = append(fields, name)
+		paths = append(paths, path)
 		tail = clause[end+1:]
 	}
-	return fields, nil
+	return paths, nil
 }
 
-// topLevelName reads .name or ["name"], the two ways to name a field.
-func topLevelName(ref string) (string, error) {
-	if name, ok := strings.CutPrefix(ref, "."); ok && !strings.ContainsAny(name, ".[") {
-		return name, nil
+// refSteps reads a path written after an alias: .name, ["name"] and [2]
+// in any order.
+func refSteps(ref string) ([]string, error) {
+	var steps []string
+	for ref != "" {
+		if rest, ok := strings.CutPrefix(ref, "."); ok {
+			end := strings.IndexAny(rest, ".[")
+			if end < 0 {
+				end = len(rest)
+			}
+			steps, ref = append(steps, rest[:end]), rest[end:]
+			continue
+		}
+		inner, ok := strings.CutPrefix(ref, "[")
+		end := strings.Index(inner, "]")
+		if !ok || end < 0 {
+			return nil, fmt.Errorf("IS_DEFINED of %q: not a path", ref)
+		}
+		step := inner[:end]
+		var name string
+		if json.Unmarshal([]byte(step), &name) == nil {
+			step = name
+		}
+		steps, ref = append(steps, step), inner[end+1:]
 	}
-	quoted, ok := strings.CutPrefix(ref, "[")
-	quoted, closed := strings.CutSuffix(quoted, "]")
-	var name string
-	if !ok || !closed || json.Unmarshal([]byte(quoted), &name) != nil {
-		return "", fmt.Errorf("IS_DEFINED of %q: only top-level fields are supported", ref)
-	}
-	return name, nil
+	return steps, nil
 }
 
-func hasFields(item json.RawMessage, names []string) bool {
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(item, &fields) != nil {
-		return false
-	}
-	for _, name := range names {
-		if _, ok := fields[name]; !ok {
+func hasEveryPath(item json.RawMessage, paths [][]string) bool {
+	for _, path := range paths {
+		if !hasPath(item, path) {
 			return false
 		}
+	}
+	return true
+}
+
+// hasPath reports whether item holds something at steps.
+func hasPath(item json.RawMessage, steps []string) bool {
+	value := item
+	for _, step := range steps {
+		var object map[string]json.RawMessage
+		if json.Unmarshal(value, &object) == nil && object != nil {
+			next, ok := object[step]
+			if !ok {
+				return false
+			}
+			value = next
+			continue
+		}
+		var elements []json.RawMessage
+		index, err := strconv.Atoi(step)
+		if json.Unmarshal(value, &elements) != nil || err != nil || index < 0 || index >= len(elements) {
+			return false
+		}
+		value = elements[index]
 	}
 	return true
 }

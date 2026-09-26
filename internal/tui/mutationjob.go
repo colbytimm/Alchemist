@@ -72,8 +72,13 @@ func (m Model) startMutationJob(draft panes.MutationDraft, text string, editor a
 	return m.stepMutation()
 }
 
-// stepMutation hands the job to the next chunk's command.
+// stepMutation hands the job to the next chunk's command, if the account
+// may still be written: a profile read afresh by the switcher can turn it
+// read-only between two chunks, and the job then ends short, resumable.
 func (m Model) stepMutation() (Model, tea.Cmd) {
+	if err := m.mutationWritable(); err != nil {
+		return m.endMutation(panes.MutationFailed, err)
+	}
 	run := &m.mutating
 	j := run.job
 	run.job = nil
@@ -95,6 +100,17 @@ func applyChunk(ctx context.Context, cancel context.CancelFunc, id jobID, accoun
 		}
 		return MutationChunkAppliedMsg{Account: account, Progress: progress, mutation: j, job: id}
 	}
+}
+
+// mutationWritable asks the one gate again whether the job's account may
+// be written.
+func (m Model) mutationWritable() error {
+	entry, ok := m.accounts.get(m.mutating.draft.Account)
+	if !ok || !entry.connected() {
+		return errRunAbandoned
+	}
+	_, err := m.itemEditor(entry)
+	return err
 }
 
 // currentMutation reports whether a message belongs to the job holding
@@ -202,18 +218,12 @@ func (m Model) stopMutation() Model {
 	return m.syncMutation()
 }
 
-// resumeMutationJob carries on with the targets that have no outcome, if
-// the account may still be written: its profile may have turned
-// read-only since the job started.
+// resumeMutationJob carries on with the targets that have no outcome.
 func (m Model) resumeMutationJob() (Model, tea.Cmd) {
-	run := &m.mutating
-	entry, ok := m.accounts.get(run.draft.Account)
-	if !ok || !entry.connected() {
-		return m.endMutation(panes.MutationFailed, errRunAbandoned)
-	}
-	if _, err := m.itemEditor(entry); err != nil {
+	if err := m.mutationWritable(); err != nil {
 		return m.endMutation(panes.MutationFailed, err)
 	}
+	run := &m.mutating
 	run.end, run.err, run.quitWarned = panes.MutationRunning, nil, false
 	run.job.Resume()
 	m.logger.Info(run.draft.Mutation.Kind.String()+" resumed", "account", run.draft.Account, "target", run.draft.Mutation.Target,
@@ -226,6 +236,10 @@ func (m Model) resumeMutationJob() (Model, tea.Cmd) {
 func (m Model) closeMutation() (Model, tea.Cmd) {
 	run := m.mutating
 	cursor := mutate.NewReportCursor(run.job, reportPageSize)
+	for _, row := range cursor.Omitted() {
+		m.logger.Info("update outcome past the report's rows", "account", run.draft.Account,
+			"target", run.draft.Mutation.Target, "id", row.ID, "partition key", row.PartitionKey, "outcome", row.Outcome)
+	}
 	record := m.record(run.finishedEntry(cursor.Summary()))
 	m = m.releaseMutation().beginRun(run.draft.Account)
 	page, err := cursor.NextPage(context.Background())

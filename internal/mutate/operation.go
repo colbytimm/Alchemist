@@ -3,6 +3,7 @@ package mutate
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
@@ -25,15 +26,19 @@ func operation(m query.Mutation, t Target) adapter.Operation {
 }
 
 // patch is a patch of every SET and of each UNSET the item had a path for,
-// on condition that the item still matches the statement's WHERE and still
-// has those paths. An item changed since it was selected so that it no
-// longer matches is left alone by the service, not written.
+// on condition that the item still matches the statement's WHERE, still
+// has those paths, and still has where each nested SET goes. An item
+// changed since it was selected so that it no longer matches is left alone
+// by the service, not written.
 func patch(m query.Mutation, t Target) adapter.Operation {
 	entries := make([]patchEntry, 0, m.Operations())
+	condition := fmt.Sprintf("FROM %s WHERE (%s)", m.Alias, m.Where)
 	for _, a := range m.Assignments {
 		entries = append(entries, patchEntry{Op: "set", Path: a.Path.Pointer(), Value: a.Value})
+		if guard, ok := conditionGuard(a.Path); ok {
+			condition += " AND IS_DEFINED(" + guard.String() + ")"
+		}
 	}
-	condition := fmt.Sprintf("FROM %s WHERE (%s)", m.Alias, m.Where)
 	for i, path := range m.Removals {
 		if t.lacks(i) {
 			continue
@@ -76,6 +81,68 @@ func Changes(m query.Mutation) []string {
 		changes = append(changes, "remove "+path.Pointer())
 	}
 	return changes
+}
+
+// nestedSet reports a SET below the top level, whose parent a patch needs
+// on the item: set creates only the last step of its path.
+func nestedSet(m query.Mutation) bool {
+	for _, a := range m.Assignments {
+		if _, ok := parentOf(a.Path); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// parentOf is where a set of path goes: the object a named field goes in,
+// or the array an index goes in. A top-level field has none to need.
+func parentOf(path query.FieldPath) (query.FieldPath, bool) {
+	last := len(path.Steps) - 1
+	if last == 0 {
+		return query.FieldPath{}, false
+	}
+	return query.FieldPath{Alias: path.Alias, Steps: path.Steps[:last]}, true
+}
+
+// conditionGuard is the parent of path a patch's condition re-asserts. A
+// parent reached through an array index has none: the service refuses an
+// index in a patch condition, so only the selection's check covers it.
+func conditionGuard(path query.FieldPath) (query.FieldPath, bool) {
+	parent, ok := parentOf(path)
+	if !ok || slices.ContainsFunc(parent.Steps, func(step query.PathStep) bool { return step.IsIndex }) {
+		return query.FieldPath{}, false
+	}
+	return parent, true
+}
+
+// placesEverySet reports whether item has somewhere to put every SET of m.
+func placesEverySet(item json.RawMessage, m query.Mutation) bool {
+	for _, a := range m.Assignments {
+		if !placeable(item, a.Path) {
+			return false
+		}
+	}
+	return true
+}
+
+// placeable reports whether a set of path would succeed on item: its
+// parent is an object for a named field, or an array for an index, which
+// the service takes past the array's end too.
+func placeable(item json.RawMessage, path query.FieldPath) bool {
+	parent, ok := parentOf(path)
+	if !ok {
+		return true
+	}
+	value, found := valueAt(item, parent.Steps)
+	if !found {
+		return false
+	}
+	if path.Steps[len(path.Steps)-1].IsIndex {
+		var array []json.RawMessage
+		return json.Unmarshal(value, &array) == nil && array != nil
+	}
+	var object map[string]json.RawMessage
+	return json.Unmarshal(value, &object) == nil && object != nil
 }
 
 // valueAt is the value at steps under item, and false where the item has

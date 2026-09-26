@@ -224,13 +224,28 @@ func TestPatchOperations(t *testing.T) {
 	}
 }
 
-func TestANestedPatchPathIsRefused(t *testing.T) {
-	a := mock.New(mock.WithItems(ordersPath, order("o1", "c01")))
+func TestANestedPatchNeedsItsParent(t *testing.T) {
+	a := mock.New(mock.WithItems(ordersPath, json.RawMessage(`{"id":"o1","customerId":"c01","ship":{"city":"x"},"lines":[1,2]}`)))
 
-	_, err := batcher(t, a).ExecuteBatch(context.Background(), forCustomer("c01",
+	missing, err := batcher(t, a).ExecuteBatch(context.Background(), forCustomer("c01",
 		adapter.Operation{Kind: adapter.OperationPatch, ID: "o1", Body: json.RawMessage(`[{"op":"set","path":"/a/b","value":1}]`)}))
+	require.NoError(t, err)
+	present, err := batcher(t, a).ExecuteBatch(context.Background(), forCustomer("c01",
+		adapter.Operation{Kind: adapter.OperationPatch, ID: "o1", Body: json.RawMessage(
+			`[{"op":"set","path":"/ship/region","value":"w"},{"op":"set","path":"/lines/1","value":9}]`)}))
+	require.NoError(t, err)
 
-	require.ErrorContains(t, err, "only top-level paths")
+	assert.False(t, missing.Committed, "set creates the last step of a path, never a parent")
+	assert.True(t, present.Committed)
+	assert.JSONEq(t, `{"id":"o1","customerId":"c01","ship":{"city":"x","region":"w"},"lines":[1,9]}`,
+		string(withoutSystemFields(t, a.Items(ordersPath)[0])))
+}
+
+func withoutSystemFields(t *testing.T, item json.RawMessage) json.RawMessage {
+	t.Helper()
+	body, _, err := adapter.SplitSystemFields(item)
+	require.NoError(t, err)
+	return body
 }
 
 func TestDraftReplaceMovesTheVersionToTheCondition(t *testing.T) {

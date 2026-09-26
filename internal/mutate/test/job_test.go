@@ -305,3 +305,38 @@ func bodies(t *testing.T, a *mock.Adapter) []string {
 	}
 	return listed
 }
+
+func TestANestedSetIsSentOnlyWhereItsParentIs(t *testing.T) {
+	a := store([]json.RawMessage{
+		json.RawMessage(`{"id":"with","customerId":"c01","status":"shipped","ship":{"city":"x"}}`),
+		json.RawMessage(`{"id":"without","customerId":"c01","status":"shipped"}`),
+		json.RawMessage(`{"id":"moved","customerId":"c01","status":"shipped","ship":{"city":"y"}}`),
+	})
+	m, targets := mustSelect(t, a, `UPDATE sales.orders o SET o.ship.region = "west" WHERE `+shipped)
+	require.True(t, targets.WholeItems)
+	assert.Equal(t, 1, targets.Unplaced())
+	require.NoError(t, a.PutItem(ordersPath, json.RawMessage(`{"id":"moved","customerId":"c01","status":"shipped"}`)))
+	editor := &recordingEditor{ItemEditor: editorOf(t, a)}
+
+	progress, err := runJob(newJob(m, targets, editor, 1, &fakeClock{}))
+
+	require.NoError(t, err, "no item fails, so the probe blames nothing")
+	assert.Equal(t, mutate.Counts{Applied: 1, NoParent: 1, Changed: 1}, progress.Counts,
+		"a parent removed since the selection is a change")
+	for _, op := range editor.sent() {
+		assert.Equal(t, `FROM o WHERE (o.status = "shipped") AND IS_DEFINED(o.ship)`, op.Condition)
+		assert.NotEqual(t, "without", op.ID, "an item with nowhere to put the field is never sent")
+	}
+	assert.JSONEq(t, `{"city":"x","region":"west"}`, storedField(t, a, "with", "ship"))
+}
+
+func TestPreviewMarksASetWithNoParent(t *testing.T) {
+	m := parse(t, `UPDATE sales.orders o SET o.ship.region = "w", o.lines[3] = 1, o.tags[0] = 2 WHERE true`)
+
+	changes, err := mutate.Preview(json.RawMessage(`{"id":"o1","lines":[1]}`), m)
+
+	require.NoError(t, err)
+	assert.Equal(t, mutate.NoParent, changes[0].Kind)
+	assert.Equal(t, mutate.Added, changes[1].Kind, "the service takes an index past the end of an array")
+	assert.Equal(t, mutate.NoParent, changes[2].Kind, "an index needs its array")
+}

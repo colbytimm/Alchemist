@@ -259,6 +259,8 @@ func changeLine(change mutate.FieldChange, width int) string {
 		mark, values, style = "-", string(change.Before), theme.ErrorStyle()
 	case mutate.Unchanged:
 		mark, values, style = "=", string(change.After)+" already", theme.HintStyle()
+	case mutate.NoParent:
+		mark, values, style = "!", "no parent on this item: it is skipped", warningStyle()
 	}
 	line := "    " + mark + " " + fit(change.Path, changeWidth) + " " + values
 	return style.Render(ansi.Truncate(line, width, "…"))

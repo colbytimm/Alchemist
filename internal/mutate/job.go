@@ -58,6 +58,7 @@ const (
 	SkippedChanged
 	SkippedGone
 	SkippedNoKey
+	SkippedNoParent
 	Failed
 	Unknown
 )
@@ -73,6 +74,8 @@ func (o Outcome) Label(kind query.MutationKind) string {
 		return "skipped: gone"
 	case SkippedNoKey:
 		return "skipped: no partition key"
+	case SkippedNoParent:
+		return "skipped: no parent"
 	case Failed:
 		return "failed"
 	case Unknown:
@@ -92,7 +95,7 @@ type Result struct {
 
 // Counts are the targets by outcome.
 type Counts struct {
-	Applied, Changed, Gone, NoKey, Failed, Unknown, NotAttempted int
+	Applied, Changed, Gone, NoKey, NoParent, Failed, Unknown, NotAttempted int
 }
 
 // Attempted counts the targets a write was sent for.
@@ -101,7 +104,7 @@ func (c Counts) Attempted() int {
 }
 
 func (c Counts) Skipped() int {
-	return c.Changed + c.Gone + c.NoKey
+	return c.Changed + c.Gone + c.NoKey + c.NoParent
 }
 
 func (c *Counts) add(o Outcome, n int) {
@@ -114,6 +117,8 @@ func (c *Counts) add(o Outcome, n int) {
 		c.Gone += n
 	case SkippedNoKey:
 		c.NoKey += n
+	case SkippedNoParent:
+		c.NoParent += n
 	case Failed:
 		c.Failed += n
 	case Unknown:
@@ -161,15 +166,18 @@ type Job struct {
 	elapsed     time.Duration
 }
 
-// NewJob prepares the writes of targets. A target with no partition key is
-// skipped from the start, and a delete target with no version fails
-// unsent; nothing is sent until ApplyChunk.
+// NewJob prepares the writes of targets. A target with no partition key,
+// or lacking the parent of a path the statement sets, is skipped from the
+// start, and a delete target with no version fails unsent; nothing is sent
+// until ApplyChunk.
 func NewJob(m query.Mutation, targets Targets, editor adapter.ItemEditor, pool *writers.Pool) *Job {
 	j := &Job{mutation: m, targets: targets, editor: editor, pool: pool, results: make([]Result, len(targets.Items))}
 	for i, target := range targets.Items {
 		switch {
 		case target.Key == nil:
 			j.results[i] = Result{Outcome: SkippedNoKey, Status: "no partition key"}
+		case target.NoParent:
+			j.results[i] = Result{Outcome: SkippedNoParent, Status: "a path the statement sets has no parent on this item"}
 		case m.Kind == query.MutationDelete && target.Version == "":
 			j.results[i] = Result{Outcome: Failed, Status: ErrNoVersion.Error(), Err: ErrNoVersion}
 		}
@@ -178,8 +186,6 @@ func NewJob(m query.Mutation, targets Targets, editor adapter.ItemEditor, pool *
 	j.advance()
 	return j
 }
-
-func (j *Job) Mutation() query.Mutation { return j.mutation }
 
 func (j *Job) Done() bool { return j.next >= len(j.results) }
 
@@ -425,6 +431,7 @@ func (s Summary) Sentence() string {
 		{c.Changed, changed},
 		{c.Gone, plural(c.Gone, "was gone", "were gone")},
 		{c.NoKey, formatCount(c.NoKey) + " had no partition key"},
+		{c.NoParent, formatCount(c.NoParent) + " had no parent for a nested SET"},
 		{c.Failed, formatCount(c.Failed) + " failed"},
 		{c.Unknown, formatCount(c.Unknown) + " had no answer"},
 	} {

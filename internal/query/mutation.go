@@ -79,6 +79,7 @@ const (
 	errUnsetWhole   = "UNSET needs a field, such as o.status"
 	errArrayMoves   = "appending to and moving within arrays is not built"
 	errOneStatement = "a buffer holds one statement"
+	errUnbalanced   = "unbalanced parentheses in the WHERE"
 	errDeleteField  = "DELETE removes whole items: removing a field is UPDATE … UNSET"
 )
 
@@ -197,7 +198,8 @@ func (m Mutation) String() string {
 
 // IsMutation reports whether text is an UPDATE or a DELETE rather than a
 // query: its first word is one of them, which no query starts with, or it
-// opens WITH and goes on to one, which is refused when it is parsed.
+// opens WITH and its statement after the CTE list is one, which is refused
+// when it is parsed.
 func IsMutation(text string) bool {
 	_, ok := MutationKindOf(text)
 	return ok
@@ -210,21 +212,38 @@ func MutationKindOf(text string) (MutationKind, bool) {
 }
 
 func mutationKind(toks []token) (MutationKind, bool) {
-	start := 0
-	if keywordAt(toks, 0, "WITH") {
-		start = slices.IndexFunc(toks, func(tok token) bool {
-			return tok.kind == tokIdent && (tok.upper == "UPDATE" || tok.upper == "DELETE")
-		})
-	}
+	word := ""
 	switch {
-	case start < 0:
-		return 0, false
-	case keywordAt(toks, start, "UPDATE"):
+	case keywordAt(toks, 0, "WITH"):
+		word = statementAfterCTEs(toks)
+	case len(toks) > 0 && toks[0].kind == tokIdent:
+		word = toks[0].upper
+	}
+	switch word {
+	case "UPDATE":
 		return MutationUpdate, true
-	case keywordAt(toks, start, "DELETE"):
+	case "DELETE":
 		return MutationDelete, true
 	}
 	return 0, false
+}
+
+// statementAfterCTEs is the first word outside parentheses, after a WITH,
+// that starts a statement: the CTEs' own bodies are inside theirs.
+func statementAfterCTEs(toks []token) string {
+	depth := 0
+	for i, tok := range toks {
+		switch {
+		case isSymbol(tok, "("):
+			depth++
+		case isSymbol(tok, ")"):
+			depth--
+		case depth == 0 && tok.kind == tokIdent && !followsDot(toks, i) &&
+			(tok.upper == "UPDATE" || tok.upper == "DELETE" || tok.upper == "SELECT"):
+			return tok.upper
+		}
+	}
+	return ""
 }
 
 // MutationTarget is the dotted path an UPDATE or a DELETE FROM names as
@@ -395,7 +414,7 @@ func (p *mutationParser) refuseClauses() error {
 			depth++
 		case isSymbol(tok, ")"):
 			depth--
-		case depth == 0 && tok.kind == tokIdent && slices.Contains(refusedClauses, tok.upper) && !followsDot(p.toks, i):
+		case depth <= 0 && tok.kind == tokIdent && slices.Contains(refusedClauses, tok.upper) && !followsDot(p.toks, i):
 			p.i = i
 			return p.unsupported(tok.upper + " in " + p.kind.statement())
 		}
@@ -680,6 +699,9 @@ func (p *mutationParser) parseWhere(alias string) (string, error) {
 		p.i = start + open
 		return "", p.fail("this string is never closed")
 	}
+	if err := p.refuseUnbalanced(condition, start); err != nil {
+		return "", err
+	}
 	if err := p.refuseOtherContainers(condition, start, alias); err != nil {
 		return "", err
 	}
@@ -712,6 +734,31 @@ func (p *mutationParser) statementEnd() int {
 		}
 	}
 	return len(p.toks)
+}
+
+// refuseUnbalanced refuses a condition whose parentheses do not pair up.
+// The condition is sent inside a pair of its own, (<condition>), with more
+// conditions ANDed after it; a ) that closes that pair early would let the
+// rest of the text escape it: "o.a = 1) OR (true" matches every item.
+func (p *mutationParser) refuseUnbalanced(condition []token, offset int) error {
+	depth := 0
+	for i, tok := range condition {
+		switch {
+		case isSymbol(tok, "("):
+			depth++
+		case isSymbol(tok, ")"):
+			depth--
+		}
+		if depth < 0 {
+			p.i = offset + i
+			return p.fail(errUnbalanced)
+		}
+	}
+	if depth != 0 {
+		p.i = offset + len(condition) - 1
+		return p.fail(errUnbalanced)
+	}
+	return nil
 }
 
 // refuseOtherContainers refuses a condition that reads a database.container
