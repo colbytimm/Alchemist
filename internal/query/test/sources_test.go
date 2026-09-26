@@ -26,6 +26,12 @@ func TestSourcePaths(t *testing.T) {
 			want:  [][]string{{"sales", "orders"}, {"sales", "customers"}},
 		},
 		{
+			name: "multi-way join",
+			input: "SELECT * FROM sales.orders o JOIN sales.customers c ON o.customerId = c.id " +
+				"JOIN sales.products p ON o.sku = p.id",
+			want: [][]string{{"sales", "orders"}, {"sales", "customers"}, {"sales", "products"}},
+		},
+		{
 			name:  "join over a property is not a source",
 			input: "SELECT t.name FROM c JOIN t IN c.tags",
 			want:  [][]string{{"c"}},

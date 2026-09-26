@@ -29,6 +29,7 @@ var (
 	orders    = []string{"sales", "orders"}
 	customers = []string{"sales", "customers"}
 	archive   = []string{"sales", "archive"}
+	products  = []string{"sales", "products"}
 	mockJoin  = "SELECT o.id FROM sales.orders o JOIN sales.customers cu ON o.customerId = cu.id"
 )
 
@@ -48,7 +49,8 @@ func TestContextKeywords(t *testing.T) {
 		{name: "after a joined container with an alias", query: "SELECT * FROM sales.orders o JOIN sales.customers cu |", want: []string{"ON"}},
 		{name: "after the alias of a property join", query: "SELECT * FROM c JOIN t |", want: []string{"IN"}},
 		{name: "after a property join", query: "SELECT * FROM c JOIN t IN c.tags |", want: []string{"WHERE", "JOIN", "INNER", "GROUP BY", "ORDER BY", "OFFSET"}},
-		{name: "after a complete ON", query: mockJoin + " |", want: []string{"WHERE"}},
+		{name: "after a complete ON", query: mockJoin + " |", want: []string{"WHERE", "JOIN", "INNER"}},
+		{name: "after INNER following a complete ON", query: mockJoin + " INNER |", want: []string{"JOIN"}},
 		{name: "after INNER following a property join", query: "SELECT * FROM c JOIN t IN c.tags INNER |", want: []string{"JOIN"}},
 		{name: "a keyword being typed after a starred select list", query: "SELECT * FR|", want: []string{"FROM", "AS"}},
 		{name: "after a select item", query: "SELECT c.id |", want: []string{"FROM", "AS"}},
@@ -84,8 +86,7 @@ func TestContextOffersNothing(t *testing.T) {
 		{name: "after TOP", query: "SELECT TOP |"},
 		{name: "after AS", query: "SELECT * FROM sales.orders AS |"},
 		{name: "after a join modifier the planner refuses", query: "SELECT * FROM sales.orders o LEFT |"},
-		{name: "a third join source", query: mockJoin + " JOIN |"},
-		{name: "a third join source after INNER", query: mockJoin + " INNER |"},
+		{name: "a property join alongside a cross-container join", query: mockJoin + " JOIN t |"},
 		{name: "after a database and container in a source", query: "SELECT * FROM sales.orders.|"},
 		{name: "after an offset keyword", query: "SELECT * FROM c OFFSET |"},
 		{name: "after a limit", query: "SELECT * FROM c OFFSET 0 LIMIT 10 |"},
@@ -114,6 +115,7 @@ func TestContextSources(t *testing.T) {
 		{name: "after JOIN", query: "SELECT * FROM sales.orders o JOIN sa|", want: query.CompleteDatabase},
 		{name: "a container of a database", query: "SELECT * FROM sales.or|", want: query.CompleteContainer, database: "sales"},
 		{name: "a container after JOIN", query: "SELECT * FROM sales.orders o JOIN sales.|", want: query.CompleteContainer, database: "sales"},
+		{name: "a third join source", query: mockJoin + " JOIN |", want: query.CompleteDatabase},
 		{name: "a container after a list comma", query: "SELECT * FROM sales.orders, sales.|", want: query.CompleteContainer, database: "sales"},
 	}
 	for _, tt := range tests {
@@ -240,8 +242,26 @@ func TestContextReferencesAndExpressions(t *testing.T) {
 			aliases: []query.Alias{{Name: "o", Scopes: [][]string{orders}}, {Name: "cu", Scopes: [][]string{customers}}},
 		},
 		{
-			name:    "after the equals of ON",
+			name:    "after the equals of ON behind an earlier side",
 			query:   "SELECT * FROM sales.orders o JOIN sales.customers cu ON o.customerId = |",
+			want:    query.CompleteReference,
+			aliases: []query.Alias{{Name: "cu", Scopes: [][]string{customers}}},
+		},
+		{
+			name:    "after ON of a third container",
+			query:   mockJoin + " JOIN sales.products p ON |",
+			want:    query.CompleteReference,
+			aliases: []query.Alias{{Name: "o", Scopes: [][]string{orders}}, {Name: "cu", Scopes: [][]string{customers}}, {Name: "p", Scopes: [][]string{products}}},
+		},
+		{
+			name:    "after the equals of ON behind the joined side",
+			query:   mockJoin + " JOIN sales.products p ON p.id = |",
+			want:    query.CompleteReference,
+			aliases: []query.Alias{{Name: "o", Scopes: [][]string{orders}}, {Name: "cu", Scopes: [][]string{customers}}},
+		},
+		{
+			name:    "an ON never reads a container joined further right",
+			query:   "SELECT * FROM sales.orders o JOIN sales.customers cu ON | JOIN sales.products p ON o.sku = p.id",
 			want:    query.CompleteReference,
 			aliases: []query.Alias{{Name: "o", Scopes: [][]string{orders}}, {Name: "cu", Scopes: [][]string{customers}}},
 		},

@@ -138,14 +138,20 @@ whole list:
 SELECT * FROM sales.orders, sales.archive AS c WHERE c.status = "open"
 ```
 
-**Join.** An inner join of two containers on one equality:
+**Join.** An inner join of any number of containers, each `ON` one equality between
+a field of the container `JOIN` just introduced and a field of any earlier one:
 
 ```sql
-SELECT o.id, o.total, cu.name
-FROM sales.orders AS o
-JOIN sales.customers AS cu ON o.customerId = cu.id
+SELECT o.id, cu.name, p.name AS product
+FROM sales.orders o
+JOIN sales.customers cu ON o.customerId = cu.id
+JOIN sales.products p ON o.sku = p.id
 WHERE cu.region = "west"
 ```
+
+Each `ON` may reach back to the first container, as here, or to the one before it
+(`… JOIN telemetry.devices d ON e.deviceId = d.id`), or any mix of the two. The same
+container may appear twice under distinct aliases.
 
 Columns come back prefixed with their alias (`o.total`, `cu.name`) unless the select
 list renames them (`cu.name AS customer`). The select list is `*` or top-level
@@ -156,14 +162,23 @@ read one side only. A side with no alias is known by its container name.
 Cosmos DB's own `JOIN alias IN c.array` is untouched: it has no `ON` and runs on the
 service as it always did.
 
-One side of a join is held in memory: the side a `WHERE` condition filters, or the
-joined container when that does not settle it. It may hold `max_join_rows` rows
+One side of a join streams and every other side is held in memory. The streamed side
+is the first container in written order that no `WHERE` condition filters, or the
+`FROM` container when every side is filtered: the side expected to be largest. The
+held sides are read one after another and may hold `max_join_rows` rows between them
 (10 000 unless the [profile](#profiles) says otherwise). Past that the run stops with
-an error rather than a partial answer; filter that side, or raise the cap.
+an error naming the side that crossed the line rather than a partial answer; filter
+that side, or raise the cap. A merged page holds at most 1 000 rows; a join that fans
+out further serves the rest on the next `m` without reading anything new.
+
+When the status bar is too narrow for the per-container breakdown it folds it to a
+count, `(3 containers)`, and the full breakdown goes to the log.
 
 Anything else across containers is refused before it runs, never approximated: outer
-joins, more than two containers in a join, `ON` with anything but one `=`,
-`ORDER BY`/`GROUP BY`/`OFFSET` on a join, and subqueries over another container.
+joins, `ON` with anything but one `=` between the new container and an earlier one,
+a `WHERE` condition over more than one side, `JOIN t IN` beside a container join, a
+container list mixed with a join, `ORDER BY`/`GROUP BY`/`OFFSET` on a join, and
+subqueries over another container.
 
 `make emulator-seed` loads the emulator with `sales`, `telemetry`, and `hr` databases
 to try these against. It replaces databases of those names and only runs against
@@ -255,7 +270,7 @@ endpoint = "https://localhost:8081"
 insecure_skip_verify = true      # emulator self-signed cert only
 database = "sales"               # opened in the catalog on start
 page_size = 100
-max_join_rows = 5000             # cross-container joins; 10000 when unset
+max_join_rows = 5000             # rows a join holds across its held sides; 10000 when unset
 sample_fields = false            # autocomplete never queries a container for its fields
 
 [profiles.prod]

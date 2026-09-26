@@ -52,7 +52,8 @@ line.
 | after `JOIN` | databases, for a cross-container join; nothing for the alias a `JOIN … IN` is about to declare | `JOIN sa` → `sales` |
 | after `<database>.` in a source position | that database's containers | `FROM sales.or` → `orders` |
 | after `JOIN <db>.<container> [alias] ` | `ON` | |
-| after `ON ` or `ON <alias>.<field> = ` of a cross-container join | the two side aliases, then their fields | `ON o.cu` → `customerId` |
+| after `ON ` of a cross-container join | the alias `JOIN` just introduced and every alias declared before it, then their fields | `ON o.cu` → `customerId` |
+| after `ON <new>.<field> = ` / `ON <earlier>.<field> = ` | only the earlier aliases / only the new one (iteration 16's `parseStep` rule) | |
 | after `<alias>.` anywhere else | fields observed at that path | `c.cu` → `customerId`, `currency` |
 | after `<alias>.<path>.` | fields observed under that path | `c.customer.` → `name`, `tier` |
 | in an expression position | fields of the root alias, functions, `TRUE`/`FALSE`/`NULL`/`UNDEFINED` | `WHERE STARTS` → `STARTSWITH(` |
@@ -80,7 +81,9 @@ them rather than inventing its own:
 
 Completion never offers a shape the planner refuses: no `LEFT`/`OUTER`/`CROSS` before
 `JOIN`, no `ORDER BY`/`GROUP BY`/`OFFSET` once a cross-container `JOIN` is in the
-query, and no third `JOIN <db>.` source.
+query, and no `IN` after `JOIN <alias>` beside one. After a complete `ON a.x = b.y`
+the clause keywords offered are `WHERE`, `JOIN` and `INNER`: iteration 16 joins any
+number of containers.
 
 Matching is case-insensitive prefix first, then case-insensitive substring, in that
 order, so `cid` does not outrank `cu` → `currency`. Keywords are inserted in the case

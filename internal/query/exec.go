@@ -16,7 +16,8 @@ import (
 const DefaultMaxJoinRows = 10_000
 
 var (
-	// ErrJoinTooLarge aborts a join whose in-memory side outgrew MaxJoinRows.
+	// ErrJoinTooLarge aborts a join whose in-memory sides outgrew MaxJoinRows
+	// between them.
 	ErrJoinTooLarge = errors.New("narrow that side with a WHERE filter, or raise max_join_rows")
 	errMalformed    = errors.New("query: execute: plan does not fit its merge step")
 	errExhausted    = errors.New("query: no more pages")
@@ -26,7 +27,7 @@ var (
 // connection's own cursors, so a merged result costs the sum of its leaves.
 type Engine struct {
 	Connection  adapter.Connection
-	MaxJoinRows int // DefaultMaxJoinRows when zero
+	MaxJoinRows int // rows across all held sides; DefaultMaxJoinRows when zero
 }
 
 // Execute returns a cursor over the plan's merged pages. A pass-through plan
@@ -37,10 +38,27 @@ func (e Engine) Execute(ctx context.Context, plan Plan) (adapter.Cursor, error) 
 		return e.Connection.Query(ctx, plan.Leaves[0].Query)
 	case plan.Merge == UnionAll && len(plan.Leaves) > 0:
 		return newUnionCursor(e.Connection, plan.Leaves), nil
-	case plan.Merge == HashJoin && len(plan.Leaves) == 2:
-		return e.openJoin(ctx, plan)
+	case plan.Merge == HashJoin && joinFits(plan):
+		return e.openJoin(plan), nil
 	}
 	return nil, errMalformed
+}
+
+// joinFits reports whether the steps attach every leaf after the first to an
+// earlier one, and the columns read existing leaves.
+func joinFits(plan Plan) bool {
+	steps := plan.Join.Steps
+	if len(steps) == 0 || len(steps) != len(plan.Leaves)-1 {
+		return false
+	}
+	for i, step := range steps {
+		if step.Left < 0 || step.Left > i {
+			return false
+		}
+	}
+	return !slices.ContainsFunc(plan.Join.Columns, func(c JoinColumn) bool {
+		return c.Side < 0 || c.Side >= len(plan.Leaves)
+	})
 }
 
 func (e Engine) maxJoinRows() int {

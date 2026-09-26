@@ -1,6 +1,7 @@
 package query_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -189,8 +190,7 @@ JOIN sales.customers AS cu ON o.customerId = cu.id`)
 		Query: adapter.Query{Text: "SELECT * FROM cu", Scope: []string{"sales", "customers"}},
 	}, plan.Leaves[1])
 	assert.Equal(t, query.Join{
-		LeftKey:  []string{"customerId"},
-		RightKey: []string{"id"},
+		Steps: []query.JoinStep{{Left: 0, LeftKey: []string{"customerId"}, RightKey: []string{"id"}}},
 		Columns: []query.JoinColumn{
 			{Side: 0, Field: "id"},
 			{Side: 0, Field: "total"},
@@ -216,8 +216,8 @@ func TestJoinKeysFollowTheirSideHoweverOnIsWritten(t *testing.T) {
 		"SELECT * FROM sales.orders o INNER JOIN sales.customers cu ON cu.profile.id = o.customerId")
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"customerId"}, plan.Join.LeftKey)
-	assert.Equal(t, []string{"profile", "id"}, plan.Join.RightKey)
+	assert.Equal(t, []query.JoinStep{{Left: 0, LeftKey: []string{"customerId"}, RightKey: []string{"profile", "id"}}},
+		plan.Join.Steps)
 	assert.Empty(t, plan.Join.Columns, "SELECT * projects every column")
 }
 
@@ -294,15 +294,155 @@ func TestJoinConditionsArePushedDownToTheSideTheyRead(t *testing.T) {
 	}
 }
 
+const (
+	starJoin = `SELECT o.id, cu.name, p.name AS product
+FROM sales.orders o
+JOIN sales.customers cu ON o.customerId = cu.id
+JOIN sales.products p ON o.sku = p.id
+WHERE cu.region = "west"`
+	chainJoin = `SELECT a.message, e.kind, d.site
+FROM telemetry.alerts a
+JOIN telemetry.events e ON a.deviceId = e.deviceId
+JOIN telemetry.devices d ON e.deviceId = d.id
+WHERE a.open = true AND e.kind = "pressure"`
+)
+
+func TestALookupStarAttachesEverySideToTheFirst(t *testing.T) {
+	plan, err := query.BuildPlan(starJoin)
+
+	require.NoError(t, err)
+	require.Equal(t, query.HashJoin, plan.Merge)
+	assert.Equal(t, []query.Leaf{
+		{Alias: "o", Query: adapter.Query{Text: "SELECT * FROM o", Scope: []string{"sales", "orders"}}},
+		{
+			Alias:    "cu",
+			Query:    adapter.Query{Text: `SELECT * FROM cu WHERE (cu.region = "west")`, Scope: []string{"sales", "customers"}},
+			Filtered: true,
+		},
+		{Alias: "p", Query: adapter.Query{Text: "SELECT * FROM p", Scope: []string{"sales", "products"}}},
+	}, plan.Leaves)
+	assert.Equal(t, []query.JoinStep{
+		{Left: 0, LeftKey: []string{"customerId"}, RightKey: []string{"id"}},
+		{Left: 0, LeftKey: []string{"sku"}, RightKey: []string{"id"}},
+	}, plan.Join.Steps)
+}
+
+func TestAChainAttachesEachSideToTheOneBeforeIt(t *testing.T) {
+	plan, err := query.BuildPlan(chainJoin)
+
+	require.NoError(t, err)
+	assert.Equal(t, query.JoinStep{Left: 1, LeftKey: []string{"deviceId"}, RightKey: []string{"id"}}, plan.Join.Steps[1])
+	assert.Equal(t, []bool{true, true, false}, filtered(plan))
+}
+
+func TestAnOnWrittenNewSideFirstIsTheSameStep(t *testing.T) {
+	newFirst, err := query.BuildPlan(strings.Replace(starJoin, "o.sku = p.id", "p.id = o.sku", 1))
+	require.NoError(t, err)
+	earlierFirst, err := query.BuildPlan(starJoin)
+	require.NoError(t, err)
+
+	assert.Equal(t, earlierFirst.Join.Steps, newFirst.Join.Steps)
+}
+
+func TestFourContainersMixingStarAndChainKeepEachLeftAsWritten(t *testing.T) {
+	plan, err := query.BuildPlan(`SELECT * FROM a.w w
+JOIN a.x x ON w.k = x.k
+JOIN a.y y ON x.k = y.k
+INNER JOIN a.z z ON z.k = w.k`)
+
+	require.NoError(t, err)
+	var lefts []int
+	for _, step := range plan.Join.Steps {
+		lefts = append(lefts, step.Left)
+	}
+	assert.Equal(t, []int{0, 1, 0}, lefts)
+}
+
+func TestASideWithNoAliasInTheMiddleOfAChainIsKnownByItsContainer(t *testing.T) {
+	plan, err := query.BuildPlan(
+		"SELECT * FROM sales.orders o JOIN sales.customers ON o.customerId = customers.id " +
+			"JOIN sales.regions r ON customers.region = r.id")
+
+	require.NoError(t, err)
+	assert.Equal(t, "customers", plan.Leaves[1].Alias)
+	assert.Equal(t, 1, plan.Join.Steps[1].Left)
+}
+
+func TestOneContainerTwiceIsTwoLeavesOfOneScope(t *testing.T) {
+	plan, err := query.BuildPlan("SELECT e.name, m.name AS manager FROM hr.employees e JOIN hr.employees m ON e.managerId = m.id")
+
+	require.NoError(t, err)
+	require.Len(t, plan.Leaves, 2)
+	assert.Equal(t, plan.Leaves[0].Query.Scope, plan.Leaves[1].Query.Scope)
+}
+
+func TestJoinColumnsIndexTheSideTheyRead(t *testing.T) {
+	plan, err := query.BuildPlan("SELECT p.name, o.id, cu.name FROM sales.orders o " +
+		"JOIN sales.customers cu ON o.customerId = cu.id JOIN sales.products p ON o.sku = p.id")
+
+	require.NoError(t, err)
+	assert.Equal(t, []query.JoinColumn{
+		{Side: 2, Field: "name"},
+		{Side: 0, Field: "id"},
+		{Side: 1, Field: "name"},
+	}, plan.Join.Columns)
+}
+
+func TestAConditionReadingNoAliasFiltersEverySide(t *testing.T) {
+	plan, err := query.BuildPlan(strings.Replace(starJoin, `cu.region = "west"`, "1 = 1", 1))
+
+	require.NoError(t, err)
+	assert.Equal(t, []bool{true, true, true}, filtered(plan))
+}
+
+func filtered(plan query.Plan) []bool {
+	var filtered []bool
+	for _, leaf := range plan.Leaves {
+		filtered = append(filtered, leaf.Filtered)
+	}
+	return filtered
+}
+
+func TestMultiWayShapesThatCannotBeSimulatedAreRefusedByName(t *testing.T) {
+	const pair = "SELECT * FROM sales.orders o JOIN sales.customers cu ON o.customerId = cu.id"
+	tests := []struct {
+		name  string
+		input string
+		shape string
+	}{
+		{name: "ON between two earlier sides", input: pair + " JOIN sales.products p ON o.sku = cu.sku", shape: "ON clause"},
+		{name: "ON reading a side joined further right", input: pair + " JOIN sales.products p ON cu.x = r.id JOIN sales.regions r ON p.r = r.id", shape: "ON clause"},
+		{name: "ON reading the new side twice", input: pair + " JOIN sales.products p ON p.sku = p.id", shape: "ON clause"},
+		{name: "compound ON in the second step", input: pair + " JOIN sales.products p ON o.sku = p.id AND o.x = p.x", shape: "ON clause"},
+		{name: "compound ON before a third side", input: pair + " AND o.x = cu.x JOIN sales.products p ON o.sku = p.id", shape: "ON clause"},
+		{name: "left join as the third source", input: pair + " LEFT JOIN sales.products p ON o.sku = p.id", shape: "LEFT JOIN"},
+		{name: "property join before the container joins", input: "SELECT * FROM sales.orders o JOIN l IN o.lines JOIN sales.customers cu ON o.customerId = cu.id", shape: "JOIN ... IN"},
+		{name: "property join between the container joins", input: pair + " JOIN l IN o.lines JOIN sales.products p ON o.sku = p.id", shape: "JOIN ... IN"},
+		{name: "property join after the container joins", input: pair + " JOIN l IN o.lines", shape: "JOIN ... IN"},
+		{name: "inner property join after the container joins", input: pair + " INNER JOIN l IN o.lines", shape: "JOIN ... IN"},
+		{name: "a list before a join", input: "SELECT * FROM a.b, c.d JOIN e.f ON b.x = f.y", shape: "a container list mixed with a join"},
+		{name: "a list after a join", input: pair + ", sales.archive", shape: "a container list mixed with a join"},
+		{name: "a list between joins", input: pair + ", sales.archive a JOIN sales.products p ON a.sku = p.id", shape: "a container list mixed with a join"},
+		{name: "one container twice with no aliases", input: "SELECT * FROM hr.employees JOIN hr.employees ON employees.managerId = employees.id", shape: "share an alias"},
+		{name: "a condition over two of three sides", input: pair + " JOIN sales.products p ON o.sku = p.id WHERE cu.region = p.region", shape: "more than one side"},
+		{name: "order by after a three-way join", input: pair + " JOIN sales.products p ON o.sku = p.id ORDER BY o.id", shape: "ORDER"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := query.BuildPlan(tt.input)
+
+			require.ErrorIs(t, err, query.ErrUnsupported)
+			assert.ErrorContains(t, err, tt.shape)
+		})
+	}
+}
+
 func TestShapesThatCannotBeSimulatedAreRefused(t *testing.T) {
 	const join = "SELECT * FROM sales.orders o JOIN sales.customers cu ON o.customerId = cu.id"
 	tests := []struct {
 		name  string
 		input string
 	}{
-		{name: "three containers with a join", input: "SELECT * FROM a.b, c.d JOIN e.f ON b.x = f.y"},
-		{name: "three-way join", input: join + " JOIN sales.regions r ON cu.region = r.id"},
-		{name: "join followed by a list", input: join + ", sales.archive"},
 		{name: "non-equality ON", input: "SELECT * FROM a.b x JOIN c.d y ON x.k > y.k"},
 		{name: "compound ON", input: join + " AND o.region = cu.region"},
 		{name: "ON over one side", input: "SELECT * FROM a.b x JOIN c.d y ON x.k = x.j"},
@@ -361,6 +501,8 @@ var plannerSeeds = []string{
 	"SELECT * FROM a.b, x.y",
 	"SELECT x.k, FROM a.b x JOIN c.d y ON x.k = y.k WHERE (x.a AND",
 	"SELECT * FROM (SELECT * FROM inner.things) outer",
+	starJoin,
+	chainJoin,
 	"..,,..''\"\"[[]]",
 }
 

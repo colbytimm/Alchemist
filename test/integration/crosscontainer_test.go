@@ -25,6 +25,10 @@ const (
 	// Orders name one customer more than exists, so an inner join has
 	// something to drop.
 	customersNamed = customerCount + 1
+	productCount   = 3
+	// Orders name one product more than exists too, so a three-way join
+	// drops orders on either side.
+	productsNamed = productCount + 1
 )
 
 var regions = []string{"east", "north", "west"}
@@ -62,6 +66,7 @@ func seedSales(t *testing.T) {
 			"id":         fmt.Sprintf("o%02d", i),
 			"region":     regions[i%len(regions)],
 			"customerId": fmt.Sprintf("c%d", i%customersNamed),
+			"sku":        fmt.Sprintf("s%d", i%productsNamed),
 			"total":      i * 10,
 		})
 	}
@@ -72,8 +77,17 @@ func seedSales(t *testing.T) {
 			"name":   fmt.Sprintf("customer %d", i),
 		})
 	}
+	var products []map[string]any
+	for i := range productCount {
+		products = append(products, map[string]any{
+			"id":     fmt.Sprintf("s%d", i),
+			"region": regions[i%len(regions)],
+			"name":   fmt.Sprintf("product %d", i),
+		})
+	}
 	seedContainer(t, client, "orders", orders)
 	seedContainer(t, client, "customers", customers)
+	seedContainer(t, client, "products", products)
 }
 
 // wantJoined is the join of the seed computed by hand: every order whose
@@ -84,6 +98,19 @@ func wantJoined() []string {
 		customer := i % customersNamed
 		if customer < customerCount {
 			want = append(want, fmt.Sprintf("o%02d %d customer %d", i, i*10, customer))
+		}
+	}
+	return want
+}
+
+// wantThreeWay is the three-way join of the seed computed by hand: every
+// order whose customer and product both exist, as "id name product".
+func wantThreeWay() []string {
+	var want []string
+	for i := range orderCount {
+		customer, product := i%customersNamed, i%productsNamed
+		if customer < customerCount && product < productCount {
+			want = append(want, fmt.Sprintf("o%02d customer %d product %d", i, customer, product))
 		}
 	}
 	return want
@@ -110,23 +137,45 @@ func TestIntegrationCrossContainerJoin(t *testing.T) {
 
 	cursor, err := query.Engine{Connection: conn}.Execute(context.Background(), plan)
 	require.NoError(t, err)
-	pages := readAll(t, cursor)
 
-	var got []string
-	var charge, leafCharges float64
+	got, charge, leafCharges := joinedRows(readAll(t, cursor))
+	assert.Equal(t, wantJoined(), got)
+	assert.Positive(t, charge)
+	assert.InDelta(t, leafCharges, charge, 0.01)
+}
+
+func TestIntegrationThreeWayJoin(t *testing.T) {
+	conn := connectWithRetry(t)
+	seedSales(t)
+	plan, err := query.BuildPlan(fmt.Sprintf(`SELECT o.id, cu.name, p.name AS product
+FROM %[1]s.orders o
+JOIN %[1]s.customers cu ON o.customerId = cu.id
+JOIN %[1]s.products p ON o.sku = p.id`, joinDatabase))
+	require.NoError(t, err)
+
+	cursor, err := query.Engine{Connection: conn}.Execute(context.Background(), plan)
+	require.NoError(t, err)
+
+	got, charge, leafCharges := joinedRows(readAll(t, cursor))
+	assert.Equal(t, wantThreeWay(), got)
+	assert.Positive(t, charge)
+	assert.InDelta(t, leafCharges, charge, 0.01)
+}
+
+// joinedRows are the rows of pages, sorted, with their summed charge and the
+// sum of their per-leaf charges.
+func joinedRows(pages []adapter.Page) (rows []string, charge, leafCharges float64) {
 	for _, page := range pages {
 		for _, row := range page.Rows {
-			got = append(got, strings.Join(row, " "))
+			rows = append(rows, strings.Join(row, " "))
 		}
 		charge += page.Stats.RequestCharge
 		for _, leaf := range page.Stats.LeafCharges {
 			leafCharges += leaf
 		}
 	}
-	slices.Sort(got)
-	assert.Equal(t, wantJoined(), got)
-	assert.Positive(t, charge)
-	assert.InDelta(t, leafCharges, charge, 0.01)
+	slices.Sort(rows)
+	return rows, charge, leafCharges
 }
 
 func TestIntegrationCrossContainerUnion(t *testing.T) {

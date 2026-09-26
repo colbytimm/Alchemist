@@ -145,6 +145,38 @@ func TestStatusBarReportsTheLoadedResultSet(t *testing.T) {
 	assert.Contains(t, view, "12ms")
 }
 
+func TestStatusBarBreaksASimulatedChargeDownByContainer(t *testing.T) {
+	tests := []struct {
+		name  string
+		width int
+		want  string
+	}{
+		{name: "wide enough for every container", width: 3 * statusWidth,
+			want: "10.00 RU (sales.customers 7.50 + sales.orders 2.50 + sales.products 1.20)"},
+		{name: "too narrow for the breakdown", width: 100, want: "10.00 RU (3 containers)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bar, _ := panes.NewStatusBar(theme.Icons(), "dev").SetWidth(tt.width).SetProgress(panes.Progress{
+				Stats: adapter.Stats{
+					RowCount:      12,
+					RequestCharge: 10,
+					Elapsed:       12 * time.Millisecond,
+					LeafCharges:   map[string]float64{"sales.orders": 2.5, "sales.customers": 7.5, "sales.products": 1.2},
+				},
+				Loaded:    true,
+				Simulated: true,
+			})
+
+			view := plain(bar.View())
+
+			assert.Contains(t, view, tt.want)
+			assert.Contains(t, view, "12 rows")
+			assert.Contains(t, view, "12ms", "the elapsed time outlives the breakdown")
+		})
+	}
+}
+
 func TestStatusBarDropsTheMoreHintOnTheLastPage(t *testing.T) {
 	bar, _ := panes.NewStatusBar(theme.Icons(), "dev").SetWidth(statusWidth).SetProgress(panes.Progress{
 		Stats:  adapter.Stats{RowCount: 30},

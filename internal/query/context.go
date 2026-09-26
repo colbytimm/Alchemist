@@ -284,23 +284,20 @@ func (c classifier) afterSource(tail []token, empty CompletionKind) Completion {
 	return keywordsOnly(c.afterSources())
 }
 
-// afterInner offers the JOIN the modifier opens, unless the query already
-// holds the one cross-container join the planner runs.
 func (c classifier) afterInner() Completion {
-	if c.crossJoin() {
-		return Completion{}
-	}
 	return keywordsOnly([]string{"JOIN"})
 }
 
+// afterJoin offers `IN` after a bare alias only where a property join may
+// run: never alongside a cross-container join.
 func (c classifier) afterJoin(tail []token) Completion {
 	last, ok := lastOf(tail)
 	switch {
-	case !ok && c.crossJoin():
-		return Completion{}
 	case !ok:
 		return Completion{Kind: CompleteDatabase}
 	case last.upper == "AS", isPath(tail) && c.typing:
+		return Completion{}
+	case isPath(tail) && len(tail) == 1 && c.crossJoin():
 		return Completion{}
 	case isPath(tail) && len(tail) == 1:
 		return keywordsOnly([]string{"IN"})
@@ -314,11 +311,45 @@ func (c classifier) inOn(tail []token) Completion {
 	last, ok := lastOf(tail)
 	switch {
 	case !ok, isSymbol(last, "="):
-		return c.reference()
+		return c.onReference(tail)
 	case endsValue(last) && slices.ContainsFunc(tail, func(t token) bool { return isSymbol(t, "=") }):
 		return keywordsOnly(c.afterSources())
 	}
 	return Completion{}
+}
+
+// onReference completes a side of an ON equality the way the planner reads
+// it: one side reads the container its JOIN introduced, the other an earlier
+// one, and none reads a container joined further right.
+func (c classifier) onReference(tail []token) Completion {
+	sides, ok := c.onSides(len(c.toks) - len(tail) - 1)
+	if !ok {
+		return c.reference()
+	}
+	joined, earlier := sides[len(sides)-1], sides[:len(sides)-1]
+	switch {
+	case len(tail) == 0:
+	case tail[0].text == joined.Name:
+		sides = earlier
+	case slices.ContainsFunc(earlier, func(a Alias) bool { return a.Name == tail[0].text }):
+		sides = []Alias{joined}
+	}
+	return Completion{Kind: CompleteReference, Aliases: sides}
+}
+
+// onSides are the aliases of the containers up to the one the JOIN before
+// the ON token at index on introduced, that one last.
+func (c classifier) onSides(on int) ([]Alias, bool) {
+	containers := c.parser.containerSources()
+	joined := slices.IndexFunc(containers, func(s source) bool { return s.joined && s.nextTok == on })
+	if joined < 0 {
+		return nil, false
+	}
+	sides := make([]Alias, 0, joined+1)
+	for _, s := range containers[:joined+1] {
+		sides = append(sides, Alias{Name: joinAlias(s), Scopes: [][]string{scopeOf(s)}})
+	}
+	return sides, true
 }
 
 func (c classifier) inWhere(since []token) Completion {
@@ -408,10 +439,10 @@ func (c classifier) sourcePosition(i int) bool {
 
 // afterSources are the words that may follow a complete FROM clause. A join
 // is offered only where the planner would run it: not after a container
-// list, and not alongside a cross-container join already written.
+// list.
 func (c classifier) afterSources() []string {
 	words := []string{"WHERE"}
-	if !c.crossJoin() && !c.containerList() {
+	if !c.containerList() {
 		words = append(words, "JOIN", "INNER")
 	}
 	return append(words, c.following("FROM")...)

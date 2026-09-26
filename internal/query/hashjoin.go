@@ -8,16 +8,15 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
 )
 
-// joinSide is one container of a join. index is its position in the output:
-// 0 for the left side, 1 for the right, whichever of them is hashed.
+// joinSide is one container of a join, at its index in Plan.Leaves.
 type joinSide struct {
 	index   int
 	leaf    Leaf
-	key     []string
 	columns []JoinColumn // what the SELECT list takes from this side, in its order
 	cursor  adapter.Cursor
 }
@@ -48,36 +47,35 @@ type joinRow struct {
 	cells []string
 	page  *leafPage
 	raw   json.RawMessage
+	keys  []string // parallel to joinCursor.hops; set for the hops that touch this row's side
 }
 
-// joinCursor is an inner hash join: the build side is read whole into matches
-// on the first page, then every page of the probe side is streamed against it.
+// joinCursor is an inner hash join over a tree of sides. On the first page
+// every side but the streamed one is read whole into a hash table, one after
+// another; then the streamed side's rows are piped through the tables.
 type joinCursor struct {
-	build     joinSide
-	probe     joinSide
-	aliases   [2]string // left, right
-	selectAll bool
-	maxRows   int
-	columns   *columnUnion
-	matches   map[string][]joinRow
-	built     bool
-	// unplaced are the build pages read before any probe page: the merged
-	// header lists the left side first, whichever side was read first.
+	connection adapter.Connection
+	sides      []joinSide
+	streamed   int
+	hops       []hop
+	tables     []map[string][]joinRow // parallel to hops
+	held       int                    // rows across all tables, against maxRows
+	unserved   pendingRows
+	selectAll  bool
+	maxRows    int
+	columns    *columnUnion
+	built      bool
+	closed     bool
+	// unplaced are the leaf pages read since the last streamed one: the
+	// merged header lists the sides in written order, whichever was read
+	// first.
 	unplaced []*leafPage
 }
 
-func (e Engine) openJoin(ctx context.Context, plan Plan) (adapter.Cursor, error) {
-	left, err := e.Connection.Query(ctx, plan.Leaves[0].Query)
-	if err != nil {
-		return nil, err
-	}
-	right, err := e.Connection.Query(ctx, plan.Leaves[1].Query)
-	if err != nil {
-		return nil, errors.Join(err, left.Close())
-	}
-	sides := [2]joinSide{
-		{index: 0, leaf: plan.Leaves[0], key: plan.Join.LeftKey, cursor: left},
-		{index: 1, leaf: plan.Leaves[1], key: plan.Join.RightKey, cursor: right},
+func (e Engine) openJoin(plan Plan) *joinCursor {
+	sides := make([]joinSide, len(plan.Leaves))
+	for i, leaf := range plan.Leaves {
+		sides[i] = joinSide{index: i, leaf: leaf}
 	}
 	var header []string
 	for _, column := range plan.Join.Columns {
@@ -85,25 +83,18 @@ func (e Engine) openJoin(ctx context.Context, plan Plan) (adapter.Cursor, error)
 		side.columns = append(side.columns, column)
 		header = append(header, columnHeader(side.leaf.Alias, column))
 	}
-	build := buildSide(plan)
+	streamed := streamedSide(plan)
+	hops := orientSteps(plan, streamed)
 	return &joinCursor{
-		build:     sides[build],
-		probe:     sides[1-build],
-		aliases:   [2]string{plan.Leaves[0].Alias, plan.Leaves[1].Alias},
-		selectAll: len(plan.Join.Columns) == 0,
-		maxRows:   e.maxJoinRows(),
-		columns:   newColumnUnion(header...),
-	}, nil
-}
-
-// buildSide picks the side to hold in memory. Sizes are unknown before the
-// queries run, so a filter is the only evidence of a small side; without one
-// to tell them apart it is the joined container, conventionally the lookup.
-func buildSide(plan Plan) int {
-	if plan.Leaves[0].Filtered && !plan.Leaves[1].Filtered {
-		return 0
+		connection: e.Connection,
+		sides:      sides,
+		streamed:   streamed,
+		hops:       hops,
+		tables:     make([]map[string][]joinRow, len(hops)),
+		selectAll:  len(plan.Join.Columns) == 0,
+		maxRows:    e.maxJoinRows(),
+		columns:    newColumnUnion(header...),
 	}
-	return 1
 }
 
 func (j *joinCursor) NextPage(ctx context.Context) (adapter.Page, error) {
@@ -117,59 +108,84 @@ func (j *joinCursor) NextPage(ctx context.Context) (adapter.Page, error) {
 	return page, nil
 }
 
-// nextMatches reads probe pages until one of them matches something, so a
-// stretch of unmatched rows never surfaces as an empty page with more to come.
-func (j *joinCursor) nextMatches(ctx context.Context, meter *meter) (adapter.Page, error) {
-	if !j.built {
-		if err := j.buildMatches(ctx, meter); err != nil {
-			return adapter.Page{}, err
+// build holds every side but the streamed one, then opens the streamed side.
+// An empty table ends the run: nothing can match, so nothing more is read.
+func (j *joinCursor) build(ctx context.Context, meter *meter) error {
+	for h := range j.hops {
+		if err := j.hold(ctx, h, meter); err != nil {
+			return err
+		}
+		if len(j.tables[h]) == 0 {
+			j.built = true
+			return nil
 		}
 	}
-	var page adapter.Page
-	for len(page.Rows) == 0 && j.HasMore() {
-		rows, err := j.readRows(ctx, &j.probe, meter)
-		if err != nil {
-			return adapter.Page{}, err
-		}
-		j.placeLeftFirst()
-		for _, probed := range rows {
-			j.appendMatches(&page, probed)
-		}
+	if err := j.open(ctx, &j.sides[j.streamed]); err != nil {
+		return err
 	}
-	return page, nil
+	j.built = true
+	return nil
 }
 
-func (j *joinCursor) buildMatches(ctx context.Context, meter *meter) error {
-	j.matches = map[string][]joinRow{}
-	for held := 0; j.build.cursor != nil; {
-		rows, err := j.readRows(ctx, &j.build, meter)
+// hold reads the side hop h leads into to the end, into that hop's table.
+func (j *joinCursor) hold(ctx context.Context, h int, meter *meter) error {
+	side := &j.sides[j.hops[h].into]
+	if err := j.open(ctx, side); err != nil {
+		return err
+	}
+	j.tables[h] = map[string][]joinRow{}
+	for side.cursor != nil {
+		rows, err := j.readRows(ctx, side, meter)
 		if err != nil {
 			return err
 		}
-		held += len(rows)
-		if held > j.maxRows {
-			return fmt.Errorf("query: join: %s has more than %d rows to hold in memory: %w",
-				j.build.leaf.Label(), j.maxRows, ErrJoinTooLarge)
+		j.held += len(rows)
+		if j.held > j.maxRows {
+			return j.tooLarge(h)
 		}
 		for _, row := range rows {
-			j.matches[row.key] = append(j.matches[row.key], row.joinRow)
+			j.tables[h][row.keys[h]] = append(j.tables[h][row.keys[h]], row)
 		}
-	}
-	j.built = true
-	if len(j.matches) == 0 {
-		return closeSide(&j.probe)
 	}
 	return nil
 }
 
-type keyedRow struct {
-	joinRow
-	key string
+func (j *joinCursor) open(ctx context.Context, side *joinSide) error {
+	cursor, err := j.connection.Query(ctx, side.leaf.Query)
+	if err != nil {
+		return err
+	}
+	side.cursor = cursor
+	return nil
+}
+
+// tooLarge names the side of hop h, which crossed maxRows, and what the
+// sides held before it already hold.
+func (j *joinCursor) tooLarge(h int) error {
+	var before []string
+	for earlier := range h {
+		before = append(before, fmt.Sprintf("%s %d", j.sides[j.hops[earlier].into].leaf.Label(), rowCount(j.tables[earlier])))
+	}
+	held := ""
+	if len(before) > 0 {
+		held = " (" + strings.Join(before, ", ") + ")"
+	}
+	return fmt.Errorf("query: join: %s takes the rows held in memory past %d%s: %w",
+		j.sides[j.hops[h].into].leaf.Label(), j.maxRows, held, ErrJoinTooLarge)
+}
+
+func rowCount(table map[string][]joinRow) int {
+	count := 0
+	for _, rows := range table {
+		count += len(rows)
+	}
+	return count
 }
 
 // readRows reads the next page of side, closing its cursor after the last
-// one. Items without the join key match nothing and are dropped here.
-func (j *joinCursor) readRows(ctx context.Context, side *joinSide, meter *meter) ([]keyedRow, error) {
+// one. Items missing a key of any hop their side takes part in match
+// nothing and are dropped here.
+func (j *joinCursor) readRows(ctx context.Context, side *joinSide, meter *meter) ([]joinRow, error) {
 	page, err := side.cursor.NextPage(ctx)
 	if err != nil {
 		return nil, err
@@ -182,9 +198,9 @@ func (j *joinCursor) readRows(ctx context.Context, side *joinSide, meter *meter)
 	}
 	header := &leafPage{side: *side, columns: page.Columns}
 	j.unplaced = append(j.unplaced, header)
-	var rows []keyedRow
+	var rows []joinRow
 	for i, item := range page.Raw {
-		key, ok, err := joinKey(item, side.key)
+		keys, ok, err := j.rowKeys(side.index, item)
 		if err != nil {
 			return nil, err
 		}
@@ -195,16 +211,32 @@ func (j *joinCursor) readRows(ctx context.Context, side *joinSide, meter *meter)
 		if err != nil {
 			return nil, err
 		}
-		row := joinRow{page: header, raw: raw}
+		row := joinRow{page: header, raw: raw, keys: keys}
 		if i < len(page.Rows) {
 			row.cells = page.Rows[i]
 		}
-		rows = append(rows, keyedRow{joinRow: row, key: key})
+		rows = append(rows, row)
 	}
 	return rows, nil
 }
 
-func (j *joinCursor) placeLeftFirst() {
+// rowKeys renders an item's key for every hop its side takes part in; ok is
+// false when any of them is missing.
+func (j *joinCursor) rowKeys(side int, item json.RawMessage) (keys []string, ok bool, err error) {
+	keys = make([]string, len(j.hops))
+	for h, hop := range j.hops {
+		path, touches := hop.keyOf(side)
+		if !touches {
+			continue
+		}
+		if keys[h], ok, err = joinKey(item, path); !ok {
+			return nil, false, err
+		}
+	}
+	return keys, true, nil
+}
+
+func (j *joinCursor) placeInWrittenOrder() {
 	slices.SortStableFunc(j.unplaced, func(a, b *leafPage) int { return a.side.index - b.side.index })
 	for _, header := range j.unplaced {
 		header.placement = j.place(header.side, header.columns)
@@ -237,36 +269,6 @@ func (j *joinCursor) selected(side joinSide, field string) []JoinColumn {
 		}
 	}
 	return selected
-}
-
-func (j *joinCursor) appendMatches(page *adapter.Page, probed keyedRow) {
-	for _, held := range j.matches[probed.key] {
-		var pair [2]joinRow
-		pair[j.build.index], pair[j.probe.index] = held, probed.joinRow
-		row := make([]string, len(j.columns.names))
-		for _, half := range pair {
-			half.page.fill(row, half.cells)
-		}
-		page.Rows = append(page.Rows, row)
-		page.Raw = append(page.Raw, j.pairRaw(pair))
-	}
-}
-
-// pairRaw nests the two items under their aliases, which are identifiers and
-// so quote the same in Go as in JSON.
-func (j *joinCursor) pairRaw(pair [2]joinRow) json.RawMessage {
-	var raw bytes.Buffer
-	raw.WriteByte('{')
-	for i, half := range pair {
-		if i > 0 {
-			raw.WriteByte(',')
-		}
-		raw.WriteString(strconv.Quote(j.aliases[i]))
-		raw.WriteByte(':')
-		raw.Write(half.raw)
-	}
-	raw.WriteByte('}')
-	return raw.Bytes()
 }
 
 // projectRaw cuts an item down to the fields the SELECT list names.
@@ -304,11 +306,16 @@ func rawName(column JoinColumn) string {
 }
 
 func (j *joinCursor) HasMore() bool {
-	return !j.built || j.probe.cursor != nil
+	return !j.closed && (!j.built || !j.unserved.empty() || j.sides[j.streamed].cursor != nil)
 }
 
 func (j *joinCursor) Close() error {
-	return errors.Join(closeSide(&j.build), closeSide(&j.probe))
+	j.closed = true
+	var errs []error
+	for i := range j.sides {
+		errs = append(errs, closeSide(&j.sides[i]))
+	}
+	return errors.Join(errs...)
 }
 
 func closeSide(side *joinSide) error {

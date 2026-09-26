@@ -155,16 +155,27 @@ func (s StatusBar) View() string {
 	if s.width <= 0 {
 		return ""
 	}
-	separator := theme.HintStyle().Render(" " + s.icons.Separator + " ")
-	left := strings.Join(s.fields(), separator)
-	gap := s.width - lipgloss.Width(left) - lipgloss.Width(helpHint)
-	if gap < 1 {
+	left := s.left(leafChargesLabel)
+	if s.gap(left) < 1 {
+		left = s.left(leafCountLabel)
+	}
+	if s.gap(left) < 1 {
 		return ansi.Truncate(left, s.width, "…")
 	}
-	return left + strings.Repeat(" ", gap) + theme.HintStyle().Render(helpHint)
+	return left + strings.Repeat(" ", s.gap(left)) + theme.HintStyle().Render(helpHint)
 }
 
-func (s StatusBar) fields() []string {
+// left joins the fields, with the charge broken down by breakdown.
+func (s StatusBar) left(breakdown func(map[string]float64) string) string {
+	separator := theme.HintStyle().Render(" " + s.icons.Separator + " ")
+	return strings.Join(s.fields(breakdown), separator)
+}
+
+func (s StatusBar) gap(left string) int {
+	return s.width - lipgloss.Width(left) - lipgloss.Width(helpHint)
+}
+
+func (s StatusBar) fields(breakdown func(map[string]float64) string) []string {
 	fields := []string{
 		theme.TextStyle().Render(s.accountLabel()),
 		theme.TextStyle().Render(s.scopeLabel()),
@@ -174,7 +185,7 @@ func (s StatusBar) fields() []string {
 	}
 	fields = append(fields,
 		theme.TextStyle().Render(s.rowsLabel()),
-		chargeStyle().Render(s.chargeLabel()),
+		chargeStyle().Render(s.chargeLabel(breakdown)),
 		theme.TextStyle().Render(s.elapsedLabel()),
 	)
 	if s.progress.Running {
@@ -211,11 +222,11 @@ func (s StatusBar) rowsLabel() string {
 	return rows
 }
 
-func (s StatusBar) chargeLabel() string {
+func (s StatusBar) chargeLabel(breakdown func(map[string]float64) string) string {
 	if !s.progress.Loaded {
 		return pending + " RU"
 	}
-	return fmt.Sprintf("%.2f RU", s.progress.Stats.RequestCharge) + leafChargesLabel(s.progress.Stats.LeafCharges)
+	return fmt.Sprintf("%.2f RU", s.progress.Stats.RequestCharge) + breakdown(s.progress.Stats.LeafCharges)
 }
 
 // leafChargesLabel breaks a summed charge down by container.
@@ -228,6 +239,15 @@ func leafChargesLabel(charges map[string]float64) string {
 		parts = append(parts, fmt.Sprintf("%s %.2f", leaf, charges[leaf]))
 	}
 	return " (" + strings.Join(parts, " + ") + ")"
+}
+
+// leafCountLabel folds the breakdown to the number of containers, for a bar
+// too narrow to hold every one.
+func leafCountLabel(charges map[string]float64) string {
+	if len(charges) < 2 {
+		return ""
+	}
+	return fmt.Sprintf(" (%d containers)", len(charges))
 }
 
 func (s StatusBar) elapsedLabel() string {

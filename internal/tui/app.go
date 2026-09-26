@@ -690,6 +690,7 @@ func (m Model) loadPage(msg PageLoadedMsg) (Model, tea.Cmd) {
 	m.stats = msg.Page.Stats
 	m.results = m.results.Load(msg.Page)
 	m.observePage(msg.Page)
+	m.logLeafCharges()
 	model, cmd := m.acceptPage(msg.cursor)
 	return model, tea.Batch(cmd, model.recordSuccess(msg.Page.Stats))
 }
@@ -702,7 +703,16 @@ func (m Model) appendPage(msg PageAppendedMsg) (Model, tea.Cmd) {
 	m.stats = totalStats(m.stats, msg.Page.Stats)
 	m.results = m.results.Append(msg.Page)
 	m.observePage(msg.Page)
+	m.logLeafCharges()
 	return m.acceptPage(msg.cursor)
+}
+
+// logLeafCharges keeps the per-container charge of a simulated run, which a
+// narrow status bar folds to a count.
+func (m Model) logLeafCharges() {
+	if m.simulated {
+		m.logger.Info("simulated run charge", "total", m.stats.RequestCharge, "containers", m.stats.LeafCharges)
+	}
 }
 
 // acceptPage takes the cursor back from the command that read the page.

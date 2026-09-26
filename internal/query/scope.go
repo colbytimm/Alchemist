@@ -275,6 +275,9 @@ func (p *parser) parseJoinClause(i int, modifier string) int {
 	if !p.isKeyword(j, "IN") {
 		src.joined, src.modifier = true, modifier
 		p.record(src)
+		if p.isKeyword(j, "ON") {
+			return p.skipOn(j + 1)
+		}
 		return j
 	}
 	collection, k, ok := p.parseSource(j + 1)
@@ -292,6 +295,23 @@ func (p *parser) parseJoinClause(i int, modifier string) int {
 		return k
 	}
 	return j + 1
+}
+
+// skipOn passes over an ON condition to whatever may follow it: another
+// join, a comma, or a clause. It stops at a parenthesis too, leaving run to
+// track the depth of anything nested.
+func (p *parser) skipOn(i int) int {
+	for ; i < len(p.toks); i++ {
+		tok := p.toks[i]
+		switch {
+		case followsDot(p.toks, i):
+		case isSymbol(tok, "("), isSymbol(tok, ")"), tok.kind == tokComma:
+			return i
+		case tok.kind == tokIdent && (clauseWords[tok.upper] || joinModifiers[tok.upper] || tok.upper == "JOIN"):
+			return i
+		}
+	}
+	return i
 }
 
 func pathText(path []token) []string {
