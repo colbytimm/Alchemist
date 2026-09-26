@@ -278,7 +278,8 @@ func TestTheStatementFormatsBackToItself(t *testing.T) {
 }
 
 // stripStrings blanks the string literals and comments of a condition,
-// whose parentheses are text rather than grouping.
+// whose parentheses are text rather than grouping. A string leaves a space,
+// so that the text either side of it stays apart.
 func stripStrings(condition string) string {
 	var out []rune
 	var quote rune
@@ -302,6 +303,7 @@ func stripStrings(condition string) string {
 			continue
 		case r == '"' || r == '\'':
 			quote = r
+			out = append(out, ' ')
 			continue
 		case r == '-' && i+1 < len(runes) && runes[i+1] == '-':
 			comment = true

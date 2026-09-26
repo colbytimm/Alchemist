@@ -101,6 +101,19 @@ type PathStep struct {
 	IsIndex bool
 }
 
+// Dotted is the path written with dots alone, alias.a.b, and false for one
+// that needs a bracket: an index, or a name that is no identifier.
+func (p FieldPath) Dotted() (string, bool) {
+	ref := p.Alias
+	for _, step := range p.Steps {
+		if step.IsIndex || !isIdentifier(step.Name) {
+			return "", false
+		}
+		ref += "." + step.Name
+	}
+	return ref, true
+}
+
 // Parent is the path one step up, and false for a field at the top level,
 // whose parent is the item.
 func (p FieldPath) Parent() (FieldPath, bool) {

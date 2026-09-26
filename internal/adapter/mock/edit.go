@@ -1,14 +1,15 @@
 package mock
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -199,30 +200,37 @@ func applied(status int, kind adapter.OperationKind, etag string) adapter.Operat
 	return adapter.OperationResult{Outcome: adapter.OperationApplied, Status: statusText(status), ETag: etag, RequestCharge: charges[kind]}
 }
 
-// conditionHolds evaluates a patch condition of the one shape the mock
-// reads: FROM <alias> WHERE (<predicate>), then AND IS_DEFINED(<alias><path>)
-// once for each path that must be there. The predicate is one a test
-// registered.
+// conditionHolds evaluates a patch condition of the shapes the mock reads:
+// FROM <alias> WHERE (<predicate>), then AND <guard> once for each path
+// that must be there, or FROM <alias> WHERE <guard> AND ... alone. A guard
+// is IS_DEFINED, IS_OBJECT or IS_ARRAY of a path written with dots. The
+// predicate is one a test registered. What the vNext emulator refuses with
+// 400, the mock refuses too: a bracket or an index in a guard, and a bare
+// true beside an AND.
 func (a *Adapter) conditionHolds(condition string, item json.RawMessage) (bool, error) {
 	if condition == "" {
 		return true, nil
 	}
 	alias, rest, ok := cutConditionHead(condition)
 	if !ok {
-		return false, fmt.Errorf("condition %q is not FROM <alias> WHERE (<predicate>)", condition)
+		return false, fmt.Errorf("condition %q does not start FROM <alias> WHERE", condition)
 	}
-	for _, predicate := range longestFirst(a.predicates) {
-		tail, found := strings.CutPrefix(rest, predicate+")")
-		if !found {
-			continue
-		}
-		paths, err := definedPaths(alias, tail)
-		if err != nil {
-			return false, fmt.Errorf("condition %q: %w", condition, err)
-		}
-		return a.predicates[predicate](item) && hasEveryPath(item, paths), nil
+	predicate, tail, err := a.cutPredicate(rest)
+	if err != nil {
+		return false, fmt.Errorf("condition %q: %w", condition, err)
 	}
-	return false, fmt.Errorf("condition %q names no predicate registered with WithPredicate", condition)
+	if predicate == "true" && tail != "" {
+		return false, fmt.Errorf("condition %q: a bare true beside an AND", condition)
+	}
+	guards, err := readGuards(alias, tail)
+	if err != nil {
+		return false, fmt.Errorf("condition %q: %w", condition, err)
+	}
+	matches := a.predicates[predicate]
+	if predicate == "" {
+		matches = func(json.RawMessage) bool { return true }
+	}
+	return matches(item) && everyGuardHolds(item, guards), nil
 }
 
 func cutConditionHead(condition string) (alias, rest string, ok bool) {
@@ -230,7 +238,22 @@ func cutConditionHead(condition string) (alias, rest string, ok bool) {
 	if !ok {
 		return "", "", false
 	}
-	return strings.Cut(rest, " WHERE (")
+	return strings.Cut(rest, " WHERE ")
+}
+
+// cutPredicate reads the registered predicate a condition opens with, in
+// its parentheses; a condition of guards alone has none, and holds by
+// them alone.
+func (a *Adapter) cutPredicate(rest string) (string, string, error) {
+	if !strings.HasPrefix(rest, "(") {
+		return "", " AND " + rest, nil
+	}
+	for _, predicate := range longestFirst(a.predicates) {
+		if tail, found := strings.CutPrefix(rest, "("+predicate+")"); found {
+			return predicate, tail, nil
+		}
+	}
+	return "", "", errors.New("it names no predicate registered with WithPredicate")
 }
 
 // longestFirst orders the predicates so that one which starts another is
@@ -241,82 +264,62 @@ func longestFirst(predicates map[string]func(json.RawMessage) bool) []string {
 	})
 }
 
-// definedPaths reads the IS_DEFINED clauses after a condition's predicate,
-// each a path of names and indexes under alias.
-func definedPaths(alias, tail string) ([][]string, error) {
-	var paths [][]string
+// guard is one check of a condition: its function and the path it asks
+// about.
+type guard struct {
+	function string
+	path     []string
+}
+
+var guardFunctions = []string{"IS_DEFINED", "IS_OBJECT", "IS_ARRAY"}
+
+// readGuards reads the guards after a condition's predicate.
+func readGuards(alias, tail string) ([]guard, error) {
+	var guards []guard
 	for tail != "" {
-		clause, found := strings.CutPrefix(tail, " AND IS_DEFINED("+alias)
-		end := strings.Index(clause, ")")
-		if !found || end < 0 {
+		clause, found := strings.CutPrefix(tail, " AND ")
+		function, ref, opened := strings.Cut(clause, "("+alias)
+		end := strings.Index(ref, ")")
+		if !found || !opened || end < 0 || !slices.Contains(guardFunctions, function) {
 			return nil, fmt.Errorf("unexpected %q", tail)
 		}
-		path, err := refSteps(clause[:end])
-		if err != nil {
-			return nil, err
+		if strings.ContainsAny(ref[:end], "[]") {
+			return nil, fmt.Errorf("%s of %q: a bracket in a patch condition", function, ref[:end])
 		}
-		paths = append(paths, path)
-		tail = clause[end+1:]
+		guards = append(guards, guard{function: function, path: strings.Split(strings.TrimPrefix(ref[:end], "."), ".")})
+		tail = ref[end+1:]
 	}
-	return paths, nil
+	return guards, nil
 }
 
-// refSteps reads a path written after an alias: .name, ["name"] and [2]
-// in any order.
-func refSteps(ref string) ([]string, error) {
-	var steps []string
-	for ref != "" {
-		if rest, ok := strings.CutPrefix(ref, "."); ok {
-			end := strings.IndexAny(rest, ".[")
-			if end < 0 {
-				end = len(rest)
-			}
-			steps, ref = append(steps, rest[:end]), rest[end:]
-			continue
-		}
-		inner, ok := strings.CutPrefix(ref, "[")
-		end := strings.Index(inner, "]")
-		if !ok || end < 0 {
-			return nil, fmt.Errorf("IS_DEFINED of %q: not a path", ref)
-		}
-		step := inner[:end]
-		var name string
-		if json.Unmarshal([]byte(step), &name) == nil {
-			step = name
-		}
-		steps, ref = append(steps, step), inner[end+1:]
-	}
-	return steps, nil
-}
-
-func hasEveryPath(item json.RawMessage, paths [][]string) bool {
-	for _, path := range paths {
-		if !hasPath(item, path) {
+func everyGuardHolds(item json.RawMessage, guards []guard) bool {
+	for _, g := range guards {
+		value, ok := valueAtPath(item, g.path)
+		switch {
+		case !ok:
+			return false
+		case g.function == "IS_OBJECT" && (len(value) == 0 || value[0] != '{'):
+			return false
+		case g.function == "IS_ARRAY" && (len(value) == 0 || value[0] != '['):
 			return false
 		}
 	}
 	return true
 }
 
-// hasPath reports whether item holds something at steps.
-func hasPath(item json.RawMessage, steps []string) bool {
+// valueAtPath is what item holds at the property names of path.
+func valueAtPath(item json.RawMessage, path []string) (json.RawMessage, bool) {
 	value := item
-	for _, step := range steps {
+	for _, name := range path {
 		var object map[string]json.RawMessage
-		if json.Unmarshal(value, &object) == nil && object != nil {
-			next, ok := object[step]
-			if !ok {
-				return false
-			}
-			value = next
-			continue
+		if json.Unmarshal(value, &object) != nil || object == nil {
+			return nil, false
 		}
-		var elements []json.RawMessage
-		index, err := strconv.Atoi(step)
-		if json.Unmarshal(value, &elements) != nil || err != nil || index < 0 || index >= len(elements) {
-			return false
+		next, ok := object[name]
+		if !ok {
+			return nil, false
 		}
-		value = elements[index]
+		value = next
 	}
-	return true
+	return bytes.TrimSpace(value), true
 }
