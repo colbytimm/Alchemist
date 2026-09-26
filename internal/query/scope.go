@@ -260,8 +260,11 @@ type parser struct {
 	// container rather than reading an alias.
 	declarations []int
 	roots        []int
-	clauses      int
-	depth        int
+	// subqueryAliases name the (subquery) sources declared so far: a path
+	// rooted at one reads the subquery's items, and is no container.
+	subqueryAliases map[string]bool
+	clauses         int
+	depth           int
 }
 
 // element is an alias ranging over an array: the alias the array was
@@ -277,7 +280,7 @@ func parse(text string) *parser {
 }
 
 func parseTokens(toks []token) *parser {
-	p := &parser{toks: toks, aliases: map[string]bool{}}
+	p := &parser{toks: toks, aliases: map[string]bool{}, subqueryAliases: map[string]bool{}}
 	p.run()
 	return p
 }
@@ -325,6 +328,10 @@ func (p *parser) parseFromSource(i int) (int, bool) {
 	if !ok {
 		return p.parseSubquerySource(i)
 	}
+	if p.readsSubquery(src) {
+		p.declareAliasOf(src)
+		return j, true
+	}
 	p.record(src)
 	if p.isKeyword(j, "IN") {
 		j = p.skipCollection(j + 1)
@@ -359,6 +366,10 @@ func (p *parser) parseJoinClause(i int, modifier string) int {
 	if !ok {
 		next, _ := p.parseSubquerySource(i)
 		return next
+	}
+	if !p.isKeyword(j, "IN") && p.readsSubquery(src) {
+		p.declareAliasOf(src)
+		return j
 	}
 	if !p.isKeyword(j, "IN") {
 		src.joined, src.modifier = true, modifier
@@ -395,18 +406,35 @@ func (p *parser) parseSubquerySource(i int) (int, bool) {
 		return i, false
 	}
 	closing := matchingParen(p.toks, i)
-	depth := p.depth
+	depth, clauses := p.depth, p.clauses
 	p.walk(i, closing+1)
-	p.depth = depth
+	p.depth, p.clauses = depth, clauses
 	next := closing + 1
 	if p.isKeyword(next, "AS") {
 		next++
 	}
 	if p.isBareAlias(next) {
 		p.declarations = append(p.declarations, next)
+		p.subqueryAliases[p.toks[next].text] = true
 		next++
 	}
 	return next, true
+}
+
+// readsSubquery reports whether src is a path under a subquery declared
+// before it, as in JOIN x.items after (subquery) x.
+func (p *parser) readsSubquery(src source) bool {
+	return len(src.path) > 1 && p.subqueryAliases[src.path[0].text]
+}
+
+// declareAliasOf declares the alias of src, a path under a subquery, as a
+// subquery's own alias is declared: a path under it reads the subquery's
+// items too.
+func (p *parser) declareAliasOf(src source) {
+	if src.alias != "" {
+		p.declarations = append(p.declarations, src.nextTok-1)
+		p.subqueryAliases[src.alias] = true
+	}
 }
 
 // skipCollection passes over the path of `FROM alias IN path`, whose root
