@@ -81,7 +81,7 @@ func TestWhatChangedSinceTheSelectionDecidesEachWrite(t *testing.T) {
 }
 
 func TestAKeylessTargetIsNeverWritten(t *testing.T) {
-	a := store([]json.RawMessage{order(0, "shipped"), json.RawMessage(`{"id":"nokey","status":"shipped"}`)})
+	a := store([]json.RawMessage{order(0, "shipped"), json.RawMessage(`{"id":"keyless","status":"shipped"}`)})
 	m, targets := mustSelect(t, a, archive)
 
 	progress, err := runJob(newJob(m, targets, editorOf(t, a), 1, &fakeClock{}))

@@ -81,7 +81,7 @@ func confirmUpdate(t *testing.T, m tea.Model, typed string) tea.Model {
 }
 
 // heldConfirm types the confirmation and presses enter, and hands back the
-// job's first step unrun, so the test decides when the job moves.
+// job's first step without running it, so the test decides when the job moves.
 func heldConfirm(t *testing.T, m tea.Model, typed string) (tea.Model, tea.Cmd) {
 	t.Helper()
 	m = pressAll(t, m, keyText(typed))

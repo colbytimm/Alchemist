@@ -75,7 +75,7 @@ func TestNoMatchIsAnEmptySelectionWithNoPreview(t *testing.T) {
 }
 
 func TestAnItemWithNoKeyIsKeptAndMarked(t *testing.T) {
-	a := store([]json.RawMessage{order(0, "shipped"), json.RawMessage(`{"id":"nokey","status":"shipped"}`)})
+	a := store([]json.RawMessage{order(0, "shipped"), json.RawMessage(`{"id":"keyless","status":"shipped"}`)})
 
 	_, targets := mustSelect(t, a, archive)
 
