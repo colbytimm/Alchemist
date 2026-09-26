@@ -484,7 +484,7 @@ What landed differs from the text above in these ways:
   misspelled clause is matched against. The statement-start message became `a statement
   starts with SELECT, UPDATE or BEGIN BATCH` (with `DELETE` after iteration 22).
 
-- **Iteration 22 merged in.** A `DELETE FROM` is analysed as 22's `mutationKind`
+- **Iteration 22 merged in.** A `DELETE FROM` is analyzed as 22's `mutationKind`
   reads it, CTE list included, and highlighted and checked as an update is: `DELETE`
   joins the mutation keywords, its target after `FROM` is a source root and its alias a
   declaration, and its `MutationSyntaxError`s reach `Diagnose` through the same
