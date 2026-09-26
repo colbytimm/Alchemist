@@ -415,12 +415,24 @@ What landed differs from the text above in these ways:
   once the query has a `FROM`, so a query typed from the top is not flagged on its way
   there, and the names it may read through are BuildPlan's (the default `c` of an
   unaliased container, a join side's container name) plus every declared alias and
-  every one-word source. A misspelled clause is a word within two edits of `SELECT`,
-  `FROM`, `WHERE`, `GROUP`, `ORDER`, `OFFSET`, `LIMIT` or `JOIN`, of three letters or
-  more, after a complete value; `FROM c WERE` parses `WERE` as a bare alias, so a bare
-  alias counts until something reads through it. A statement start is checked against
-  `SELECT` only; a lone `BEGIN` is how a batch is typed. Messages quote the batch
-  parser's text; `BatchSyntaxError` carries its byte offset, unexported.
+  every one-word source, including the alias of a `(subquery)` after `FROM` or
+  `JOIN`. The name after `@` is a parameter, never an alias. A misspelled clause is a
+  word within two edits of `SELECT`, `FROM`, `WHERE`, `GROUP`, `ORDER`, `OFFSET`,
+  `LIMIT` or `JOIN` (and `SET`, `UNSET` in an `UPDATE`), of three letters or more,
+  after a complete value; `FROM c WERE` parses `WERE` as a bare alias, so a bare alias
+  counts only when a value or `BY` follows it, and until something reads through it:
+  `FROM orders ord` is not flagged. A statement start is checked against `SELECT`
+  only; a lone `BEGIN` is how a batch is typed. Messages quote the batch parser's
+  text.
+- **An unknown function is flagged only with a "did you mean".** The function list is
+  Alchemist's copy of the service's reference, which grows (`StringJoin` and
+  `StringSplit` were added in review; the reference could not be reached from the
+  development container to check the rest), so a name near no known function is left
+  alone rather than squiggled.
+- **Non-ASCII names.** The lexer reads a letter, digit or mark of any script as part of
+  a name, and any Unicode space as a space, so a property named in German or Spanish is one name. Other
+  non-ASCII characters are one token per rune. This changes what the planner sees only
+  for text that was split mid-name before.
 - **Classes beyond the table.** `IS` is an operator word, the join modifiers (`LEFT`,
   `INNER`, …) are keywords except as a call (`LEFT(`), and in a batch `TRUE`, `FALSE`
   and `NULL` are literals.

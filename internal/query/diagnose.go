@@ -19,12 +19,12 @@ type Diagnostic struct {
 // a comment.
 const strayCharacters = "#`\\"
 
-// clauseWords are the words a misspelled clause is matched against, in the
-// order a tie is broken.
-var clauseKeywords = []string{"SELECT", "FROM", "WHERE", "GROUP", "ORDER", "OFFSET", "LIMIT", "JOIN"}
-
-// updateClauseKeywords are an UPDATE's: its own, then a query's.
-var updateClauseKeywords = append([]string{"SET", "UNSET"}, clauseKeywords...)
+// Words a misspelled clause is matched against, in the order a tie is
+// broken: a query's clauses and JOIN, and an UPDATE's own before those.
+var (
+	queryClauseKeywords  = append(slices.Clone(clauses), "JOIN")
+	updateClauseKeywords = append([]string{"SET", "UNSET"}, queryClauseKeywords...)
+)
 
 // maxSuggestionDistance is how far a word may be from a known one for
 // "did you mean" to offer it.
@@ -48,7 +48,7 @@ func Diagnose(a Analysis) []Diagnostic {
 		a.mutationSyntax(),
 	} {
 		for _, d := range rule {
-			if !slices.ContainsFunc(found, d.overlaps) {
+			if !slices.ContainsFunc(found, d.Overlaps) {
 				found = append(found, d)
 			}
 		}
@@ -63,7 +63,7 @@ func (a Analysis) LexicalDiagnostics() []Diagnostic {
 	return slices.Concat(a.unterminatedStrings(), a.strayCharacters())
 }
 
-func (d Diagnostic) overlaps(other Diagnostic) bool {
+func (d Diagnostic) Overlaps(other Diagnostic) bool {
 	return d.Start < other.End && other.Start < d.End
 }
 
@@ -89,6 +89,9 @@ func (a Analysis) strayCharacters() []Diagnostic {
 	return found
 }
 
+// unknownFunctions flags a call only when a known function is near its
+// name: the list of functions is Alchemist's copy of the service's, and a
+// name far from all of them is more likely one the copy lacks than a typo.
 func (a Analysis) unknownFunctions() []Diagnostic {
 	if a.batch {
 		return nil
@@ -101,11 +104,10 @@ func (a Analysis) unknownFunctions() []Diagnostic {
 		if builtinFunctions[tok.upper] != "" {
 			continue
 		}
-		message := "unknown function " + tok.text
 		if name, ok := closestFunction(tok.upper); ok {
-			message += ": did you mean " + name + "?"
+			found = append(found, Diagnostic{Start: tok.start, End: tok.end,
+				Message: "unknown function " + tok.text + ": did you mean " + name + "?"})
 		}
-		found = append(found, Diagnostic{Start: tok.start, End: tok.end, Message: message})
 	}
 	return found
 }
@@ -133,7 +135,7 @@ func (a Analysis) undeclaredAliases() []Diagnostic {
 	names := a.aliasNames()
 	var found []Diagnostic
 	for i, tok := range a.code {
-		if tok.kind != tokIdent || !a.readsThrough(i) || a.isRoot(i) || isKnownWord(tok.upper) || slices.Contains(names, tok.text) {
+		if !a.readsThroughUnknownName(i, names) {
 			continue
 		}
 		found = append(found, Diagnostic{Start: tok.start, End: tok.end,
@@ -142,9 +144,19 @@ func (a Analysis) undeclaredAliases() []Diagnostic {
 	return found
 }
 
+// readsThroughUnknownName reports whether the identifier at i reads a
+// property through a name that is none of names. A parameter's name, as in
+// @filter.status, names no alias.
+func (a Analysis) readsThroughUnknownName(i int, names []string) bool {
+	tok := a.code[i]
+	return tok.kind == tokIdent && a.readsThrough(i) && !a.isRoot(i) && !isKnownWord(tok.upper) &&
+		!slices.Contains(names, tok.text) && (i == 0 || !a.isParameter(i-1))
+}
+
 // misspelledClauses flags a word near a clause keyword where a clause could
 // start: after a complete value. FROM c WERE declares WERE a bare alias, so
-// an alias is only let off once something reads through it.
+// an alias counts only when what follows it would follow a clause, a value
+// or ORDER's and GROUP's BY, and until something reads through it.
 func (a Analysis) misspelledClauses() []Diagnostic {
 	if a.batch {
 		return nil
@@ -152,6 +164,9 @@ func (a Analysis) misspelledClauses() []Diagnostic {
 	var found []Diagnostic
 	for i, tok := range a.code {
 		if !a.inClausePosition(i) {
+			continue
+		}
+		if a.isDeclaration(i) && !a.startsValue(i+1) && !keywordAt(a.code, i+1, "BY") {
 			continue
 		}
 		clause, ok := closestWord(tok.upper, a.clauseKeywords())
@@ -165,10 +180,10 @@ func (a Analysis) misspelledClauses() []Diagnostic {
 }
 
 func (a Analysis) clauseKeywords() []string {
-	if a.mutation {
+	if a.mutation && a.mutationKind == MutationUpdate {
 		return updateClauseKeywords
 	}
-	return clauseKeywords
+	return queryClauseKeywords
 }
 
 // inClausePosition reports whether the identifier at i follows a complete
@@ -186,6 +201,22 @@ func (a Analysis) inClausePosition(i int) bool {
 	}
 	next := a.code[i+1]
 	return next.kind != tokDot && !isSymbol(next, "(") && !isSymbol(next, "[")
+}
+
+// startsValue reports whether the token at i can open a value: a name, a
+// literal, a parameter, or a bracket.
+func (a Analysis) startsValue(i int) bool {
+	if i >= len(a.code) {
+		return false
+	}
+	tok := a.code[i]
+	switch tok.kind {
+	case tokIdent:
+		return !isKnownWord(tok.upper) && !mutationKeywords[tok.upper]
+	case tokString, tokNumber:
+		return true
+	}
+	return isSymbol(tok, "(") || isSymbol(tok, "[") || isSymbol(tok, "{") || isSymbol(tok, "@")
 }
 
 func (a Analysis) readsThroughName(name string) bool {

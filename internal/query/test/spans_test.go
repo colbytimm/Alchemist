@@ -1,5 +1,7 @@
 package query_test
 
+// cspell:ignore müller dirección calle größe
+
 import (
 	"testing"
 
@@ -171,6 +173,16 @@ func TestSpansClassifiesWords(t *testing.T) {
 			name:  "a comment at the end runs out with the input",
 			input: "SELECT 1 --",
 			want:  []spanText{keyword("SELECT"), number("1"), comment("--")},
+		},
+		{
+			name:  "a non-ASCII name is one word, and a non-ASCII space separates words",
+			input: "SELECT\u00a0c.müller FROM\u3000c WHERE c.größe > 1",
+			want:  []spanText{keyword("SELECT"), alias("c"), keyword("FROM"), alias("c"), keyword("WHERE"), alias("c"), number("1")},
+		},
+		{
+			name:  "a parameter's property",
+			input: "WHERE c.s = @filter.status",
+			want:  []spanText{keyword("WHERE"), parameter("@filter")},
 		},
 		{name: "empty input", input: "", want: nil},
 	}

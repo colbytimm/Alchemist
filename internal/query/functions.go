@@ -111,6 +111,8 @@ var functions = []Function{
 	{"RTRIM", "RTRIM(string [, chars])"},
 	{"STARTSWITH", "STARTSWITH(string, prefix [, ignoreCase])"},
 	{"STRINGEQUALS", "STRINGEQUALS(string1, string2 [, ignoreCase])"},
+	{"StringJoin", "StringJoin(array, separator)"},
+	{"StringSplit", "StringSplit(string, separator)"},
 	{"StringToArray", "StringToArray(string)"},
 	{"StringToBoolean", "StringToBoolean(string)"},
 	{"StringToNull", "StringToNull(string)"},

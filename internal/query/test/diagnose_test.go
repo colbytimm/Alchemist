@@ -1,5 +1,7 @@
 package query_test
 
+// cspell:ignore müller dirección calle größe
+
 import (
 	"fmt"
 	"strings"
@@ -46,11 +48,6 @@ func TestDiagnoseFlags(t *testing.T) {
 			want:  []flagged{{"CONTAIN", "unknown function CONTAIN: did you mean CONTAINS?"}},
 		},
 		{
-			name:  "an unknown function near none",
-			input: "SELECT * FROM c WHERE WOMBAT(c.name)",
-			want:  []flagged{{"WOMBAT", "unknown function WOMBAT"}},
-		},
-		{
 			name:  "an alias the query never declares",
 			input: "SELECT o.id FROM c",
 			want:  []flagged{{"o", "o is not declared: the query reads c"}},
@@ -59,6 +56,11 @@ func TestDiagnoseFlags(t *testing.T) {
 			name:  "a misspelled clause keyword in a clause position",
 			input: "SELECT * FORM c",
 			want:  []flagged{{"FORM", "FORM is not a clause: did you mean FROM?"}},
+		},
+		{
+			name:  "a misspelled clause taken for an alias, before FROM's first value",
+			input: "SELECT * FROM c WERE c.x = 1",
+			want:  []flagged{{"WERE", "WERE is not a clause: did you mean WHERE?"}},
 		},
 		{
 			name:  "a misspelled clause taken for an alias nothing reads through",
@@ -166,6 +168,17 @@ func TestDiagnoseLeavesAlone(t *testing.T) {
 		{name: "a complete batch", input: `BEGIN BATCH sales.orders PARTITION 'k'; UPSERT {"id": "a"}; COMMIT`},
 		{name: "a word that is near no clause", input: "SELECT * FROM c WHERE c.a = 1 banana"},
 		{name: "strings and comments hide what is in them", input: "SELECT * FROM c -- FORM # CONTAIN(\nWHERE c.a = 'FORM # ('"},
+		{name: "a function near no known one, which the list may lack", input: "SELECT * FROM c WHERE WOMBAT(c.name)"},
+		{name: "functions added to the service after the list was first written", input: `SELECT StringJoin(c.tags, ","), StringSplit(c.path, "/") FROM c`},
+		{name: "a non-ASCII property", input: "SELECT c.müller.name, c.dirección.calle FROM c"},
+		{name: "a property of a parameter", input: "SELECT * FROM c WHERE c.status = @filter.status"},
+		{name: "a subquery join's alias", input: "SELECT * FROM c JOIN (SELECT VALUE t FROM t IN c.tags WHERE t.x = 1) AS tt WHERE tt.y = 1"},
+		{name: "a subquery join's bare alias", input: "SELECT * FROM c JOIN (SELECT VALUE t FROM t IN c.tags) tt WHERE tt.y = 1"},
+		{name: "a subquery source's alias", input: "SELECT x.n FROM (SELECT VALUE c FROM c) AS x"},
+		{name: "a bare alias near a clause", input: "SELECT * FROM orders ord"},
+		{name: "a bare alias near LIMIT", input: "SELECT * FROM limits lim WHERE true"},
+		{name: "a delete's bare alias near ORDER", input: "DELETE FROM sales.orders ord WHERE true"},
+		{name: "an update's bare alias near ORDER", input: `UPDATE sales.orders ord SET ord.status = "x" WHERE true`},
 		{name: "empty", input: ""},
 	}
 	for _, tt := range tests {
@@ -183,7 +196,7 @@ func TestDidYouMeanOffersOnlyWordsWithinTwoEdits(t *testing.T) {
 	}{
 		{name: "one edit", input: "SELECT * FROM c WHERE UPPERS(c.n) = 'A'", want: "unknown function UPPERS: did you mean UPPER?"},
 		{name: "two edits", input: "SELECT * FROM c WHERE ROUNDED(c.n) = 1", want: "unknown function ROUNDED: did you mean ROUND?"},
-		{name: "three edits", input: "SELECT * FROM c WHERE ROUNDING(c.n) = 1", want: "unknown function ROUNDING"},
+		{name: "three edits", input: "SELECT * FROM c WHERE ROUNDING(c.n) = 1", want: ""},
 		{name: "a clause one edit away", input: "SELECT * FROM c ORDERS BY c.n", want: "ORDERS is not a clause: did you mean ORDER?"},
 		{name: "a clause three edits away", input: "SELECT * FROM c WHERE c.a = 1 OBD BY c.n", want: ""},
 	}

@@ -8,6 +8,8 @@ package query
 import (
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Token kinds produced by the lexer.
@@ -82,13 +84,18 @@ func lex(s string) []token {
 			end := lexComment(s, i)
 			toks = append(toks, token{kind: tokComment, start: i, end: end, open: true})
 			i = end
-		case isIdentStart(c):
+		case c >= utf8.RuneSelf && isSpaceRune(s[i:]):
+			_, size := utf8.DecodeRuneInString(s[i:])
+			i += size
+		case isIdentStart(c) || identRuneSize(s[i:]) > 0:
 			start := i
-			for i < len(s) && isIdentPart(s[i]) {
-				i++
-			}
+			i = lexIdent(s, i)
 			t := s[start:i]
 			toks = append(toks, token{kind: tokIdent, text: t, upper: strings.ToUpper(t), start: start, end: i})
+		case c >= utf8.RuneSelf:
+			_, size := utf8.DecodeRuneInString(s[i:])
+			toks = append(toks, token{kind: tokOther, text: s[i : i+size], start: i, end: i + size})
+			i += size
 		case isDigit(c):
 			end := lexNumber(s, i)
 			toks = append(toks, token{kind: tokNumber, start: i, end: end})
@@ -105,6 +112,38 @@ func lex(s string) []token {
 		}
 	}
 	return toks
+}
+
+// lexIdent returns the byte offset just past the identifier starting at i.
+// Letters, digits and marks of any script continue it, so a property named
+// in any language is one name, as the service reads it.
+func lexIdent(s string, i int) int {
+	for i < len(s) {
+		switch {
+		case isIdentPart(s[i]):
+			i++
+		case identRuneSize(s[i:]) > 0:
+			i += identRuneSize(s[i:])
+		default:
+			return i
+		}
+	}
+	return i
+}
+
+// identRuneSize is the byte length of the non-ASCII letter, digit or mark
+// s starts with, or 0.
+func identRuneSize(s string) int {
+	r, size := utf8.DecodeRuneInString(s)
+	if r < utf8.RuneSelf || !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.IsMark(r) {
+		return 0
+	}
+	return size
+}
+
+func isSpaceRune(s string) bool {
+	r, _ := utf8.DecodeRuneInString(s)
+	return unicode.IsSpace(r)
 }
 
 // lexString returns the byte offset just past the string literal opening at
@@ -247,6 +286,7 @@ func (p *parser) parseFromClause(i int) int {
 	for {
 		src, j, ok := p.parseSource(i)
 		if !ok {
+			p.declareSubqueryAlias(i)
 			return j
 		}
 		p.record(src)
@@ -286,6 +326,7 @@ func (p *parser) parseJoinModifier(i int) (string, int) {
 func (p *parser) parseJoinClause(i int, modifier string) int {
 	src, j, ok := p.parseSource(i)
 	if !ok {
+		p.declareSubqueryAlias(i)
 		return j
 	}
 	if !p.isKeyword(j, "IN") {
@@ -312,6 +353,23 @@ func (p *parser) parseJoinClause(i int, modifier string) int {
 		return k
 	}
 	return j + 1
+}
+
+// declareSubqueryAlias declares the alias of a `(subquery) [AS] alias`
+// source found at i, after FROM or JOIN. The subquery is left for run to walk, so its own FROM is
+// parsed as any nested one is.
+func (p *parser) declareSubqueryAlias(i int) {
+	if !isSymbolAt(p.toks, i, "(") {
+		return
+	}
+	alias := matchingParen(p.toks, i) + 1
+	if p.isKeyword(alias, "AS") {
+		alias++
+	}
+	if p.isBareAlias(alias) {
+		p.aliases[p.toks[alias].text] = true
+		p.declarations = append(p.declarations, alias)
+	}
 }
 
 // skipCollection passes over the path of `FROM alias IN path`, whose root
