@@ -22,7 +22,7 @@ func numberedBuffer(lines int) string {
 func typedBuffer(b *testing.B, lines int) tea.Model {
 	b.Helper()
 	t := &testing.T{}
-	m := typeQuery(t, selectContainer(t, newTallModel(t, newConnection(t))), numberedBuffer(lines))
+	m := typeQuery(t, selectContainer(t, newDiagnosingModel(t)), numberedBuffer(lines))
 	if listed(m.View(), "customerId") || !strings.Contains(plain(m.View()), fmt.Sprintf("OR c.n = %d", lines-2)) {
 		b.Fatal("the buffer should be focused on its last line with no list open")
 	}

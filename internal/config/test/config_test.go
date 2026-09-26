@@ -121,6 +121,11 @@ func TestAddRejectsWhatCannotBeLaunched(t *testing.T) {
 			profile: config.Profile{Name: "x", Adapter: "cosmos", Endpoint: "https://x", Writers: 17},
 			wantErr: config.ErrInvalidConfig,
 		},
+		{
+			name:    "a diagnostics setting that is none of curly, underline and off",
+			profile: config.Profile{Name: "x", Adapter: "cosmos", Endpoint: "https://x", Diagnostics: "wavy"},
+			wantErr: config.ErrInvalidConfig,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

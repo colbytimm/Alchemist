@@ -120,7 +120,7 @@ func TestAFailedQueryShowsTheServiceErrorAndKeepsTheBuffer(t *testing.T) {
 	m := runQuery(t, selectContainer(t, newLoadedModel(t, conn)), "SELECT * FROM c")
 
 	assert.Contains(t, m.View(), "unreachable", "the service message reaches the pane intact")
-	assert.Contains(t, m.View(), "SELECT * FROM c", "and the editor keeps the buffer")
+	assert.Contains(t, plain(m.View()), "SELECT * FROM c", "and the editor keeps the buffer")
 
 	m = pressAll(t, m, keyMsg(tea.KeyCtrlR))
 

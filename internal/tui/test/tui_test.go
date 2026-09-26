@@ -292,8 +292,16 @@ func newModel(t *testing.T, connection adapter.Connection) tea.Model {
 
 // newModelWith builds a model from opts, sized to the minimum supported
 // terminal, whose session starts on one account served by connection: the
-// first of opts.Accounts, or one called mock when opts lists none.
+// first of opts.Accounts, or one called mock when opts lists none. Its
+// editor flags nothing: a check waits on a timer, which every key typed
+// would otherwise leave the harness waiting out. newDiagnosingModel checks.
 func newModelWith(t *testing.T, connection adapter.Connection, opts tui.Options) tea.Model {
+	t.Helper()
+	opts.Diagnostics = theme.NoUnderline
+	return newSession(t, connection, opts)
+}
+
+func newSession(t *testing.T, connection adapter.Connection, opts tui.Options) tea.Model {
 	t.Helper()
 	opts.Icons = theme.Icons()
 	if len(opts.Accounts) == 0 {

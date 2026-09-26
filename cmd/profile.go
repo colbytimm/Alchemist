@@ -129,6 +129,8 @@ func (a *addFlags) bind(flags *pflag.FlagSet) {
 		fmt.Sprintf("rows a cross-container join may hold in memory, across all the sides held (%d when 0)", query.DefaultMaxJoinRows))
 	flags.IntVar(&a.profile.Writers, "writers", 0,
 		fmt.Sprintf("item writes a clone into this account keeps in flight, from 1 to %d (%d when 0)", writers.MaxSize, writers.DefaultSize))
+	flags.StringVar(&a.profile.Diagnostics, "diagnostics", "",
+		"underline what the editor flags: curly, underline, or off (curly when empty)")
 	flags.BoolVar(&a.makeDefault, "default", false, "make this the default profile")
 	flags.BoolVar(&a.readOnly, "read-only", false,
 		"refuse every write on this account (unset: read-only unless the endpoint is this machine)")
