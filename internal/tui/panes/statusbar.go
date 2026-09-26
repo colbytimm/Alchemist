@@ -300,7 +300,7 @@ func (s StatusBar) rowsLabel() string {
 	if !s.progress.Loaded {
 		return pending + " " + unit
 	}
-	rows := fmt.Sprintf("%d %s", s.progress.Stats.RowCount, unit)
+	rows := FormatCount(int64(s.progress.Stats.RowCount)) + " " + unit
 	if s.progress.More {
 		rows += moreHint
 	}

@@ -134,13 +134,13 @@ func TestStatusBarWaitsForAResultBeforeReportingStatistics(t *testing.T) {
 
 func TestStatusBarReportsTheLoadedResultSet(t *testing.T) {
 	bar, _ := panes.NewStatusBar(theme.Icons(), "dev").SetWidth(statusWidth).SetProgress(panes.Progress{
-		Stats:  adapter.Stats{RowCount: 120, RequestCharge: 4.25, Elapsed: 12 * time.Millisecond},
+		Stats:  adapter.Stats{RowCount: 2000, RequestCharge: 4.25, Elapsed: 12 * time.Millisecond},
 		More:   true,
 		Loaded: true,
 	})
 
 	view := plain(bar.View())
-	assert.Contains(t, view, "120 rows (+more)")
+	assert.Contains(t, view, "2,000 rows (+more)")
 	assert.Contains(t, view, "4.25 RU")
 	assert.Contains(t, view, "12ms")
 }

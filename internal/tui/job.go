@@ -57,8 +57,9 @@ func (k jobKind) stopVerb() string {
 type jobID int
 
 // job is the session's one background job. It is held from the
-// confirmation that starts it until its ended view is closed, so one that
-// stopped short and can still be resumed keeps every other job out.
+// confirmation that starts it until its view is closed or the next job
+// starts: one that has ended can be reopened, and one that stopped short
+// resumed, until then, but only a running one keeps another job out.
 type job struct {
 	kind jobKind
 	id   jobID
@@ -134,6 +135,35 @@ func (j job) writingText(path []string) string {
 // running: clones wait for it (v)".
 func (j job) waitText(others string) string {
 	return fmt.Sprintf("%s is running: %s wait for it (%s)", j.named(), others, j.kind.reopenKey())
+}
+
+func (m Model) jobRunning() bool {
+	switch m.job.kind {
+	case jobNone:
+		return false
+	case jobClone:
+		return m.cloning.running()
+	case jobMutation:
+		return m.mutating.running()
+	}
+	return true
+}
+
+// retireEndedJob gives the slot of a job that has ended to the one about to
+// start. Its view cannot be reopened after this, so an update is recorded
+// here, as closing its view would have recorded it.
+func (m Model) retireEndedJob() (Model, tea.Cmd) {
+	if m.jobRunning() {
+		return m, nil
+	}
+	switch m.job.kind {
+	case jobClone:
+		return m.releaseClone(), nil
+	case jobMutation:
+		run := m.mutating
+		return m.releaseMutation(), m.record(run.finishedEntry(run.job.Summary()))
+	}
+	return m, nil
 }
 
 // warnBeforeQuit shows the running job, and what quitting would leave,

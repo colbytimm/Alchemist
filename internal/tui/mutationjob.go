@@ -51,6 +51,7 @@ func (r mutationRun) running() bool { return r.end == panes.MutationRunning }
 // whichever account the session moves to.
 func (m Model) startMutationJob(draft panes.MutationDraft, text string, editor adapter.ItemEditor) (Model, tea.Cmd) {
 	mutation := draft.Mutation
+	m, retired := m.retireEndedJob()
 	m.lastJob++
 	m.job = job{
 		kind:     jobMutation,
@@ -68,8 +69,8 @@ func (m Model) startMutationJob(draft panes.MutationDraft, text string, editor a
 	m.overlay = overlayMutationProgress
 	m.logger.Info("update started", "account", draft.Account, "target", mutation.Target,
 		"items", len(draft.Targets.Items), "writers", draft.Writers)
-	m = m.withJobKeys()
-	return m.stepMutation()
+	m, step := m.withJobKeys().stepMutation()
+	return m, tea.Batch(retired, step)
 }
 
 // stepMutation hands the job to the next chunk's command, if the account
@@ -175,7 +176,8 @@ func (r mutationRun) tally(p mutate.Progress) mutationRun {
 }
 
 // endMutation stops the job at a step boundary. It keeps the slot, so a job
-// that ended short can be resumed, until its view is closed.
+// that ended short can be resumed, until its view is closed or another job
+// starts.
 func (m Model) endMutation(end panes.MutationEnd, err error) (Model, tea.Cmd) {
 	run := &m.mutating
 	run.end, run.err, run.stopping = end, err, false
@@ -245,7 +247,9 @@ func (m Model) closeMutation() (Model, tea.Cmd) {
 			"target", run.draft.Mutation.Target, "id", row.ID, "partition key", row.PartitionKey, "outcome", row.Outcome)
 	}
 	record := m.record(run.finishedEntry(cursor.Summary()))
-	m = m.releaseMutation().beginRun(run.draft.Account)
+	m = m.releaseMutation()
+	m.overlay = overlayNone
+	m = m.beginRun(run.draft.Account)
 	page, err := cursor.NextPage(context.Background())
 	if err != nil {
 		model, cmd := m.showFailure(err, runFailed)
@@ -301,7 +305,6 @@ func (r mutationRun) finishedEntry(summary mutate.Summary) history.Entry {
 func (m Model) releaseMutation() Model {
 	m.job = job{}
 	m.mutating = mutationRun{}
-	m.overlay = overlayNone
 	m.statusBar = m.statusBar.SetJob("")
 	return m.withJobKeys()
 }

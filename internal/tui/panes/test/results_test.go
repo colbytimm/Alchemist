@@ -56,13 +56,34 @@ func TestResultsSaysWhenNothingHasRun(t *testing.T) {
 	assert.Contains(t, plain(view), "no results yet")
 }
 
-func TestResultsCapsAWideColumn(t *testing.T) {
-	wide := adapter.Page{Columns: []string{"note"}, Rows: [][]string{{strings.Repeat("x", 80)}}}
+func TestResultsCapsAWideColumnAndGivesItTheWidthLeftOver(t *testing.T) {
+	long := strings.Repeat("x", 80)
+	tests := []struct {
+		name  string
+		page  adapter.Page
+		shown []string
+	}{
+		{
+			name:  "alone, it fills the pane",
+			page:  adapter.Page{Columns: []string{"note"}, Rows: [][]string{{long}}},
+			shown: []string{strings.Repeat("x", 50) + "…"},
+		},
+		{
+			name:  "beside others, it leaves them on screen",
+			page:  adapter.Page{Columns: []string{"note", "id", "region"}, Rows: [][]string{{long, "a-1", "west"}}},
+			shown: []string{strings.Repeat("x", 40) + "…", "a-1", "west"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			view := plain(panes.NewResults().SetSize(resultsWidth, resultsHeight).Load(tt.page).View())
 
-	view := plain(panes.NewResults().SetSize(resultsWidth, resultsHeight).Load(wide).View())
-
-	assert.Contains(t, view, "…", "the value is truncated, not wrapped")
-	assert.NotContains(t, view, strings.Repeat("x", 30))
+			for _, want := range tt.shown {
+				assert.Contains(t, view, want)
+			}
+			assert.NotContains(t, view, strings.Repeat("x", resultsWidth), "the value is truncated, not wrapped")
+		})
+	}
 }
 
 func TestResultsScrollsColumnsSideways(t *testing.T) {

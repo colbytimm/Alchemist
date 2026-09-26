@@ -83,7 +83,7 @@ func (r captureRun) reopens() bool {
 // promptCapture is s in the catalog: the snapshots overlay of the node
 // under the cursor, asking for a note. Another job running refuses it.
 func (m Model) promptCapture() (Model, tea.Cmd) {
-	if m.job.active() {
+	if m.jobRunning() {
 		return m.notify(m.job.waitText("snapshots"))
 	}
 	model, cmd := m.openSnapshots()
@@ -104,6 +104,7 @@ func (m Model) startCapture(note string) (Model, tea.Cmd) {
 		m.snapshotsPane = m.snapshotsPane.SetNotice(fmt.Sprintf("%s is not connected", browsing.account))
 		return m, nil
 	}
+	m, retired := m.retireEndedJob()
 	m.lastJob++
 	m.job = job{kind: jobCapture, id: m.lastJob, accounts: []string{browsing.account}}
 	m.capturing = captureRun{account: browsing.account, loc: browsing.loc, seen: true}
@@ -111,7 +112,7 @@ func (m Model) startCapture(note string) (Model, tea.Cmd) {
 	m.job.cancel = cancel
 	options := snapshot.CaptureOptions{Note: note, MaxItems: entry.account.SnapshotMaxItems}
 	m.logger.Info("snapshot started", "account", browsing.account, "store", browsing.loc)
-	return m.syncCapture(), beginCapture(ctx, cancel, m.job.id, entry, browsing.loc, options)
+	return m.syncCapture(), tea.Batch(retired, beginCapture(ctx, cancel, m.job.id, entry, browsing.loc, options))
 }
 
 // beginCapture opens the store and takes its lock, finding a database's
