@@ -438,14 +438,22 @@ func (p *parser) declareAliasOf(src source) {
 }
 
 // skipCollection passes over the path of `FROM alias IN path`, whose root
-// names the container.
+// names the container, or, in a subquery, an alias of the query around it.
 func (p *parser) skipCollection(i int) int {
 	collection, j, ok := p.parseSource(i)
 	if !ok {
 		return i
 	}
-	p.roots = append(p.roots, collection.firstTok)
+	if !p.declares(collection.path[0].text) {
+		p.roots = append(p.roots, collection.firstTok)
+	}
 	return j
+}
+
+// declares reports whether name is an alias declared so far, as an outer
+// query's is to the subqueries inside it.
+func (p *parser) declares(name string) bool {
+	return slices.ContainsFunc(p.declarations, func(i int) bool { return p.toks[i].text == name })
 }
 
 // skipOn passes over an ON condition to whatever may follow it: another

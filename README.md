@@ -152,6 +152,7 @@ line at the bottom of the editor says why while the cursor is on it:
 | An unknown function | `CONTAIN(c.name, "A")` | `unknown function CONTAIN: did you mean CONTAINS?` |
 | An alias the query never declares | `SELECT o.id FROM c` | `o is not declared: the query reads c` |
 | A misspelled clause | `SELECT * FORM c` | `FORM is not a clause: did you mean FROM?` |
+| A misspelled `BY` | `ORDER BYY c.n` | `ORDER BYY needs BY: did you mean BY?` |
 | A statement that does not start with `SELECT`, `UPDATE`, `DELETE` or `BEGIN BATCH` | `SELEC * FROM c` | `a statement starts with SELECT, UPDATE, DELETE or BEGIN BATCH` |
 | An unbalanced bracket | `WHERE (c.a = 1` | `( is never closed` |
 | A batch that does not parse | `BEGIN BATCH sales.orders PARTITION` | the batch parser's message |

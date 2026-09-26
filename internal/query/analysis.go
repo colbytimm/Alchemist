@@ -37,8 +37,9 @@ func Analyze(text string) Analysis {
 
 // aliasNames are the names the query may read items through: every alias
 // it declares, the names BuildPlan gives the containers it rewrites, and a
-// source named by one word even once aliased, so a typo taken for its alias
-// does not leave every reference to it undeclared.
+// source named by one word, which keeps its name once aliased only when the
+// alias looks like a misspelled clause, so a typo taken for its alias does
+// not leave every reference to it undeclared.
 func (a Analysis) aliasNames() []string {
 	var names []string
 	seen := map[string]bool{}
@@ -58,11 +59,19 @@ func (a Analysis) aliasNames() []string {
 		add(a.code[i].text)
 	}
 	for _, s := range a.parser.sources {
-		if len(s.path) == 1 {
+		if len(s.path) == 1 && (s.alias == "" || a.mayBeMisspelledClause(s)) {
 			add(s.path[0].text)
 		}
 	}
 	return names
+}
+
+// mayBeMisspelledClause reports whether the alias of s is a bare word a
+// value follows, as WERE in FROM c WERE c.x: a misspelled clause, so its
+// source keeps its own name.
+func (a Analysis) mayBeMisspelledClause(s source) bool {
+	alias := s.nextTok - 1
+	return !keywordAt(a.code, alias-1, "AS") && a.opensClauseBody(s.nextTok)
 }
 
 func (a Analysis) isDeclaration(i int) bool {

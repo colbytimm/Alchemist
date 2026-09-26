@@ -42,6 +42,7 @@ func Diagnose(a Analysis) []Diagnostic {
 		a.unknownFunctions(),
 		a.undeclaredAliases(),
 		a.misspelledClauses(),
+		a.misspelledBys(),
 		a.statementStart(),
 		a.unbalancedBrackets(),
 		a.batchSyntax(),
@@ -166,7 +167,7 @@ func (a Analysis) misspelledClauses() []Diagnostic {
 		if !a.inClausePosition(i) {
 			continue
 		}
-		if a.isDeclaration(i) && !a.startsValue(i+1) && !keywordAt(a.code, i+1, "BY") {
+		if a.isDeclaration(i) && !a.opensClauseBody(i+1) {
 			continue
 		}
 		clause, ok := closestWord(tok.upper, a.clauseKeywords())
@@ -175,6 +176,23 @@ func (a Analysis) misspelledClauses() []Diagnostic {
 		}
 		found = append(found, Diagnostic{Start: tok.start, End: tok.end,
 			Message: fmt.Sprintf("%s is not a clause: did you mean %s?", tok.text, clause)})
+	}
+	return found
+}
+
+// misspelledBys flags a word near BY after ORDER or GROUP, where only BY
+// can follow.
+func (a Analysis) misspelledBys() []Diagnostic {
+	var found []Diagnostic
+	for i, tok := range a.code {
+		if tok.kind != tokIdent || tok.upper == "BY" || i == 0 ||
+			!keywordAt(a.code, i-1, "ORDER") && !keywordAt(a.code, i-1, "GROUP") || followsDot(a.code, i-1) {
+			continue
+		}
+		if _, ok := closestWord(tok.upper, []string{"BY"}); ok {
+			found = append(found, Diagnostic{Start: tok.start, End: tok.end,
+				Message: fmt.Sprintf("%s %s needs BY: did you mean BY?", a.code[i-1].text, tok.text)})
+		}
 	}
 	return found
 }
@@ -213,6 +231,12 @@ func (a Analysis) inClausePosition(i int) bool {
 	}
 	next := a.code[i+1]
 	return next.kind != tokDot && !isSymbol(next, "(") && !isSymbol(next, "[")
+}
+
+// opensClauseBody reports whether the token at i can follow a clause
+// keyword: a value, or the BY of ORDER BY and GROUP BY.
+func (a Analysis) opensClauseBody(i int) bool {
+	return a.startsValue(i) || keywordAt(a.code, i, "BY")
 }
 
 // valueWords are the keywords that open a value rather than a clause.

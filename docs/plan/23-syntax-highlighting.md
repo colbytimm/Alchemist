@@ -535,6 +535,14 @@ What landed differs from the text above in these ways:
   The five queries the review found mis-routed (`JOIN x.items i` after a subquery `x`,
   among them one named `sales` beside `sales.orders`) plan as iteration 22 planned
   them, and plan tests pin them.
+- **From the screenshot pass.** Once a one-word source has an alias, only the alias is
+  declared (`SELECT orders.id FROM orders o` is flagged, as the service rejects it),
+  unless the alias looks like a misspelled clause, as `WERE` in `FROM c WERE c.x`. A
+  word near `BY` after `ORDER` or `GROUP` is flagged (`ORDER BYY`). Inside a subquery,
+  the root of `FROM t IN c.tags` is the outer alias `c` when one is declared, and is
+  highlighted as one. A bare alias outside a path, as `t` in `SELECT VALUE t`, stays
+  plain, as the table at the top says, and a misspelled literal (`TRUE` with two
+  letters swapped) is left alone.
 - **A SELECT-list value named without `AS`** (`SELECT COUNT(1) orders FROM c`) is not
   taken for a misspelled clause; the emulator confirmed the service accepts the bare
   form. A word right after `*`, or followed by a value, still is, so `SELECT * FORM c`
