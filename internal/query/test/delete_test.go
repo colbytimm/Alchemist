@@ -63,9 +63,25 @@ func TestADeleteSendsItsConditionWithoutComments(t *testing.T) {
 	assert.Contains(t, m.Where, "AND o.b = 2")
 }
 
-func TestADeleteOfEveryItemIsMarked(t *testing.T) {
-	assert.True(t, parseMutation(t, "DELETE FROM a.b o WHERE true").EveryItem)
-	assert.False(t, parseMutation(t, "DELETE FROM a.b o WHERE true AND o.y = 1").EveryItem)
+func TestEveryItemIsTrueHoweverParenthesized(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{input: "DELETE FROM a.b o WHERE true", want: true},
+		{input: "DELETE FROM a.b o WHERE (true)", want: true},
+		{input: "DELETE FROM a.b o WHERE (( TRUE ))", want: true},
+		{input: "DELETE FROM a.b o WHERE true AND o.y = 1"},
+		{input: "DELETE FROM a.b o WHERE (true) AND (o.y = 1)"},
+		{input: "UPDATE a.b o SET o.x = 1 WHERE (true)", want: true},
+		{input: "UPDATE a.b o SET o.x = 1 WHERE ((true));", want: true},
+		{input: "UPDATE a.b o SET o.x = 1 WHERE (true) OR (false)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.want, parseMutation(t, tt.input).EveryItem)
+		})
+	}
 }
 
 func TestParseDeleteRefusals(t *testing.T) {
@@ -116,6 +132,10 @@ func TestParseDeleteRefusals(t *testing.T) {
 			line: 1, column: 38, message: "unbalanced parentheses in the WHERE",
 		},
 		{name: "an unclosed parenthesis", input: "DELETE FROM a.b o WHERE (o.x = 1", line: 1, column: 32, message: "unbalanced parentheses in the WHERE"},
+		{name: "a comma after an aliased target", input: "DELETE FROM a.b o, a.c WHERE true", line: 1, column: 18, message: "a DELETE has one target container", unsupported: true},
+		{name: "an update's comma after an aliased target", input: "UPDATE a.b o, a.c SET o.x = 1 WHERE true", line: 1, column: 13, message: "an UPDATE has one target container", unsupported: true},
+		{name: "a keyword after AS", input: "DELETE FROM s.o AS WHERE WHERE true", line: 1, column: 20, message: "expected an alias after AS"},
+		{name: "an update's keyword after AS", input: "UPDATE s.o AS SET SET s.x = 1 WHERE true", line: 1, column: 15, message: "expected an alias after AS"},
 		{name: "SET", input: "DELETE FROM a.b o SET o.x = 1 WHERE true", line: 1, column: 19, message: "expected WHERE"},
 	}
 	for _, tt := range tests {

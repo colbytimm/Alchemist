@@ -199,6 +199,7 @@ func TestConfirmation(t *testing.T) {
 	}{
 		{name: "an update: the name", statement: archive, want: "orders"},
 		{name: "an update of every item: the name and the count", statement: `UPDATE sales.orders o SET o.x = 1 WHERE true`, want: "orders 20"},
+		{name: "an update of every item in parentheses: the name and the count", statement: `UPDATE sales.orders o SET o.x = 1 WHERE ((true))`, want: "orders 20"},
 		{name: "a delete: the name and the count", statement: deleteShipped, want: "orders 20"},
 		{name: "a delete of every item: the name and the count", statement: `DELETE FROM sales.orders o WHERE true`, want: "orders 20"},
 	}

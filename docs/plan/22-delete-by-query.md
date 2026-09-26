@@ -406,6 +406,13 @@ review keeps its prompt and confirmation at 80×24.
   at the frame's edge, where the count sits, and the scrolling body gives up the lines. The review's `Items` line shows
   the count with thousands separators, which the confirmation does not take; the plan's
   prompt named the parts without showing them.
+- **The review keeps its confirmation in view.** A header that would leave the scrolling
+  body fewer than three lines (a long `WHERE`, a short or narrow terminal) scrolls with
+  the body instead of staying pinned; the footer, the prompt and the field always stay.
+- **`WHERE (true)` is every item**, however many pairs of parentheses enclose it, for
+  the warning and for the count in the confirmation, for both kinds.
+- **A comma after an aliased target** is refused as a second target, and `AS` must be
+  followed by a word that is no clause keyword, in both kinds' heads.
 - **A kind's words are one table** in `query` (`mutationWords`): its name, `Applied`,
   `Ongoing`, `Head`, and the refusal texts that name it. The remaining branches on
   `MutationDelete` in `mutate` and the TUI choose behavior (the operation, the guard, the

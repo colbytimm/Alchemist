@@ -363,8 +363,21 @@ func (p *mutationParser) parse() (Mutation, error) {
 	if m.Where, err = p.parseWhere(m.Alias); err != nil {
 		return Mutation{}, err
 	}
-	m.EveryItem = strings.EqualFold(m.Where, "true")
+	m.EveryItem = strings.EqualFold(withoutOuterParens(m.Where), "true")
 	return m, nil
+}
+
+// withoutOuterParens strips the parentheses that enclose all of a balanced
+// condition, however many pairs: ((true)) is true.
+func withoutOuterParens(condition string) string {
+	for {
+		toks := code(lex(condition))
+		n := len(toks)
+		if n < 2 || !isSymbol(toks[0], "(") || matchingParen(toks, 0) != n-1 {
+			return strings.TrimSpace(condition)
+		}
+		condition = condition[toks[0].end:toks[n-1].start]
+	}
 }
 
 // parseUpdateHead reads everything of an update before its WHERE.
@@ -492,21 +505,26 @@ func (p *mutationParser) parseTarget() ([]string, error) {
 	return target, nil
 }
 
-// parseAlias reads AS <alias> or a bare alias, which no clause word can be.
+// parseAlias reads AS <alias> or a bare alias, neither of which a clause
+// word can be. A comma after it would name a second target.
 func (p *mutationParser) parseAlias() (string, error) {
-	if p.keyword("AS") {
-		alias, ok := p.identifier()
-		if !ok {
+	named := p.keyword("AS")
+	if !p.at(tokIdent) || !isAliasWord(p.toks[p.i].upper) {
+		if named {
 			return "", p.fail("expected an alias after AS")
 		}
-		return alias, nil
+		return defaultAlias, nil
 	}
-	if p.at(tokIdent) && !keywords[p.toks[p.i].upper] && !mutationKeywords[p.toks[p.i].upper] && !joinModifiers[p.toks[p.i].upper] {
-		alias := p.toks[p.i].text
-		p.i++
-		return alias, nil
+	alias := p.toks[p.i].text
+	p.i++
+	if p.at(tokComma) {
+		return "", p.unsupported(oneTarget(p.kind))
 	}
-	return defaultAlias, nil
+	return alias, nil
+}
+
+func isAliasWord(upper string) bool {
+	return !keywords[upper] && !mutationKeywords[upper] && !joinModifiers[upper]
 }
 
 func (p *mutationParser) parseChanges(m *Mutation) error {
