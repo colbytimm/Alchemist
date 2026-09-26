@@ -123,3 +123,10 @@ func TestDiagnosticsOffFlagNothingAndNeverCheck(t *testing.T) {
 	assert.NotContains(t, editor.View(), "\x1b[4")
 	assert.Equal(t, checked, editor.Diagnoses())
 }
+
+func TestAnUpdateIsHighlightedAndItsSyntaxErrorFlagged(t *testing.T) {
+	view := focusedEditor(`UPDATE sales.orders o SET o.status = "shipped"`).View()
+
+	assert.Contains(t, view, theme.SyntaxKeyword().Render("SET"))
+	assert.Contains(t, view, squiggled(`"shipped"`), "an UPDATE needs a WHERE")
+}

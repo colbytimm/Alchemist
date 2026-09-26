@@ -472,6 +472,18 @@ What landed differs from the text above in these ways:
   `Editor.Diagnoses` and `Editor.Analyses` count for the pane tests.
 - `--diagnostics` is also a flag of `profile add`.
 
+- **Iteration 21 merged in.** An `UPDATE` (`Analysis` marks it the way `IsMutation`
+  does) is highlighted with a query's classes plus `UPDATE`, `SET` and `UNSET` as
+  keywords; its target path is a source root and its alias a declaration, the default
+  `c` when it names none. `Diagnose` places a `MutationSyntaxError` the way it does a
+  `BatchSyntaxError`: 21 moved both parsers onto a shared `statementReader` that builds
+  errors from a line and column, so `Diagnose` gives the reader its own error type and
+  turns the line and column back into a byte offset. Unsupported shapes (`TOP` in an
+  update, a join in its `WHERE`) are flagged with the parser's message too. An update
+  checks its aliases without waiting for a `FROM`, and `SET`/`UNSET` join the words a
+  misspelled clause is matched against. The statement-start message became `a statement
+  starts with SELECT, UPDATE or BEGIN BATCH`.
+
 ### Benchmarks
 
 Medians of five runs of 50 iterations each, in the development container: before is

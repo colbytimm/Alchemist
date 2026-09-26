@@ -68,7 +68,7 @@ func TestDiagnoseFlags(t *testing.T) {
 		{
 			name:  "a statement that does not start with a statement keyword",
 			input: "SELEC * FROM c",
-			want:  []flagged{{"SELEC", "a query starts with SELECT"}},
+			want:  []flagged{{"SELEC", "a statement starts with SELECT, UPDATE or BEGIN BATCH"}},
 		},
 		{
 			name:  "an unclosed bracket",
@@ -89,6 +89,27 @@ func TestDiagnoseFlags(t *testing.T) {
 			name:  "a malformed batch, mid statement",
 			input: "BEGIN BATCH sales.orders PARTITION 'k'; FETCH 'a'; COMMIT",
 			want:  []flagged{{"FETCH", "expected CREATE, UPSERT, REPLACE, DELETE, READ, PATCH or COMMIT"}},
+		},
+		{
+			name:  "an update the mutation parser refuses, at the token it stopped on",
+			input: `UPDATE sales.orders o SET o.status = "shipped"`,
+			want:  []flagged{{`"shipped"`, "UPDATE needs a WHERE. To change every item, write WHERE true"}},
+		},
+		{
+			name:  "an update that names a container alone",
+			input: `UPDATE orders SET c.status = "shipped" WHERE true`,
+			want: []flagged{{"orders",
+				"name the target as database.container: a write never depends on the catalog cursor"}},
+		},
+		{
+			name:  "an update reading an alias it never declares",
+			input: `UPDATE sales.orders o SET x.status = "shipped" WHERE o.id = "1"`,
+			want:  []flagged{{"x", "x is not declared: the query reads o"}},
+		},
+		{
+			name:  "a misspelled SET",
+			input: `UPDATE sales.orders o SETT o.status = "shipped" WHERE o.id = "1"`,
+			want:  []flagged{{"SETT", "SETT is not a clause: did you mean SET?"}},
 		},
 		{
 			name:  "several problems, in the order they appear",
@@ -123,6 +144,8 @@ func TestDiagnoseLeavesAlone(t *testing.T) {
 		{name: "an alias read through a bracket", input: `SELECT c["order-id"] FROM c`},
 		{name: "a query typed down to its FROM", input: "SELECT c.id, c.name"},
 		{name: "a batch being typed", input: "BEGIN"},
+		{name: "a complete update", input: `UPDATE sales.orders o SET o.status = "shipped" UNSET o.note WHERE STARTSWITH(o.id, "a")`},
+		{name: "an update read through its default alias", input: "UPDATE sales.orders SET c.n = 1 WHERE c.n = 0"},
 		{name: "a complete batch", input: `BEGIN BATCH sales.orders PARTITION 'k'; UPSERT {"id": "a"}; COMMIT`},
 		{name: "a word that is near no clause", input: "SELECT * FROM c WHERE c.a = 1 banana"},
 		{name: "strings and comments hide what is in them", input: "SELECT * FROM c -- FORM # CONTAIN(\nWHERE c.a = 'FORM # ('"},
@@ -174,7 +197,7 @@ func TestLexicalDiagnosticsAreTheOnesALexDecides(t *testing.T) {
 }
 
 func FuzzDiagnose(f *testing.F) {
-	for _, seed := range append(plannerSeeds, "SELECT * FORM c", "BEGIN BATCH a.b PARTITION", "é(é", "#`\\", "((]]}") {
+	for _, seed := range append(plannerSeeds, "SELECT * FORM c", "BEGIN BATCH a.b PARTITION", "UPDATE a.b o SET o.x = 1", "UPDATE a.b SET", "é(é", "#`\\", "((]]}") {
 		f.Add(seed)
 	}
 

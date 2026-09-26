@@ -117,6 +117,11 @@ func TestAddRejectsWhatCannotBeLaunched(t *testing.T) {
 			wantErr: config.ErrInvalidConfig,
 		},
 		{
+			name:    "negative max mutation items",
+			profile: config.Profile{Name: "x", Adapter: "cosmos", Endpoint: "https://x", MaxMutationItems: -1},
+			wantErr: config.ErrInvalidConfig,
+		},
+		{
 			name:    "more writers than a pool holds",
 			profile: config.Profile{Name: "x", Adapter: "cosmos", Endpoint: "https://x", Writers: 17},
 			wantErr: config.ErrInvalidConfig,

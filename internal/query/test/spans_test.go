@@ -256,3 +256,20 @@ func onRuneBoundary(s string, i int) bool {
 	}
 	return i == len(s)
 }
+
+func TestUpdateKeywordsAreKeywordsOnlyInAnUpdate(t *testing.T) {
+	update := `UPDATE sales.orders o SET o.set = 1 UNSET o.x WHERE o.y = "a" AND STARTSWITH(o.z, @p) OR true`
+
+	require.Equal(t, []spanText{
+		keyword("UPDATE"), alias("o"), keyword("SET"), alias("o"), number("1"), keyword("UNSET"), alias("o"),
+		keyword("WHERE"), alias("o"), str(`"a"`), operator("AND"), function("STARTSWITH"), alias("o"),
+		parameter("@p"), operator("OR"), literal("true"),
+	}, wordTexts(update))
+	require.Equal(t, []spanText{keyword("SELECT"), keyword("FROM"), alias("c")},
+		wordTexts("SELECT set FROM c"), "SET is a name outside an update")
+}
+
+func TestAnUpdateWithoutAnAliasReadsThroughTheDefault(t *testing.T) {
+	require.Equal(t, []spanText{keyword("UPDATE"), keyword("SET"), alias("c"), number("1"), keyword("WHERE"), literal("true")},
+		wordTexts("UPDATE sales.orders SET c.n = 1 WHERE true"))
+}

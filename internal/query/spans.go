@@ -1,6 +1,10 @@
 package query
 
-import "strings"
+import (
+	"maps"
+	"slices"
+	"strings"
+)
 
 type SpanKind int
 
@@ -41,7 +45,11 @@ var (
 		"AND": true, "OR": true, "NOT": true, "IN": true, "LIKE": true, "BETWEEN": true,
 		"ESCAPE": true, "EXISTS": true, "ARRAY": true, "IS": true,
 	}
-	queryVocabulary = vocabulary{keywords: queryKeywords(), operators: operatorWords, literals: literalWords, names: true}
+	queryVocabulary    = vocabulary{keywords: queryKeywords(), operators: operatorWords, literals: literalWords, names: true}
+	mutationVocabulary = vocabulary{
+		keywords:  withKeys(queryVocabulary.keywords, slices.Collect(maps.Keys(mutationKeywords))...),
+		operators: operatorWords, literals: literalWords, names: true,
+	}
 	batchVocabulary = vocabulary{keywords: batchKeywords, literals: literalWords}
 )
 
@@ -68,6 +76,10 @@ var batchKeywords = map[string]bool{
 	"WHERE": true, "IF": true, "MATCH": true,
 }
 
+// mutationKeywords are the words an UPDATE adds to a query's, kept apart
+// for batchKeywords' reason: SET can be an alias.
+var mutationKeywords = map[string]bool{"UPDATE": true, "SET": true, "UNSET": true}
+
 // punctuation are the symbols Cosmos SQL is written with, the batch
 // grammar's included.
 const punctuation = "()[]{}=!<>+-*/%?|&^~:;"
@@ -77,11 +89,15 @@ func Spans(text string) []Span {
 }
 
 // Spans lists what the text is made of, in the order it appears. The
-// statement decides the words: a batch's are its own.
+// statement decides the words: a batch's are its own, and an update's are a
+// query's and its own.
 func (a Analysis) Spans() []Span {
 	s := spanner{Analysis: a, words: queryVocabulary, aliases: map[string]bool{}}
-	if a.batch {
+	switch {
+	case a.batch:
 		s.words = batchVocabulary
+	case a.mutation:
+		s.words = mutationVocabulary
 	}
 	for _, name := range a.aliasNames() {
 		s.aliases[name] = true

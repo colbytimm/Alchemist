@@ -63,6 +63,9 @@ type Profile struct {
 	// SnapshotMaxItems refuses a snapshot of a larger container before any
 	// of it is read; snapshot.DefaultMaxItems when zero.
 	SnapshotMaxItems int64 `toml:"snapshot_max_items,omitzero"`
+	// MaxMutationItems refuses an update that selects more items, before
+	// any is written; mutate.DefaultMaxTargets when zero.
+	MaxMutationItems int `toml:"max_mutation_items,omitzero"`
 	// Diagnostics is how the editor underlines what it flags: curly, the
 	// default when empty, underline, or off.
 	Diagnostics string `toml:"diagnostics,omitempty"`
@@ -224,6 +227,8 @@ func (p Profile) validate() error {
 		return fmt.Errorf("profile %q: max_join_rows must be positive: %w", p.Name, ErrInvalidConfig)
 	case p.SnapshotMaxItems < 0:
 		return fmt.Errorf("profile %q: snapshot_max_items must be positive: %w", p.Name, ErrInvalidConfig)
+	case p.MaxMutationItems < 0:
+		return fmt.Errorf("profile %q: max_mutation_items must be positive: %w", p.Name, ErrInvalidConfig)
 	case p.Writers < 0 || p.Writers > writers.MaxSize:
 		return fmt.Errorf("profile %q: writers must be from 1 to %d: %w", p.Name, writers.MaxSize, ErrInvalidConfig)
 	}

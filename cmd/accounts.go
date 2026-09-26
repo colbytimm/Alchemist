@@ -47,6 +47,7 @@ func account(profile config.Profile) tui.Account {
 		SampleFields:     profile.SamplesFields(),
 		ReadOnly:         profile.IsReadOnly(),
 		SnapshotMaxItems: profile.SnapshotMaxItems,
+		MaxMutationItems: profile.MaxMutationItems,
 	}
 }
 

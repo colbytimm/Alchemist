@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -57,6 +58,8 @@ func plain(view string) string {
 // were asked about. Batches pass through to the mock's item store, which
 // store is, and are kept in the order they arrived; so do a clone's
 // definition reads, scans and upserts, and deletes keep what they deleted.
+// Item edits pass through too, counted in edits, and scans counts every
+// scan opened.
 type recordingConnection struct {
 	inner        adapter.Connection
 	store        *mock.Adapter
@@ -70,6 +73,9 @@ type recordingConnection struct {
 	definitions  adapter.DefinitionReader
 	scanner      adapter.ItemScanner
 	writer       adapter.ItemWriter
+	itemEditor   adapter.ItemEditor
+	edits        atomic.Int32
+	scans        int
 	deleted      [][]string
 	calls        map[string]int
 	queries      []adapter.Query
@@ -109,7 +115,13 @@ func newConnection(t *testing.T, opts ...mock.Option) *recordingConnection {
 	conn.definitions, _ = inner.(adapter.DefinitionReader)
 	conn.scanner, _ = inner.(adapter.ItemScanner)
 	conn.writer, _ = inner.(adapter.ItemWriter)
+	conn.itemEditor, _ = inner.(adapter.ItemEditor)
 	return conn
+}
+
+func (c *recordingConnection) EditItem(ctx context.Context, container []string, key adapter.PartitionKey, op adapter.Operation) (adapter.OperationResult, error) {
+	c.edits.Add(1)
+	return c.itemEditor.EditItem(ctx, container, key, op)
 }
 
 func (c *recordingConnection) Inspect(ctx context.Context, n adapter.Node) (adapter.Details, error) {
@@ -155,6 +167,7 @@ func (c *recordingConnection) ContainerDefinition(ctx context.Context, path []st
 }
 
 func (c *recordingConnection) ScanItems(ctx context.Context, request adapter.ScanRequest) (adapter.ItemScan, error) {
+	c.scans++
 	scan, err := c.scanner.ScanItems(ctx, request)
 	if err != nil {
 		return nil, err
@@ -269,6 +282,7 @@ func managed(conn adapter.Connection) tui.Management {
 	definitions, _ := conn.(adapter.DefinitionReader)
 	scanner, _ := conn.(adapter.ItemScanner)
 	writer, _ := conn.(adapter.ItemWriter)
+	editor, _ := conn.(adapter.ItemEditor)
 	return tui.Management{
 		Admin:       admin,
 		Throughput:  throughput,
@@ -279,6 +293,7 @@ func managed(conn adapter.Connection) tui.Management {
 		Definitions: definitions,
 		Scanner:     scanner,
 		Writer:      writer,
+		Editor:      editor,
 	}
 }
 

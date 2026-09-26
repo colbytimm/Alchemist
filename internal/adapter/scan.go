@@ -25,6 +25,16 @@ type ScanRequest struct {
 	// clock granularity. Zero keeps everything.
 	Since      time.Time
 	Projection ScanProjection
+	// Filter keeps only the items it matches, and composes with Since by
+	// AND. The zero value keeps everything.
+	Filter ScanFilter
+}
+
+// ScanFilter is a predicate in the backend's own query language, evaluated
+// by the backend. Alias is the name Predicate calls an item by.
+type ScanFilter struct {
+	Alias     string
+	Predicate string
 }
 
 // ScanProjection is how much of each item a scan returns.

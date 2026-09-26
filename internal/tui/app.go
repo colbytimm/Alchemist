@@ -89,6 +89,8 @@ const (
 	overlayDiff
 	overlayGroupDiff
 	overlayItemDiff
+	overlayMutationReview
+	overlayMutationProgress
 )
 
 // runState is how far the current query has got.
@@ -101,9 +103,12 @@ const (
 	runFetching                   // a further page of that result set is in flight
 	runFailed                     // the run produced no page at all
 	runCommitting                 // a batch is sent and its answer not yet back
+	runSelecting                  // an update is reading which items it would change
 )
 
-func (s runState) running() bool { return s == runRunning || s == runFetching || s == runCommitting }
+func (s runState) running() bool {
+	return s == runRunning || s == runFetching || s == runCommitting || s == runSelecting
+}
 
 func (s runState) loaded() bool { return s == runLoaded || s == runFetching }
 
@@ -152,6 +157,8 @@ type Management struct {
 	Definitions adapter.DefinitionReader
 	Scanner     adapter.ItemScanner
 	Writer      adapter.ItemWriter
+	// Editor writes one item at a time, as an update does.
+	Editor adapter.ItemEditor
 }
 
 // Manager reports what a connection allows. cmd/ supplies it: every type
@@ -238,6 +245,17 @@ type Model struct {
 	batchText    string
 	pendingBatch pendingBatch
 
+	// selecting is the update whose targets are being read, or were last
+	// read, pendingMutation one waiting for the tree to list its target's
+	// database, and mutationBadge how far the update on screen has got.
+	// mutating is the update holding the job slot.
+	selecting        mutationSelecting
+	pendingMutation  pendingMutation
+	mutationBadge    panes.MutationBadge
+	mutationReview   panes.MutationReview
+	mutationProgress panes.MutationProgress
+	mutating         mutationRun
+
 	// sampleFields is the session's switch for field samples, which each
 	// account's profile may turn off for that account alone.
 	sampleFields bool
@@ -321,8 +339,12 @@ func New(opts Options) Model {
 		cloneProgress: panes.NewCloneProgress(opts.Icons, panes.CloneKeys{
 			Hide: keys.HideClone, Stop: keys.StopClone, Resume: keys.ResumeClone, Delete: keys.DeleteClone, Close: keys.Close,
 		}),
-		statusBar:    panes.NewStatusBar(opts.Icons, ""),
-		help:         panes.NewHelp(keys.HelpSections()),
+		statusBar:      panes.NewStatusBar(opts.Icons, ""),
+		help:           panes.NewHelp(keys.HelpSections()),
+		mutationReview: panes.NewMutationReview(append(keys.MutationReviewKeys(), keys.Scroll, keys.Close)),
+		mutationProgress: panes.NewMutationProgress(opts.Icons, panes.MutationKeys{
+			Hide: keys.HideClone, Stop: keys.StopClone, Resume: keys.ResumeClone, Report: keys.ShowReport,
+		}),
 		snapshotRoot: opts.Snapshots,
 		snapshotsPane: panes.NewSnapshots(opts.Icons, panes.SnapshotsKeys{
 			List:    []key.Binding{keys.TakeSnapshot, keys.MarkSnapshot, keys.DiffSnapshots, keys.Export, keys.DeleteSnapshot, keys.Close},
@@ -340,6 +362,7 @@ func New(opts Options) Model {
 		diagnostics:    opts.Diagnostics,
 	}
 	m.accounts = newAccountSet(m.sessionAccounts(opts.Accounts), m.blankEntry)
+	m = m.withJobKeys()
 	if opts.Launch == "" {
 		m.overlay = overlayConnect
 		return m.withManagement(Management{}).setFocus(focusCatalog)
@@ -372,6 +395,13 @@ func (m Model) withManagement(management Management) Model {
 	if m.snapshotRoot == "" {
 		m.keys = m.keys.withoutSnapshots()
 	}
+	return m.withJobKeys()
+}
+
+// withJobKeys offers w only while an update holds the job slot, and
+// rebuilds the help overlay to match.
+func (m Model) withJobKeys() Model {
+	m.keys.ShowMutation.SetEnabled(m.job.kind == jobMutation)
 	m.help = panes.NewHelp(m.keys.HelpSections()).SetSize(m.width, m.height)
 	return m
 }
@@ -462,6 +492,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.fileDiffFields(msg)
 	case ItemDiffLoadedMsg:
 		return m.openItemDiff(msg)
+	case TargetPageMsg:
+		return m.acceptTargetPage(msg)
+	case TargetsSelectedMsg:
+		return m.acceptTargets(msg)
+	case snapshotLineMsg:
+		return m.fileSnapshotLine(msg), nil
+	case MutationChunkAppliedMsg:
+		return m.acceptMutationChunk(msg)
+	case MutationFinishedMsg:
+		return m.finishMutationJob(msg)
+	case MutationFailedMsg:
+		return m.failMutationJob(msg)
 	}
 	return m.animate(msg)
 }
@@ -520,6 +562,10 @@ func (m Model) layout() string {
 		return m.groupDiffPane.View()
 	case overlayItemDiff:
 		return m.itemDiffPane.View()
+	case overlayMutationReview:
+		return m.mutationReview.View()
+	case overlayMutationProgress:
+		return m.mutationProgress.View()
 	}
 	right := lipgloss.JoinVertical(lipgloss.Left, m.editor.View(), m.results.View())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, m.catalogPane().View(), right)
@@ -552,7 +598,8 @@ func (m Model) handleErr(msg ErrMsg) (Model, tea.Cmd) {
 	case OpCatalogRoot, OpCatalogChildren:
 		model, cmd := m.failCatalog(msg).refreshSuggestions()
 		model, refusal := model.failPendingBatch(msg)
-		return model, tea.Batch(cmd, refusal)
+		model, mutationRefusal := model.failPendingMutation(msg)
+		return model, tea.Batch(cmd, refusal, mutationRefusal)
 	}
 	m.logger.Error("operation failed", "op", msg.Op, "error", msg.Err)
 	switch msg.Op {
@@ -592,6 +639,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	if m.overlay != overlayNone {
 		return m.handleOverlayKey(msg)
+	}
+	if m.state == runSelecting && msg.Type == tea.KeyEsc {
+		return m.cancelSelection()
 	}
 	if m.focus == focusEditor && typesIntoBuffer(msg) {
 		return m.editorEdit(msg)
@@ -688,6 +738,10 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleGroupDiffKey(msg)
 	case overlayItemDiff:
 		return m.handleItemDiffKey(msg)
+	case overlayMutationReview:
+		return m.handleMutationReviewKey(msg)
+	case overlayMutationProgress:
+		return m.handleMutationProgressKey(msg)
 	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
@@ -719,6 +773,8 @@ func (m Model) quit() (Model, tea.Cmd) {
 		m = m.abandonClone()
 	case jobCapture:
 		m = m.abandonCapture()
+	case jobMutation:
+		m = m.abandonMutation()
 	}
 	m = m.endRun()
 	m.CloseConnections()
@@ -727,6 +783,8 @@ func (m Model) quit() (Model, tea.Cmd) {
 
 func (m Model) handleCatalogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
+	case m.job.kind == jobMutation && reopensJob(msg, m.keys.ShowMutation):
+		return m.showMutationProgress()
 	case m.job.kind == jobClone && reopensJob(msg, m.keys.Clone):
 		return m.showCloneProgress()
 	case m.job.active() && reopensJob(msg, m.keys.Clone):
@@ -840,6 +898,9 @@ func (m Model) startRun() (Model, tea.Cmd) {
 	if query.IsBatch(m.editor.Value()) {
 		return m.startBatch()
 	}
+	if query.IsMutation(m.editor.Value()) {
+		return m.startMutation()
+	}
 	m = m.beginRun(m.accounts.active)
 	account, connected := m.activeConnection()
 	if !connected {
@@ -870,6 +931,8 @@ func (m Model) beginRun(account string) Model {
 	m.plan = query.Plan{}
 	m.batchState = panes.BatchNone
 	m.pendingBatch = pendingBatch{}
+	m.pendingMutation = pendingMutation{}
+	m.mutationBadge = panes.MutationBadge{}
 	m.runAccount = account
 	m.results = m.results.Clear().SetSource(account)
 	return m
@@ -1011,7 +1074,8 @@ func (m Model) abandonRun() (Model, tea.Cmd) {
 	m = m.endRun()
 	m.run++
 	switch m.state {
-	case runRunning:
+	case runRunning, runSelecting:
+		m.mutationBadge = panes.MutationBadge{}
 		return m.showFailure(errRunAbandoned, runFailed)
 	case runFetching:
 		m.state = runLoaded
@@ -1058,6 +1122,7 @@ func (m Model) syncStatusBar() (Model, tea.Cmd) {
 		Loaded:    m.state.loaded(),
 		Simulated: m.simulated,
 		Batch:     m.batchState,
+		Mutation:  m.mutationBadge,
 	})
 	return m, cmd
 }
@@ -1104,7 +1169,8 @@ func (m Model) applyCatalog(msg CatalogLoadedMsg) (Model, tea.Cmd) {
 		m, cmd = m.prefetch(msg.Account)
 	}
 	m, resumed := m.resumeBatch(msg.Account, msg.Parent)
-	return m, tea.Batch(refresh, cmd, resumed)
+	m, resumedMutation := m.resumePendingMutation(msg.Account, msg.Parent)
+	return m, tea.Batch(refresh, cmd, resumed, resumedMutation)
 }
 
 func (m Model) failCatalog(msg ErrMsg) Model {
@@ -1267,6 +1333,8 @@ func (m Model) resize(width, height int) Model {
 	m.diffPane = m.diffPane.SetSize(width, height)
 	m.groupDiffPane = m.groupDiffPane.SetSize(width, height)
 	m.itemDiffPane = m.itemDiffPane.SetSize(width, height)
+	m.mutationReview = m.mutationReview.SetSize(width, height)
+	m.mutationProgress = m.mutationProgress.SetSize(width, height)
 	return m
 }
 

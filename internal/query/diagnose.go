@@ -23,6 +23,9 @@ const strayCharacters = "#`\\"
 // order a tie is broken.
 var clauseKeywords = []string{"SELECT", "FROM", "WHERE", "GROUP", "ORDER", "OFFSET", "LIMIT", "JOIN"}
 
+// updateClauseKeywords are an UPDATE's: its own, then a query's.
+var updateClauseKeywords = append([]string{"SET", "UNSET"}, clauseKeywords...)
+
 // maxSuggestionDistance is how far a word may be from a known one for
 // "did you mean" to offer it.
 const maxSuggestionDistance = 2
@@ -42,6 +45,7 @@ func Diagnose(a Analysis) []Diagnostic {
 		a.statementStart(),
 		a.unbalancedBrackets(),
 		a.batchSyntax(),
+		a.mutationSyntax(),
 	} {
 		for _, d := range rule {
 			if !slices.ContainsFunc(found, d.overlaps) {
@@ -119,10 +123,11 @@ func closestFunction(upper string) (string, bool) {
 	return builtinFunctions[closest], ok
 }
 
-// undeclaredAliases waits for a FROM clause, the one place an alias is
-// declared, so a query typed from the top is not flagged on its way there.
+// undeclaredAliases waits for a FROM clause, where a query declares its
+// aliases, so a query typed from the top is not flagged on its way there.
+// An UPDATE declares its alias up front.
 func (a Analysis) undeclaredAliases() []Diagnostic {
-	if a.batch || a.parser.clauses == 0 {
+	if a.batch || a.parser.clauses == 0 && !a.mutation {
 		return nil
 	}
 	names := a.aliasNames()
@@ -149,7 +154,7 @@ func (a Analysis) misspelledClauses() []Diagnostic {
 		if !a.inClausePosition(i) {
 			continue
 		}
-		clause, ok := closestWord(tok.upper, clauseKeywords)
+		clause, ok := closestWord(tok.upper, a.clauseKeywords())
 		if !ok || a.readsThroughName(tok.text) {
 			continue
 		}
@@ -159,11 +164,21 @@ func (a Analysis) misspelledClauses() []Diagnostic {
 	return found
 }
 
+func (a Analysis) clauseKeywords() []string {
+	if a.mutation {
+		return updateClauseKeywords
+	}
+	return clauseKeywords
+}
+
 // inClausePosition reports whether the identifier at i follows a complete
 // value and is followed by nothing that makes it a name.
 func (a Analysis) inClausePosition(i int) bool {
 	tok := a.code[i]
-	if tok.kind != tokIdent || len(tok.text) < 3 || isKnownWord(tok.upper) || i == 0 || !endsValue(a.code[i-1]) {
+	if tok.kind != tokIdent || len(tok.text) < 3 || isKnownWord(tok.upper) || i == 0 || a.isRoot(i) {
+		return false
+	}
+	if previous := a.code[i-1]; !endsValue(previous) || a.mutation && (mutationKeywords[tok.upper] || mutationKeywords[previous.upper]) {
 		return false
 	}
 	if i+1 == len(a.code) {
@@ -185,7 +200,7 @@ func (a Analysis) readsThroughName(name string) bool {
 // statementStart leaves a lone BEGIN alone: it is how a batch is typed. A
 // first token the lexer split out of a multibyte rune is flagged whole.
 func (a Analysis) statementStart() []Diagnostic {
-	if a.batch || len(a.code) == 0 || keywordAt(a.code, 0, "SELECT") {
+	if a.batch || a.mutation || len(a.code) == 0 || keywordAt(a.code, 0, "SELECT") {
 		return nil
 	}
 	first := a.code[0]
@@ -194,7 +209,7 @@ func (a Analysis) statementStart() []Diagnostic {
 	}
 	_, size := utf8.DecodeRuneInString(a.text[first.start:])
 	end := max(first.end, first.start+size)
-	return []Diagnostic{{Start: first.start, End: end, Message: "a query starts with SELECT"}}
+	return []Diagnostic{{Start: first.start, End: end, Message: "a statement starts with SELECT, UPDATE or BEGIN BATCH"}}
 }
 
 var closingBrackets = map[string]string{")": "(", "]": "[", "}": "{"}
@@ -222,24 +237,70 @@ func (a Analysis) unbalancedBrackets() []Diagnostic {
 	return found
 }
 
-// batchSyntax places the batch parser's error on the token it stopped at,
-// or on the last one when the statement ran out first.
 func (a Analysis) batchSyntax() []Diagnostic {
 	if !a.batch {
 		return nil
 	}
-	p := &batchParser{text: a.text, toks: a.code}
+	p := &batchParser{statementReader: a.statementReader()}
 	_, err := p.parse()
-	var syntax *BatchSyntaxError
-	if !errors.As(err, &syntax) {
+	return a.statementSyntax(err)
+}
+
+func (a Analysis) mutationSyntax() []Diagnostic {
+	if !a.mutation {
 		return nil
 	}
-	at := slices.IndexFunc(a.code, func(tok token) bool { return tok.start == syntax.offset })
+	p := &mutationParser{statementReader: a.statementReader()}
+	_, err := p.parse()
+	return a.statementSyntax(err)
+}
+
+// statementReader reads the analyzed statement for its own parser, which
+// then reports where it stopped as a stopError.
+func (a Analysis) statementReader() statementReader {
+	return statementReader{text: a.text, toks: a.code, syntaxError: func(line, column int, message string) error {
+		return &stopError{line: line, column: column, message: message}
+	}}
+}
+
+// stopError is where a statement's parser stopped, and why.
+type stopError struct {
+	line, column int
+	message      string
+}
+
+func (s *stopError) Error() string {
+	return s.message
+}
+
+// statementSyntax places a parser's error on the token it stopped at, or on
+// the last one when the statement ran out first.
+func (a Analysis) statementSyntax(err error) []Diagnostic {
+	var stopped *stopError
+	if !errors.As(err, &stopped) {
+		return nil
+	}
+	offset := offsetOf(a.text, stopped.line, stopped.column)
+	at := slices.IndexFunc(a.code, func(tok token) bool { return tok.start == offset })
 	if at < 0 {
 		at = len(a.code) - 1
 	}
 	tok := a.code[at]
-	return []Diagnostic{{Start: tok.start, End: tok.end, Message: syntax.Message}}
+	return []Diagnostic{{Start: tok.start, End: tok.end, Message: stopped.message}}
+}
+
+// offsetOf is position's inverse: the byte offset of a line and column,
+// both from one.
+func offsetOf(text string, line, column int) int {
+	offset := 0
+	for range line - 1 {
+		offset += strings.IndexByte(text[offset:], '\n') + 1
+	}
+	for range column - 1 {
+		_, size := utf8.DecodeRuneInString(text[offset:])
+		offset += size
+	}
+	return offset
 }
 
 // closestWord is the candidate nearest word within maxSuggestionDistance,

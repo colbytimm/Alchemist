@@ -40,6 +40,9 @@ type Completion struct {
 	// TopLevel marks a field position that only top-level fields fit: the
 	// SELECT list of a cross-container join.
 	TopLevel bool
+	// Writable marks a field position an update writes, where the id, a
+	// partition key path and a field the service owns are refused.
+	Writable bool
 }
 
 // Alias is a name a query reads items through.
@@ -93,9 +96,12 @@ func (a Analysis) Context(cursor int) Completion {
 	}
 	word, before := splitAtCursor(a.code, cursor)
 	var completion Completion
-	if a.batch {
+	switch {
+	case a.batch:
 		completion = batchCompletion(before)
-	} else {
+	case keywordAt(a.code, 0, "UPDATE"):
+		completion = mutationCompletion(before, word.end > word.start)
+	default:
 		c := classifier{toks: before, parser: a.parser, typing: word.end > word.start}
 		completion = c.classify()
 	}
@@ -153,7 +159,7 @@ type classifier struct {
 func (c classifier) classify() Completion {
 	last, ok := c.last()
 	if !ok {
-		return Completion{Kind: CompleteKeyword, Keywords: []string{"SELECT"}}
+		return Completion{Kind: CompleteKeyword, Keywords: []string{"SELECT", "UPDATE"}}
 	}
 	if last.kind == tokDot {
 		return c.afterDot()

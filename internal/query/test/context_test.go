@@ -39,8 +39,8 @@ func TestContextKeywords(t *testing.T) {
 		query string
 		want  []string
 	}{
-		{name: "empty buffer", query: "|", want: []string{"SELECT"}},
-		{name: "start of a word", query: "SEL|", want: []string{"SELECT"}},
+		{name: "empty buffer", query: "|", want: []string{"SELECT", "UPDATE"}},
+		{name: "start of a word", query: "SEL|", want: []string{"SELECT", "UPDATE"}},
 		{name: "after a source", query: "SELECT * FROM c |", want: []string{"AS", "WHERE", "JOIN", "INNER", "GROUP BY", "ORDER BY", "OFFSET"}},
 		{name: "after an aliased source", query: "SELECT * FROM sales.orders o |", want: []string{"WHERE", "JOIN", "INNER", "GROUP BY", "ORDER BY", "OFFSET"}},
 		{name: "after a container list", query: "SELECT * FROM sales.orders, sales.archive AS c |", want: []string{"WHERE", "GROUP BY", "ORDER BY", "OFFSET"}},

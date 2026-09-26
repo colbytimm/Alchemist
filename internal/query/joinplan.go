@@ -263,7 +263,7 @@ func (j joinPlanner) parseWhere(i int) ([][]string, error) {
 	case !keywordAt(j.toks, i, "WHERE"):
 		return filters, unsupported(shapeOn)
 	}
-	conjuncts, err := j.splitConjuncts(j.toks[i+1:])
+	conjuncts, err := splitConjuncts(j.toks[i+1:])
 	if err != nil {
 		return filters, err
 	}
@@ -288,10 +288,10 @@ func (j joinPlanner) parseWhere(i int) ([][]string, error) {
 // splitConjuncts cuts conditions at its top-level ANDs. An OR would bind
 // looser than those ANDs and BETWEEN brings an AND of its own, so either one
 // keeps the clause whole.
-func (j joinPlanner) splitConjuncts(conditions []token) ([][]token, error) {
+func splitConjuncts(conditions []token) ([][]token, error) {
 	var cuts []int
 	whole := false
-	for _, i := range j.topLevelBreakers(conditions) {
+	for _, i := range topLevelBreakers(conditions) {
 		switch conditions[i].upper {
 		case "AND":
 			cuts = append(cuts, i)
@@ -315,7 +315,7 @@ func (j joinPlanner) splitConjuncts(conditions []token) ([][]token, error) {
 
 // topLevelBreakers indexes the whereBreakers outside any parentheses; one
 // that follows a dot names a property instead.
-func (j joinPlanner) topLevelBreakers(toks []token) []int {
+func topLevelBreakers(toks []token) []int {
 	var breakers []int
 	depth := 0
 	for i, tok := range toks {

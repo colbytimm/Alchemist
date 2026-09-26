@@ -13,6 +13,9 @@ import (
 
 var _ adapter.ItemScanner = (*connection)(nil)
 
+// defaultAlias is what a scan calls an item when no filter names it.
+const defaultAlias = "c"
+
 // ScanItems opens a scan resuming at request.From: the query's continuation
 // token, as the service issued it. Unordered and across every partition, a
 // scan is served by the gateway walking the partition key ranges in a fixed
@@ -43,22 +46,45 @@ func (c *connection) ScanItems(ctx context.Context, request adapter.ScanRequest)
 	return &scan{op: op, pager: pager}, nil
 }
 
-// scanQuery is the query a scan runs. _ts is in seconds, so Since keeps
-// the whole second it falls in.
+// scanQuery is the query a scan runs, reading the container's key paths
+// first when the projection needs them.
 func (c *connection) scanQuery(ctx context.Context, container *azcosmos.ContainerClient, request adapter.ScanRequest) (string, error) {
-	projection := "*"
+	var keyPaths []string
 	if request.Projection == adapter.ScanIdentity {
 		resp, err := container.Read(ctx, nil)
 		if err != nil {
 			return "", err
 		}
-		projection = "VALUE " + IdentityProjection(resp.ContainerProperties.PartitionKeyDefinition.Paths)
+		keyPaths = resp.ContainerProperties.PartitionKeyDefinition.Paths
 	}
-	text := "SELECT " + projection + " FROM c"
+	return ScanQuery(request, keyPaths), nil
+}
+
+// ScanQuery is the text of the query request runs over a container keyed
+// on keyPaths. _ts is in seconds, so Since keeps the whole second it falls
+// in. A Filter's predicate is the caller's own text, so the query calls an
+// item by the filter's alias.
+func ScanQuery(request adapter.ScanRequest, keyPaths []string) string {
+	alias := defaultAlias
+	if request.Filter.Predicate != "" && request.Filter.Alias != "" {
+		alias = request.Filter.Alias
+	}
+	projection := "*"
+	if request.Projection == adapter.ScanIdentity {
+		projection = "VALUE " + identityProjection(keyPaths, alias)
+	}
+	var conditions []string
 	if !request.Since.IsZero() {
-		text += " WHERE c._ts >= @since"
+		conditions = append(conditions, alias+"._ts >= @since")
 	}
-	return text, nil
+	if request.Filter.Predicate != "" {
+		conditions = append(conditions, "("+request.Filter.Predicate+")")
+	}
+	text := "SELECT " + projection + " FROM " + alias
+	if len(conditions) > 0 {
+		text += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	return text
 }
 
 // IdentityProjection is an object literal of an item's id, its system
@@ -67,6 +93,10 @@ func (c *connection) scanQuery(ctx context.Context, container *azcosmos.Containe
 // item lacks is absent rather than null, and its keys are strings, so any
 // property name can be written.
 func IdentityProjection(keyPaths []string) string {
+	return identityProjection(keyPaths, defaultAlias)
+}
+
+func identityProjection(keyPaths []string, alias string) string {
 	root := &literal{}
 	for _, name := range append([]string{"id"}, adapter.SystemFields()...) {
 		root.add([]string{name})
@@ -74,7 +104,7 @@ func IdentityProjection(keyPaths []string) string {
 	for _, path := range keyPaths {
 		root.add(strings.Split(strings.TrimPrefix(path, "/"), "/"))
 	}
-	return root.render("c")
+	return root.render(alias)
 }
 
 // literal is one object of the projection, its members in the order they

@@ -81,14 +81,16 @@ type writeFaults struct {
 	failures  map[string]bool
 }
 
-type upsertGauge struct {
+// callGauge counts the calls of one kind in flight, and the most ever at
+// once.
+type callGauge struct {
 	mu      sync.Mutex
 	current int
 	highest int
 	total   int
 }
 
-func (g *upsertGauge) begin() {
+func (g *callGauge) begin() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.current++
@@ -96,7 +98,7 @@ func (g *upsertGauge) begin() {
 	g.highest = max(g.highest, g.current)
 }
 
-func (g *upsertGauge) end() {
+func (g *callGauge) end() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.current--
@@ -164,6 +166,10 @@ func (c *conn) ScanItems(_ context.Context, request adapter.ScanRequest) (adapte
 	if err != nil {
 		return nil, err
 	}
+	matches, err := c.a.filter(request)
+	if err != nil {
+		return nil, err
+	}
 	offset := 0
 	if request.From != "" {
 		if offset, err = strconv.Atoi(string(request.From)); err != nil || offset < 0 {
@@ -174,15 +180,30 @@ func (c *conn) ScanItems(_ context.Context, request adapter.ScanRequest) (adapte
 	if pageSize <= 0 {
 		pageSize = rowsPerPage
 	}
-	return &scan{a: c.a, request: request, offset: offset, pageSize: pageSize, more: true}, nil
+	return &scan{a: c.a, request: request, matches: matches, offset: offset, pageSize: pageSize, more: true}, nil
 }
 
-// scan walks the stored items by offset. Since and Projection are applied
-// to each page as it is read, so a filtered scan's positions are the
+// filter is what a scan's Filter means, from the predicates a test
+// registered; with no Filter, every item matches.
+func (a *Adapter) filter(request adapter.ScanRequest) (func(json.RawMessage) bool, error) {
+	predicate := request.Filter.Predicate
+	if predicate == "" {
+		return func(json.RawMessage) bool { return true }, nil
+	}
+	matches, ok := a.predicates[predicate]
+	if !ok {
+		return nil, fmt.Errorf("mock: scan %s: predicate %q is not registered with WithPredicate", pathText(request.Container), predicate)
+	}
+	return matches, nil
+}
+
+// scan walks the stored items by offset. Since, Filter and Projection are
+// applied to each page as it is read, so a filtered scan's positions are the
 // unfiltered offsets, and stay valid across writes that replace in place.
 type scan struct {
 	a        *Adapter
 	request  adapter.ScanRequest
+	matches  func(json.RawMessage) bool
 	offset   int
 	pageSize int
 	more     bool
@@ -201,7 +222,7 @@ func (s *scan) NextPage(ctx context.Context) (adapter.ItemPage, error) {
 	end := min(s.offset+s.pageSize, len(stored))
 	page := adapter.ItemPage{RequestCharge: scanCharge}
 	for _, item := range stored[min(s.offset, end):end] {
-		if !s.request.Since.IsZero() && item.modified < s.request.Since.Unix() {
+		if !s.request.Since.IsZero() && item.modified < s.request.Since.Unix() || !s.matches(item.body) {
 			continue
 		}
 		page.Items = append(page.Items, project(item.body, keys, s.request.Projection))
