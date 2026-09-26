@@ -115,8 +115,7 @@ func lex(s string) []token {
 }
 
 // lexIdent returns the byte offset just past the identifier starting at i.
-// Letters, digits and marks of any script continue it, so a property named
-// in any language is one name, as the service reads it.
+// A non-ASCII letter, digit or mark continues it as an ASCII one does.
 func lexIdent(s string, i int) int {
 	for i < len(s) {
 		switch {
@@ -129,6 +128,23 @@ func lexIdent(s string, i int) int {
 		}
 	}
 	return i
+}
+
+// EndsName reports whether text ends with a dot or with a name as lex reads
+// one; a number is no name.
+func EndsName(text string) bool {
+	if strings.HasSuffix(text, ".") {
+		return true
+	}
+	start := len(text)
+	for start > 0 {
+		r, size := utf8.DecodeLastRuneInString(text[:start])
+		if r < utf8.RuneSelf && !isIdentPart(byte(r)) || r >= utf8.RuneSelf && identRuneSize(text[start-size:]) == 0 {
+			break
+		}
+		start -= size
+	}
+	return start < len(text) && !isDigit(text[start])
 }
 
 // identRuneSize is the byte length of the non-ASCII letter, digit or mark
@@ -267,7 +283,13 @@ func parseTokens(toks []token) *parser {
 }
 
 func (p *parser) run() {
-	for i := 0; i < len(p.toks); {
+	p.walk(0, len(p.toks))
+}
+
+// walk parses the FROM clauses among the tokens from index from up to to,
+// tracking the parentheses around them.
+func (p *parser) walk(from, to int) {
+	for i := from; i < to; {
 		switch {
 		case p.isKeyword(i, "FROM"):
 			i = p.parseFromClause(i + 1)
@@ -284,14 +306,9 @@ func (p *parser) run() {
 func (p *parser) parseFromClause(i int) int {
 	p.clauses++
 	for {
-		src, j, ok := p.parseSource(i)
+		j, ok := p.parseFromSource(i)
 		if !ok {
-			p.declareSubqueryAlias(i)
 			return j
-		}
-		p.record(src)
-		if p.isKeyword(j, "IN") {
-			j = p.skipCollection(j + 1)
 		}
 		i = p.parseJoins(j)
 		if !p.isComma(i) {
@@ -299,6 +316,20 @@ func (p *parser) parseFromClause(i int) int {
 		}
 		i++
 	}
+}
+
+// parseFromSource consumes one source of a FROM list: a path with its alias
+// and any IN collection, or a subquery with its alias.
+func (p *parser) parseFromSource(i int) (int, bool) {
+	src, j, ok := p.parseSource(i)
+	if !ok {
+		return p.parseSubquerySource(i)
+	}
+	p.record(src)
+	if p.isKeyword(j, "IN") {
+		j = p.skipCollection(j + 1)
+	}
+	return j, true
 }
 
 func (p *parser) parseJoins(i int) int {
@@ -326,8 +357,8 @@ func (p *parser) parseJoinModifier(i int) (string, int) {
 func (p *parser) parseJoinClause(i int, modifier string) int {
 	src, j, ok := p.parseSource(i)
 	if !ok {
-		p.declareSubqueryAlias(i)
-		return j
+		next, _ := p.parseSubquerySource(i)
+		return next
 	}
 	if !p.isKeyword(j, "IN") {
 		src.joined, src.modifier = true, modifier
@@ -355,21 +386,27 @@ func (p *parser) parseJoinClause(i int, modifier string) int {
 	return j + 1
 }
 
-// declareSubqueryAlias declares the alias of a `(subquery) [AS] alias`
-// source found at i, after FROM or JOIN. The subquery is left for run to walk, so its own FROM is
-// parsed as any nested one is.
-func (p *parser) declareSubqueryAlias(i int) {
+// parseSubquerySource consumes `(subquery) [AS] alias` at i and reports
+// whether one is there. The subquery's own FROM clauses are parsed as any
+// nested one is; the subquery is no source of the statement around it, and
+// its alias is a declaration, not an alias the planner reads.
+func (p *parser) parseSubquerySource(i int) (int, bool) {
 	if !isSymbolAt(p.toks, i, "(") {
-		return
+		return i, false
 	}
-	alias := matchingParen(p.toks, i) + 1
-	if p.isKeyword(alias, "AS") {
-		alias++
+	closing := matchingParen(p.toks, i)
+	depth := p.depth
+	p.walk(i, closing+1)
+	p.depth = depth
+	next := closing + 1
+	if p.isKeyword(next, "AS") {
+		next++
 	}
-	if p.isBareAlias(alias) {
-		p.aliases[p.toks[alias].text] = true
-		p.declarations = append(p.declarations, alias)
+	if p.isBareAlias(next) {
+		p.declarations = append(p.declarations, next)
+		next++
 	}
+	return next, true
 }
 
 // skipCollection passes over the path of `FROM alias IN path`, whose root
