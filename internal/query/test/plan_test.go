@@ -696,3 +696,56 @@ func TestASubqueryJoinAliasedLikeADatabaseLeavesTheScopeAlone(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"sales", "orders"}, plan.Scope())
 }
+
+// A path rooted at a subquery's alias reads the subquery's items: it is no
+// db.container, and the query passes through as written.
+func TestAJoinUnderASubqueryAliasIsNoContainer(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		scope []string
+		text  string
+	}{
+		{name: "a FROM subquery", query: "SELECT * FROM (SELECT * FROM c) x JOIN x.items i"},
+		{name: "a JOIN subquery", query: "SELECT * FROM c JOIN (SELECT VALUE t FROM t IN c.tags) x JOIN x.parts p"},
+		{name: "a subquery declared inside another", query: "SELECT * FROM (SELECT * FROM (SELECT * FROM c) y) x JOIN y.items i"},
+		{name: "a subquery named like a database", query: "SELECT * FROM (SELECT * FROM c) sales JOIN sales.orders s"},
+		{name: "a join under a join under a subquery", query: "SELECT * FROM (SELECT * FROM c) x JOIN x.items i JOIN i.parts p"},
+		{
+			name:  "a subquery beside a container",
+			query: "SELECT * FROM sales.orders o JOIN (SELECT VALUE t FROM t IN o.tags) x JOIN x.parts p",
+			scope: []string{"sales", "orders"},
+			text:  "SELECT * FROM o JOIN (SELECT VALUE t FROM t IN o.tags) x JOIN x.parts p",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan, err := query.BuildPlan(tt.query)
+
+			require.NoError(t, err)
+			require.IsType(t, &query.Scan{}, plan.Root)
+			want := tt.text
+			if want == "" {
+				want = tt.query
+			}
+			require.Equal(t, want, plan.Leaves[0].Query.Text)
+			require.Equal(t, tt.scope, plan.Scope())
+		})
+	}
+}
+
+func TestASubqueryIsNoSecondStatement(t *testing.T) {
+	_, err := query.BuildPlan("SELECT * FROM sales.orders o JOIN (SELECT VALUE t FROM t IN o.tags) x " +
+		"JOIN sales.customers cu ON o.cid = cu.id")
+
+	require.ErrorIs(t, err, query.ErrUnsupported)
+	require.NotContains(t, err.Error(), "more than one statement")
+}
+
+func TestClausesStillFollowAQueryWithASubquery(t *testing.T) {
+	text := "SELECT * FROM sales.orders o JOIN (SELECT VALUE t FROM t IN o.tags) x WHERE 1=1 "
+
+	got := query.Context(text, len(text))
+
+	require.Subset(t, got.Keywords, []string{"GROUP BY", "ORDER BY", "OFFSET"})
+}

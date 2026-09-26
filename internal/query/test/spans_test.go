@@ -184,6 +184,14 @@ func TestSpansClassifiesWords(t *testing.T) {
 			input: "WHERE c.s = @filter.status",
 			want:  []spanText{keyword("WHERE"), parameter("@filter")},
 		},
+		{
+			name:  "a subquery's alias and a join under it",
+			input: "SELECT p.n FROM c JOIN (SELECT VALUE t FROM t IN c.tags) x JOIN x.parts p",
+			want: []spanText{
+				keyword("SELECT"), alias("p"), keyword("FROM"), alias("c"), keyword("JOIN"), keyword("SELECT"), keyword("VALUE"),
+				keyword("FROM"), alias("t"), operator("IN"), alias("c"), alias("x"), keyword("JOIN"), alias("x"), alias("p"),
+			},
+		},
 		{name: "empty input", input: "", want: nil},
 	}
 

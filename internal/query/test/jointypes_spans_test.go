@@ -143,3 +143,14 @@ func TestAJoinModifierAfterAnAliasIsNoMisspelledClause(t *testing.T) {
 		assert.Empty(t, diagnose(input), input)
 	}
 }
+
+func TestAnAliasedCTEReadDeclaresItsAlias(t *testing.T) {
+	input := "WITH big AS (SELECT o.id FROM sales.orders o) SELECT b.id FROM big b JOIN sales.customers cu ON b.id = cu.id"
+
+	assert.Empty(t, diagnose(input))
+	assert.Equal(t, []spanText{
+		keyword("WITH"), alias("big"), keyword("AS"), keyword("SELECT"), alias("o"), keyword("FROM"), alias("o"),
+		keyword("SELECT"), alias("b"), keyword("FROM"), alias("b"), keyword("JOIN"), alias("cu"), keyword("ON"),
+		alias("b"), alias("cu"),
+	}, wordTexts(input))
+}

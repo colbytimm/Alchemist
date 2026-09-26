@@ -154,6 +154,41 @@ func TestDiagnoseFlags(t *testing.T) {
 			want:  []flagged{{"WHEER", "WHEER is not a clause: did you mean WHERE?"}},
 		},
 		{
+			name:  "a misspelled FROM after c.id",
+			input: "SELECT c.id FORM c",
+			want:  []flagged{{"FORM", "FORM is not a clause: did you mean FROM?"}},
+		},
+		{
+			name:  "a misspelled FROM after VALUE c.id",
+			input: "SELECT VALUE c.id FORM c",
+			want:  []flagged{{"FORM", "FORM is not a clause: did you mean FROM?"}},
+		},
+		{
+			name:  "a misspelled FROM after TOP 5 c.id",
+			input: "SELECT TOP 5 c.id FORM c",
+			want:  []flagged{{"FORM", "FORM is not a clause: did you mean FROM?"}},
+		},
+		{
+			name:  "a misspelled FROM after COUNT(1)",
+			input: "SELECT COUNT(1) FORM c",
+			want:  []flagged{{"FORM", "FORM is not a clause: did you mean FROM?"}},
+		},
+		{
+			name:  "a container read by its name once it has an alias",
+			input: "SELECT orders.id FROM orders o",
+			want:  []flagged{{"orders", "orders is not declared: the query reads o"}},
+		},
+		{
+			name:  "a misspelled BY after ORDER",
+			input: "SELECT * FROM c ORDER BYY c.n",
+			want:  []flagged{{"BYY", "ORDER BYY needs BY: did you mean BY?"}},
+		},
+		{
+			name:  "a misspelled BY after GROUP",
+			input: "SELECT c.n FROM c GROUP BT c.n",
+			want:  []flagged{{"BT", "GROUP BT needs BY: did you mean BY?"}},
+		},
+		{
 			name:  "several problems, in the order they appear",
 			input: "SELECT * FORM c WHERE CONTAIN(c.name, 'A')",
 			want: []flagged{
@@ -209,6 +244,9 @@ func TestDiagnoseLeavesAlone(t *testing.T) {
 		{name: "a delete's bare alias near ORDER", input: "DELETE FROM sales.orders ord WHERE true"},
 		{name: "an update's bare alias near ORDER", input: `UPDATE sales.orders ord SET ord.status = "x" WHERE true`},
 		{name: "a SELECT-list value named without AS", input: "SELECT COUNT(1) orders FROM c"},
+		{name: "an outer alias read inside a subquery", input: "SELECT * FROM c WHERE EXISTS(SELECT VALUE t FROM t IN c.tags WHERE t.x = 1)"},
+		{name: "ORDER as a property", input: "SELECT * FROM c WHERE c.order by1"},
+		{name: "a join under a subquery alias", input: "SELECT p.n FROM (SELECT * FROM c) x JOIN x.items i JOIN i.parts p WHERE i.n > 1"},
 		{name: "a SELECT-list property named without AS", input: "SELECT c.total ordr FROM c"},
 		{name: "SELECT-list names without AS near every clause", input: "SELECT c.x groups, c.a there, c.id limits, c.y frame FROM c"},
 		{name: "empty", input: ""},

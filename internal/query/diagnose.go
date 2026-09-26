@@ -43,6 +43,7 @@ func Diagnose(a Analysis) []Diagnostic {
 		a.unknownFunctions(),
 		a.undeclaredAliases(),
 		a.misspelledClauses(),
+		a.misspelledBys(),
 		a.statementStart(),
 		a.refusedJoins(),
 		a.unbalancedBrackets(),
@@ -168,7 +169,7 @@ func (a Analysis) misspelledClauses() []Diagnostic {
 		if !a.inClausePosition(i) {
 			continue
 		}
-		if a.isDeclaration(i) && !a.startsValue(i+1) && !keywordAt(a.code, i+1, "BY") {
+		if a.isDeclaration(i) && !a.opensClauseBody(i+1) {
 			continue
 		}
 		clause, ok := closestWord(tok.upper, a.clauseKeywords())
@@ -181,11 +182,29 @@ func (a Analysis) misspelledClauses() []Diagnostic {
 	return found
 }
 
+// misspelledBys flags a word near BY after ORDER or GROUP, where only BY
+// can follow.
+func (a Analysis) misspelledBys() []Diagnostic {
+	var found []Diagnostic
+	for i, tok := range a.code {
+		if tok.kind != tokIdent || tok.upper == "BY" || i == 0 ||
+			!keywordAt(a.code, i-1, "ORDER") && !keywordAt(a.code, i-1, "GROUP") || followsDot(a.code, i-1) {
+			continue
+		}
+		if _, ok := closestWord(tok.upper, []string{"BY"}); ok {
+			found = append(found, Diagnostic{Start: tok.start, End: tok.end,
+				Message: fmt.Sprintf("%s %s needs BY: did you mean BY?", a.code[i-1].text, tok.text)})
+		}
+	}
+	return found
+}
+
 // namesASelectedValue reports whether the word at i follows a value in a
 // SELECT list, where it may be the value's name written without AS, as in
-// SELECT COUNT(1) orders. A * selects no one value to name.
+// SELECT COUNT(1) orders. A * selects no one value to name, and a name is
+// followed by no value, as the c of SELECT c.id FORM c is.
 func (a Analysis) namesASelectedValue(i int) bool {
-	if isSymbol(a.code[i-1], "*") {
+	if isSymbol(a.code[i-1], "*") || a.startsValue(i+1) {
 		return false
 	}
 	clause, _ := classifier{toks: a.code[:i]}.clause()
@@ -214,6 +233,12 @@ func (a Analysis) inClausePosition(i int) bool {
 	}
 	next := a.code[i+1]
 	return next.kind != tokDot && !isSymbol(next, "(") && !isSymbol(next, "[")
+}
+
+// opensClauseBody reports whether the token at i can follow a clause
+// keyword: a value, or the BY of ORDER BY and GROUP BY.
+func (a Analysis) opensClauseBody(i int) bool {
+	return a.startsValue(i) || keywordAt(a.code, i, "BY")
 }
 
 // valueWords are the keywords that open a value rather than a clause.
