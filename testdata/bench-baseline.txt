@@ -1,0 +1,33 @@
+goos: linux
+goarch: amd64
+pkg: github.com/colbytimm/alchemist/internal/tui/test
+cpu: Intel(R) Xeon(R) Processor @ 2.10GHz
+BenchmarkTypingWithTheListOpen-4   	      50	  15180339 ns/op	 8543535 B/op	   47557 allocs/op
+BenchmarkTypingWithTheListOpen-4   	      50	  13929483 ns/op	 8556184 B/op	   47559 allocs/op
+BenchmarkTypingWithTheListOpen-4   	      50	  13182166 ns/op	 8552068 B/op	   47560 allocs/op
+BenchmarkTypingWithTheListOpen-4   	      50	  13784476 ns/op	 8556352 B/op	   47561 allocs/op
+BenchmarkTypingWithTheListOpen-4   	      50	  13189146 ns/op	 8561906 B/op	   47561 allocs/op
+BenchmarkTypingPlainBuffer/lines=200-4         	      50	   7331771 ns/op	 2457431 B/op	   22248 allocs/op
+BenchmarkTypingPlainBuffer/lines=200-4         	      50	   7898316 ns/op	 2463049 B/op	   22249 allocs/op
+BenchmarkTypingPlainBuffer/lines=200-4         	      50	   7202968 ns/op	 2454544 B/op	   22247 allocs/op
+BenchmarkTypingPlainBuffer/lines=200-4         	      50	   7591923 ns/op	 2458882 B/op	   22249 allocs/op
+BenchmarkTypingPlainBuffer/lines=200-4         	      50	   7554906 ns/op	 2460218 B/op	   22248 allocs/op
+BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  41087860 ns/op	10047457 B/op	  200508 allocs/op
+BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  39644086 ns/op	10051701 B/op	  200508 allocs/op
+BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  41875809 ns/op	10053392 B/op	  200511 allocs/op
+BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  40124803 ns/op	10048907 B/op	  200509 allocs/op
+BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  41574773 ns/op	10057720 B/op	  200512 allocs/op
+BenchmarkViewWithoutEdit/lines=200-4           	      50	   3384337 ns/op	  899299 B/op	   11843 allocs/op
+BenchmarkViewWithoutEdit/lines=200-4           	      50	   3757473 ns/op	  900778 B/op	   11844 allocs/op
+BenchmarkViewWithoutEdit/lines=200-4           	      50	   3716816 ns/op	  896425 B/op	   11843 allocs/op
+BenchmarkViewWithoutEdit/lines=200-4           	      50	   3838122 ns/op	  892159 B/op	   11842 allocs/op
+BenchmarkViewWithoutEdit/lines=200-4           	      50	   3823377 ns/op	  892195 B/op	   11842 allocs/op
+BenchmarkViewWithoutEdit/lines=2000-4          	      50	  20894187 ns/op	 4587841 B/op	   98272 allocs/op
+BenchmarkViewWithoutEdit/lines=2000-4          	      50	  20613173 ns/op	 4593664 B/op	   98274 allocs/op
+BenchmarkViewWithoutEdit/lines=2000-4          	      50	  21604322 ns/op	 4606442 B/op	   98275 allocs/op
+BenchmarkViewWithoutEdit/lines=2000-4          	      50	  20307002 ns/op	 4596398 B/op	   98273 allocs/op
+BenchmarkViewWithoutEdit/lines=2000-4          	      50	  20505784 ns/op	 4592185 B/op	   98273 allocs/op
+PASS
+ok  	github.com/colbytimm/alchemist/internal/tui/test	25.644s
+PASS
+ok  	github.com/colbytimm/alchemist/internal/query/test	0.006s
