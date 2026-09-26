@@ -533,6 +533,11 @@ var plannerSeeds = []string{
 	"FROM A.CROSS APPLY",
 	"SELECT * FROM a.b AS CROSS APPLY l IN CROSS.lines",
 	"WITH x AS (SELECT * FROM a.b AS CROSS APPLY l IN CROSS.lines) SELECT * FROM x",
+	"WITH x AS (SELECT * FROM a.b o) SELECT t.sku FROM t IN x.lines",
+	"WITH t AS (SELECT * FROM a.b o) SELECT t.sku FROM t IN t.lines",
+	"WITH x AS (SELECT * FROM a.b o), y AS (SELECT * FROM t IN x.lines) SELECT * FROM y",
+	"WITH x AS (SELECT o.id FROM a.b o WHERE EXISTS(SELECT VALUE 1 FROM t IN o.tags)), t AS (SELECT * FROM c.d) SELECT * FROM x",
+	"WITH t AS (SELECT * FROM c.d) SELECT * FROM a.b o WHERE EXISTS(SELECT VALUE 1 FROM t IN o.tags)",
 }
 
 func FuzzBuildPlan(f *testing.F) {

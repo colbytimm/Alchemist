@@ -38,6 +38,8 @@ func TestShapesOfJoinTypesAndCTEsThatCannotBeSimulatedAreRefusedByName(t *testin
 		{name: "a container joined without its database", input: "SELECT * " + sprintfJoin("JOIN") + " JOIN products p ON o.sku = p.id", shape: "products is neither a container nor a CTE"},
 		{name: "a container cross joined without its database", input: west + "SELECT * FROM west CROSS JOIN products p", shape: "products is neither a container nor a CTE"},
 		{name: "a CTE read before it is declared", input: "WITH x AS (SELECT * FROM y), y AS (SELECT * FROM a.b) SELECT * FROM x", shape: "y is neither a container nor a CTE declared before it"},
+		{name: "a keyword as an alias", input: west + "SELECT * FROM west AS value JOIN sales.orders o ON value.id = o.customerId", shape: "an alias named value, which is a keyword"},
+		{name: "a join modifier as an alias", input: west + "SELECT * FROM west JOIN sales.orders AS left ON west.id = left.customerId", shape: "an alias named left, which is a keyword"},
 		{name: "USING", input: orders + "JOIN sales.customers cu USING (id)", shape: "USING"},
 		{name: "APPLY of a subquery", input: "SELECT * FROM sales.customers cu CROSS APPLY (SELECT TOP 3 * FROM sales.orders o WHERE o.customerId = cu.id) recent", shape: "one query per row"},
 		{name: "APPLY of a function", input: "SELECT * FROM sales.customers cu OUTER APPLY f(cu.id)", shape: "one query per row"},

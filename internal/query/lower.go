@@ -101,7 +101,9 @@ func (p *planner) countReads() map[string]int {
 	return reads
 }
 
-// cteReads lists the one-part sources of f that name one of visible.
+// cteReads lists the one-part sources of f that name one of visible. A
+// `FROM alias IN` binding is none: readsOf refuses one over a CTE when the
+// body is lowered.
 func cteReads(f fragment, visible []string) []string {
 	var read []string
 	scanned := parseTokens(f.toks)
@@ -165,12 +167,19 @@ func (p *planner) lowerBody(f fragment, owner string) (lowered, error) {
 }
 
 // readsOf lists the CTE sources of the body of owner, refusing one read by a
-// subquery and one that names a CTE declared after owner: that CTE is not
-// visible there, and reading the scoped container instead would surprise.
+// subquery, one that names a CTE declared after owner, and an array of a
+// CTE ranged over by `FROM alias IN`: the service would read the scoped
+// container under that name instead.
 func (p *planner) readsOf(scanned *parser, owner string) ([]source, error) {
 	var reads []source
 	for _, s := range scanned.sources {
-		if len(s.path) != 1 || scanned.rangesOverArray(s) {
+		if scanned.rangesOverArray(s) {
+			if name, overCTE := p.arrayOfCTE(scanned, s); overCTE {
+				return nil, unsupported("FROM ... IN over the CTE " + name + ": use CROSS APPLY")
+			}
+			continue
+		}
+		if len(s.path) != 1 {
 			continue
 		}
 		name := s.path[0].text
@@ -186,6 +195,17 @@ func (p *planner) readsOf(scanned *parser, owner string) ([]source, error) {
 		reads = append(reads, s)
 	}
 	return reads, nil
+}
+
+// arrayOfCTE is the name at the root of the path s ranges over, when that
+// name is a CTE of the statement and no alias the body binds.
+func (p *planner) arrayOfCTE(scanned *parser, s source) (string, bool) {
+	root := s.nextTok + 1
+	if root >= len(scanned.toks) || scanned.toks[root].kind != tokIdent {
+		return "", false
+	}
+	name := scanned.toks[root].text
+	return name, slices.Contains(p.stmt.names(), name) && !scanned.aliases[name]
 }
 
 func notASource(name string) error {

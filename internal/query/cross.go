@@ -88,7 +88,7 @@ func (c *crossCursor) holdWhole(ctx context.Context, in *joinInput, meter *meter
 		if err != nil {
 			return nil, err
 		}
-		if err := c.run.budget.hold(holder, in.heldRows(len(rows), expansion)); err != nil {
+		if err := c.run.budget.hold(holder, in.budgetedRows(len(rows), expansion)); err != nil {
 			return nil, err
 		}
 		held = append(held, rows...)

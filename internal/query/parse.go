@@ -266,6 +266,9 @@ func (d descent) parseSource(i int) (inputText, int, error) {
 	}
 	switch {
 	case keywordAt(d.toks, i, "AS") && i+1 < len(d.toks) && d.toks[i+1].kind == tokIdent:
+		if alias := d.toks[i+1]; keywords[alias.upper] || joinModifiers[alias.upper] {
+			return inputText{}, i, unsupported("an alias named " + alias.text + ", which is a keyword")
+		}
 		input.alias = d.toks[i+1].text
 		i += 2
 	case d.isBareAlias(i):

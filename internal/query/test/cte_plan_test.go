@@ -175,6 +175,29 @@ func TestAnArrayBindingInASubqueryIsNoCTE(t *testing.T) {
 	}
 }
 
+func TestRangingOverTheArraysOfCTEsIsRefused(t *testing.T) {
+	const x = "WITH x AS (SELECT * FROM sales.orders o) "
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "in the main query", input: x + "SELECT t.sku FROM t IN x.lines"},
+		{name: "in the main query, the alias named like the CTE", input: "WITH t AS (SELECT * FROM sales.orders o) SELECT t.sku FROM t IN t.lines"},
+		{name: "in a later CTE", input: x + ", y AS (SELECT * FROM t IN x.lines) SELECT * FROM y"},
+		{name: "in a subquery of the main query", input: x + "SELECT * FROM sales.customers cu WHERE EXISTS(SELECT VALUE 1 FROM t IN x.lines)"},
+		{name: "over a CTE declared later", input: "WITH y AS (SELECT * FROM t IN x.lines), x AS (SELECT * FROM sales.orders o) SELECT * FROM y"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := query.BuildPlan(tt.input)
+
+			require.ErrorIs(t, err, query.ErrUnsupported)
+			assert.ErrorContains(t, err, "over the CTE")
+			assert.ErrorContains(t, err, "use CROSS APPLY")
+		})
+	}
+}
+
 func TestAnAliasNamedCrossIsNoCrossApply(t *testing.T) {
 	for _, input := range []string{
 		"SELECT * FROM a.b AS CROSS APPLY l IN CROSS.lines",

@@ -137,7 +137,7 @@ func (j *joinCursor) hold(ctx context.Context, h int, meter *meter) error {
 		if err != nil {
 			return err
 		}
-		if err := j.run.budget.hold(holder, in.heldRows(len(rows), expansion)); err != nil {
+		if err := j.run.budget.hold(holder, in.budgetedRows(len(rows), expansion)); err != nil {
 			return err
 		}
 		for _, row := range rows {

@@ -45,9 +45,9 @@ func (in *joinInput) aliases() []string {
 	return names
 }
 
-// heldRows is what holding rows adds to the budget: all of them, or for a
+// budgetedRows is what holding rows adds to the budget: all of them, or for a
 // Materialize's items only the rows APPLYs added beyond one per item.
-func (in *joinInput) heldRows(rows, expansion int) int {
+func (in *joinInput) budgetedRows(rows, expansion int) int {
 	if !in.shared {
 		return rows
 	}

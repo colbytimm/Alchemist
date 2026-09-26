@@ -915,7 +915,10 @@ the text above:
   declared after it is refused as `y is neither a container nor a CTE declared before
   it`, and so is a one-part name that is no CTE anywhere but the first `FROM` source of
   a simulated body: joined, it is a mistyped CTE or a container missing its database,
-  never the container in scope.
+  never the container in scope. `FROM t IN x.lines` over a CTE `x` is refused with the
+  hint to use `CROSS APPLY`, since the service would range over the scoped container;
+  a `FROM t IN o.tags` whose root is an alias the body binds is a binding, not a read.
+  An `AS` alias that is a keyword or a join modifier is refused in a simulated body.
 - **The cross join's product is checked on its own** against `max_join_rows`, before
   the first page, while its two sides draw on the shared budget like any held rows.
   The product is served from the two sides and never held, so adding it to the total
