@@ -103,6 +103,10 @@ func TestAReportPastItsCapShowsWhatWasNotAppliedFirst(t *testing.T) {
 	row, ok := cursor.FirstProblem()
 	assert.True(t, ok)
 	assert.Equal(t, 1, row)
+	omitted := cursor.Omitted()
+	require.Len(t, omitted, 1, "the log names the rest")
+	assert.Equal(t, mutate.OmittedRow{ID: fmt.Sprintf("o%03d", mutate.MaxReportRows-1), PartitionKey: `"c01"`, Outcome: "updated"}, omitted[0])
+	assert.Empty(t, mutate.NewReportCursor(finishedJob(t, 3, nil), 10).Omitted())
 }
 
 func TestAnUnknownRowCarriesTheAdvice(t *testing.T) {

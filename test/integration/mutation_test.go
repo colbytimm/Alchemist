@@ -291,3 +291,31 @@ func TestIntegrationUpdateEveryItemThroughThePool(t *testing.T) {
 	assert.Equal(t, mutate.Counts{Applied: count}, summary.Counts)
 	assert.Len(t, f.ids(t, "events", `SELECT VALUE c.id FROM c WHERE c.checked = true`), count)
 }
+
+func TestIntegrationANestedSetSkipsAnItemWithoutItsParent(t *testing.T) {
+	f := newMutationFixture(t)
+	f.create(t, "shipments", singleKey("/customerId"),
+		map[string]any{"id": "with", "customerId": "c1", "state": "due", "ship": map[string]any{"city": "x"}, "lines": []any{1, 2}},
+		map[string]any{"id": "without", "customerId": "c1", "state": "due"},
+	)
+
+	summary := f.update(t, `UPDATE `+mutationDatabase+`.shipments s SET s.ship.region = "west", s.lines[1] = 9 WHERE s.state = "due"`, 1)
+
+	assert.Equal(t, mutate.Counts{Applied: 1, NoParent: 1}, summary.Counts, "nothing is sent where the service would refuse it")
+	with := f.read(t, "shipments", "with", azcosmos.NewPartitionKeyString("c1"))
+	assert.JSONEq(t, `{"city":"x","region":"west"}`, string(with["ship"]))
+	assert.JSONEq(t, `[1,9]`, string(with["lines"]), "set replaces an element")
+	_, created := f.read(t, "shipments", "without", azcosmos.NewPartitionKeyString("c1"))["ship"]
+	assert.False(t, created)
+}
+
+func TestIntegrationASetUnderAMissingParentIsRefused(t *testing.T) {
+	f := newMutationFixture(t)
+	f.create(t, "bare", singleKey("/pk"), map[string]any{"id": "b", "pk": "p"})
+
+	_, err := f.editor.EditItem(context.Background(), []string{mutationDatabase, "bare"}, adapter.PartitionKey{json.RawMessage(`"p"`)},
+		adapter.Operation{Kind: adapter.OperationPatch, ID: "b", Body: json.RawMessage(`[{"op":"set","path":"/ship/region","value":"w"}]`)})
+
+	require.Error(t, err, "the reason the engine never sends such a write")
+	assert.NotErrorIs(t, err, adapter.ErrWriteOutcomeUnknown)
+}

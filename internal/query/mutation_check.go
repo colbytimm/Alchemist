@@ -28,6 +28,7 @@ func CheckMutation(m Mutation, keyPaths []string) MutationCheck {
 	}
 	c.checkOverlaps()
 	c.warnScope()
+	c.warnNested()
 	return c.check
 }
 
@@ -115,6 +116,18 @@ func (c *mutationChecker) warnScope() {
 	case len(c.keyPaths) > 0 && !pinsKey(c.mutation, c.keyPaths[0]):
 		c.check.Warnings = append(c.check.Warnings,
 			fmt.Sprintf("The WHERE does not pin %s: the selection reads every partition.", c.keyPaths[0]))
+	}
+}
+
+// warnNested says what a SET below the top level needs: a patch's set
+// creates the last step of its path, never a parent.
+func (c *mutationChecker) warnNested() {
+	for _, a := range c.mutation.Assignments {
+		if last := len(a.Path.Steps) - 1; last > 0 {
+			parent := FieldPath{Alias: a.Path.Alias, Steps: a.Path.Steps[:last]}
+			c.check.Warnings = append(c.check.Warnings,
+				fmt.Sprintf("SET %s needs %s on each item: a patch creates only the last step of a path, so an item without it is skipped, not written.", a.Path, parent))
+		}
 	}
 }
 

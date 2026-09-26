@@ -104,3 +104,14 @@ func TestCheckMutationWarnsOfAnUnpinnedPartition(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckMutationWarnsOfANestedSet(t *testing.T) {
+	m := parseMutation(t, `UPDATE sales.orders o SET o.ship.region = "w", o.lines[0] = 1, o.flag = true WHERE o.customerId = "c01"`)
+
+	check := query.CheckMutation(m, customerKey)
+
+	assert.Equal(t, []string{
+		"SET o.ship.region needs o.ship on each item: a patch creates only the last step of a path, so an item without it is skipped, not written.",
+		"SET o.lines[0] needs o.lines on each item: a patch creates only the last step of a path, so an item without it is skipped, not written.",
+	}, check.Warnings)
+}
