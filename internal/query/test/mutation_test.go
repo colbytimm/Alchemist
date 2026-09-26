@@ -37,7 +37,7 @@ func TestParseMutationReadsTheGoalStatement(t *testing.T) {
 	assert.False(t, m.EveryItem)
 }
 
-func TestAPathBecomesAJSONPointer(t *testing.T) {
+func TestAPathBecomesAPointer(t *testing.T) {
 	tests := []struct {
 		path    string
 		pointer string
