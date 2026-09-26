@@ -86,7 +86,8 @@ func TestProfileAddDefaultFlagMovesTheDefault(t *testing.T) {
 
 func TestProfileAddKeepsTheOptionalFields(t *testing.T) {
 	h := newHarness(t)
-	h.addProfile(t, "emulator", "--database", "sales", "--page-size", "25", "--max-join-rows", "500", "--writers", "8")
+	h.addProfile(t, "emulator", "--database", "sales", "--page-size", "25", "--max-join-rows", "500", "--writers", "8",
+		"--max-mutation-items", "20000")
 
 	store, err := config.DefaultStore()
 	require.NoError(t, err)
@@ -100,6 +101,7 @@ func TestProfileAddKeepsTheOptionalFields(t *testing.T) {
 	accounts, err := h.profiles(t).Accounts()
 	require.NoError(t, err)
 	assert.Equal(t, 8, accounts[0].Writers, "the account carries it to the session")
+	assert.Equal(t, 20000, accounts[0].MaxMutationItems)
 }
 
 func TestProfileSetKeyReplacesTheKey(t *testing.T) {

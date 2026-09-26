@@ -170,6 +170,7 @@ func management(conn adapter.Connection) tui.Management {
 	definitions, _ := conn.(adapter.DefinitionReader)
 	scanner, _ := conn.(adapter.ItemScanner)
 	writer, _ := conn.(adapter.ItemWriter)
+	editor, _ := conn.(adapter.ItemEditor)
 	return tui.Management{
 		Admin:       admin,
 		Throughput:  throughput,
@@ -180,6 +181,7 @@ func management(conn adapter.Connection) tui.Management {
 		Definitions: definitions,
 		Scanner:     scanner,
 		Writer:      writer,
+		Editor:      editor,
 	}
 }
 

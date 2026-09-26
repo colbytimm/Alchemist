@@ -18,6 +18,7 @@ const (
 	jobNone jobKind = iota
 	jobClone
 	jobCapture
+	jobMutation
 )
 
 func (k jobKind) String() string {
@@ -26,14 +27,19 @@ func (k jobKind) String() string {
 		return "clone"
 	case jobCapture:
 		return "snapshot"
+	case jobMutation:
+		return "update"
 	}
 	return "job"
 }
 
 // reopenKey is the catalog key that shows a job of kind k.
 func (k jobKind) reopenKey() string {
-	if k == jobCapture {
+	switch k {
+	case jobCapture:
 		return "v"
+	case jobMutation:
+		return "w"
 	}
 	return "y"
 }
@@ -51,8 +57,9 @@ func (k jobKind) stopVerb() string {
 type jobID int
 
 // job is the session's one background job. It is held from the
-// confirmation that starts it until its ended view is closed, so one that
-// stopped short and can still be resumed keeps every other job out.
+// confirmation that starts it until its view is closed or the next job
+// starts: one that has ended can be reopened, and one that stopped short
+// resumed, until then, but only a running one keeps another job out.
 type job struct {
 	kind jobKind
 	id   jobID
@@ -61,6 +68,9 @@ type job struct {
 	accounts []string
 	target   writeTarget
 	cancel   context.CancelFunc
+	// noun names the job in a refusal where its kind is too broad: an
+	// update and a delete are both mutations.
+	noun string
 }
 
 // writeTarget is where a job writes: a container, or a whole database. The
@@ -99,18 +109,61 @@ func (j job) stopStep() {
 	}
 }
 
+const vowels = "aeiou" // cspell:disable-line
+
+// named is the job with its article: "a clone", "an update".
+func (j job) named() string {
+	noun := j.noun
+	if noun == "" {
+		noun = j.kind.String()
+	}
+	if strings.ContainsRune(vowels, rune(noun[0])) {
+		return "an " + noun
+	}
+	return "a " + noun
+}
+
 func (j job) usingText(account string) string {
-	return fmt.Sprintf("a %s is using %s: %s it first (%s in the catalog)", j.kind, account, j.kind.stopVerb(), j.kind.reopenKey())
+	return fmt.Sprintf("%s is using %s: %s it first (%s in the catalog)", j.named(), account, j.kind.stopVerb(), j.kind.reopenKey())
 }
 
 func (j job) writingText(path []string) string {
-	return fmt.Sprintf("a %s is writing %s: %s it first (%s in the catalog)", j.kind, strings.Join(path, "."), j.kind.stopVerb(), j.kind.reopenKey())
+	return fmt.Sprintf("%s is writing %s: %s it first (%s in the catalog)", j.named(), strings.Join(path, "."), j.kind.stopVerb(), j.kind.reopenKey())
 }
 
 // waitText refuses another job while this one runs: "a snapshot is
 // running: clones wait for it (v)".
 func (j job) waitText(others string) string {
-	return fmt.Sprintf("a %s is running: %s wait for it (%s)", j.kind, others, j.kind.reopenKey())
+	return fmt.Sprintf("%s is running: %s wait for it (%s)", j.named(), others, j.kind.reopenKey())
+}
+
+func (m Model) jobRunning() bool {
+	switch m.job.kind {
+	case jobNone:
+		return false
+	case jobClone:
+		return m.cloning.running()
+	case jobMutation:
+		return m.mutating.running()
+	}
+	return true
+}
+
+// retireEndedJob gives the slot of a job that has ended to the one about to
+// start. Its view cannot be reopened after this, so an update is recorded
+// here, as closing its view would have recorded it.
+func (m Model) retireEndedJob() (Model, tea.Cmd) {
+	if m.jobRunning() {
+		return m, nil
+	}
+	switch m.job.kind {
+	case jobClone:
+		return m.releaseClone(), nil
+	case jobMutation:
+		run := m.mutating
+		return m.releaseMutation(), m.record(run.finishedEntry(run.job.Summary()))
+	}
+	return m, nil
 }
 
 // warnBeforeQuit shows the running job, and what quitting would leave,
@@ -127,6 +180,10 @@ func (m Model) warnBeforeQuit() (Model, tea.Cmd, bool) {
 		m.capturing.status.Warning = captureQuitWarning
 		model, load := m.showCapture()
 		return model, load, true
+	case m.job.kind == jobMutation && m.mutating.running() && !m.mutating.quitWarned:
+		m.mutating.quitWarned = true
+		m.overlay = overlayMutationProgress
+		return m.syncMutation(), nil, true
 	}
 	return m, nil, false
 }

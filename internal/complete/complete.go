@@ -154,9 +154,9 @@ func (x *Index) candidates(c query.Completion) []Suggestion {
 	case query.CompleteField:
 		return x.fieldSuggestions(c)
 	case query.CompleteReference:
-		return x.referenceSuggestions(c.Aliases)
+		return x.referenceSuggestions(c)
 	case query.CompleteExpression:
-		return slices.Concat(x.referenceSuggestions(c.Aliases), functionSuggestions(), keywordSuggestions(c.Keywords, c.Word))
+		return slices.Concat(x.referenceSuggestions(c), functionSuggestions(), keywordSuggestions(c.Keywords, c.Word))
 	}
 	return nil
 }
@@ -218,6 +218,9 @@ func (x *Index) fieldSuggestions(c query.Completion) []Suggestion {
 	alias := c.Aliases[0]
 	var suggestions []Suggestion
 	for _, field := range x.fieldsUnder(alias, c.Path) {
+		if c.Writable && !field.writable {
+			continue
+		}
 		suggestion := Suggestion{Text: field.name, Insert: field.name, Kind: KindField, Detail: field.detail}
 		if !isIdentifier(field.name) {
 			suggestion.Insert, suggestion.Bracketed = bracketed(field.name), true
@@ -229,15 +232,18 @@ func (x *Index) fieldSuggestions(c query.Completion) []Suggestion {
 
 // referenceSuggestions lists every alias, then the fields of each written
 // as alias.field.
-func (x *Index) referenceSuggestions(aliases []query.Alias) []Suggestion {
+func (x *Index) referenceSuggestions(c query.Completion) []Suggestion {
 	var suggestions []Suggestion
-	for _, alias := range aliases {
+	for _, alias := range c.Aliases {
 		suggestions = append(suggestions, Suggestion{
 			Text: alias.Name, Insert: alias.Name, Kind: KindAlias, Detail: aliasDetail(alias),
 		})
 	}
-	for _, alias := range aliases {
+	for _, alias := range c.Aliases {
 		for _, field := range x.fieldsUnder(alias, nil) {
+			if c.Writable && !field.writable {
+				continue
+			}
 			text := alias.Name + "." + field.name
 			if !isIdentifier(field.name) {
 				text = alias.Name + bracketed(field.name)
@@ -264,9 +270,12 @@ func aliasDetail(alias query.Alias) string {
 }
 
 // namedField is one child of a path, with the detail line describing it.
+// writable is false for what an update may not write: the id, a partition
+// key path or what holds one, and a field the service owns.
 type namedField struct {
-	name   string
-	detail string
+	name     string
+	detail   string
+	writable bool
 }
 
 // fieldsUnder merges the children of path across every container the alias
@@ -296,9 +305,20 @@ func (x *Index) fieldsUnder(alias query.Alias, path []string) []namedField {
 	}
 	fields := make([]namedField, 0, len(order))
 	for _, name := range order {
-		fields = append(fields, namedField{name: name, detail: seen[name].detail(len(alias.Scopes))})
+		field := seen[name]
+		fields = append(fields, namedField{
+			name:     name,
+			detail:   field.detail(len(alias.Scopes)),
+			writable: !field.holdsKey && !unwritableRoot(prefix, name),
+		})
 	}
 	return fields
+}
+
+// unwritableRoot reports a top-level field no update may write: the id,
+// or one the backend sets on every item.
+func unwritableRoot(prefix, name string) bool {
+	return prefix == "" && (name == "id" || adapter.IsSystemField(name))
 }
 
 // childField is one direct child of a path, as one or several containers
@@ -309,6 +329,7 @@ type childField struct {
 	kind         string
 	observed     bool
 	partitionKey bool
+	holdsKey     bool
 	containers   []string
 }
 
@@ -321,6 +342,7 @@ func (f *childField) merge(other childField, container string) {
 		f.kind = ""
 	}
 	f.partitionKey = f.partitionKey || other.partitionKey
+	f.holdsKey = f.holdsKey || other.holdsKey
 	f.containers = append(f.containers, container)
 }
 

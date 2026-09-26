@@ -1175,7 +1175,9 @@ What landed differs from the text above in these ways:
   confirmation is `d`, then `enter`. The overlays' hint lines wrap to a second line at
   80 columns rather than cutting keys off. The theme's icons gained `Marked` and
   `Removed`. Iteration 21 has not landed, so there is no `UPDATE` for `ctrl+r` to
-  refuse. The quit warning opens the capture's overlay with its list and its progress
+  refuse. It has since landed: `ctrl+r` on an `UPDATE` during a capture is refused
+  with `a snapshot is running: updates wait for it (v)`, and its review shows the age of
+  the target's newest snapshot through `snapshot.Newest`. The quit warning opens the capture's overlay with its list and its progress
   line, the warning under it; leaving that overlay with `esc` takes the warning back,
   so the next `q` warns again rather than cancelling. The switcher's refusal names the
   job's own key and verb:

@@ -106,7 +106,7 @@ func TestANarrowStatusBarFoldsTheBreakdownAndKeepsTheElapsedTime(t *testing.T) {
 	m := runQuery(t, newModelOfWidth(t, newConnection(t), tui.Options{}, 120), mockThreeWay)
 
 	view := plain(m.View())
-	assert.Contains(t, view, "1000 rows (+more)")
+	assert.Contains(t, view, "1,000 rows (+more)")
 	assert.Regexp(t, `17\.50 RU \(3 containers\) \S+ [0-9.]+(ns|µs|ms|s) `, view,
 		"the folded charge is followed by the elapsed time")
 }
@@ -126,11 +126,11 @@ func TestATotalOverTheRowCapFailsNamingTheSideThatCrossedIt(t *testing.T) {
 func TestFetchingMoreOfAFannedOutJoinServesRowsAlreadyRead(t *testing.T) {
 	conn := newConnection(t)
 	m := runQuery(t, newWideModel(t, conn, tui.Options{}), mockThreeWay)
-	require.Contains(t, m.View(), "1000 rows (+more)")
+	require.Contains(t, m.View(), "1,000 rows (+more)")
 
 	m = pressAll(t, focusResults(t, m), keyRune('m'))
 
-	assert.Contains(t, m.View(), "1062 rows (+more)")
+	assert.Contains(t, m.View(), "1,062 rows (+more)")
 	assert.Contains(t, m.View(), threeWayCharge, "the appended rows cost nothing more")
 	assert.Len(t, conn.queries, 3, "no leaf is queried again")
 }

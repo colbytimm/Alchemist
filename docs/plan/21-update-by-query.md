@@ -95,8 +95,10 @@ condition  = every token up to the end of the statement
   with it: `o.status`, `o.shipTo.region`, `o["order-id"]`, `o.lines[0].qty`.
 - A path becomes a JSON Pointer (`/shipTo/region`, `/order-id`, `/lines/0/qty`), with
   `~` and `/` escaped as `~0` and `~1`.
-- `SET path = value` is the patch operation `set`: the path is created when absent and
-  replaced when present. It is not `replace`, which would fail every item that lacks
+- `SET path = value` is the patch operation `set`: the path's last step is created when
+  absent and replaced when present. Its parent is never created: a `set` of
+  `/ship/region` on an item with no `ship` is refused with 400 (verified on the
+  emulator; see "Implementation notes" for how such items are handled). It is not `replace`, which would fail every item that lacks
   the field, and not `add`, which inserts into an array instead of overwriting.
 - `UNSET path` is `remove`. The service fails a `remove` of an absent path, and one
   failed operation fails the item's whole patch. So an item that lacks the path gets a
@@ -995,17 +997,17 @@ conditional patch: <status>`, as 17 does for batch. `telemetry.events` (300 item
 with `WHERE true` and `Writers` 8 exercises the pool.
 
 **Manual checklist** (after `make emulator-seed`):
-- [ ] The Goal's statement: the review shows the count and a before → after; type
+- [x] The Goal's statement: the review shows the count and a before → after; type
       `orders`; the report lists every item; `SELECT … WHERE o.status = "archived"`
       agrees.
-- [ ] `ctrl+r` again: `No item … matches`.
+- [x] `ctrl+r` again: `No item … matches`.
 - [ ] Remove the `WHERE`: refused with the `WHERE true` hint. With `WHERE true`: the
       prompt asks for `orders 60`.
 - [ ] `SET o.customerId = "x"`: refused, naming the key; nothing read.
-- [ ] `telemetry.events` with `WHERE true`: `esc`, run a query, `w`, `x`, `r`.
-- [ ] Edit a matching item in another terminal while the review is open: the report
+- [x] `telemetry.events` with `WHERE true`: `esc`, run a query, `w`, `x`, `r`.
+- [x] Edit a matching item in another terminal while the review is open: the report
       shows it `skipped: changed`.
-- [ ] A non-local profile with no `read_only`: refused with the command that lifts it.
+- [x] A non-local profile with no `read_only`: refused with the command that lifts it.
 - [ ] 80×24: review and progress fit; the confirmation field stays visible.
 - [ ] Against a real account, once: a 400 RU/s container throttles, writers step down,
       the run finishes, and the portal's RU matches the report's.
@@ -1030,3 +1032,129 @@ with `WHERE true` and `Writers` 8 exercises the pool.
 - `Update` never blocks. `internal/mutate` imports no bubbletea and no concrete
   adapter; `internal/tui` imports the `internal/adapter` interfaces only, and names no
   status code or system field.
+
+## Implementation notes
+
+What landed differs from the text above in these ways. The manual checklist was walked
+through on the emulator against scratch copies in `u21_shots` (the ticked items; a
+`WHERE true` run over a 2,000-item container stood in for `telemetry.events`, and
+`read_only = true` on a local profile for a non-local one); the real-account throttle
+run and the 80×24 pass by eye were not done, though a TUI test checks that the review
+and the progress view keep their prompt and keys at 80×24.
+
+- **Mock injections are keyed by item id**, not by call index, following 18's
+  `WithThrottle(id, …)` and `WithWriteError(id)`: `WithEditConflict(id)`,
+  `WithEditRefusal(id)`, `WithEditUnknown(id)` (applies, then no answer) and
+  `WithEditThrottle(id, times, retryAfter)`. With several writers a call index names no
+  particular item. `OpEdit` fails every edit through `WithError`;
+  `HighestConcurrentEdits()` and `EditedIDs()` are the recording hooks.
+- **The mock reads one condition shape**, the one `mutate` sends:
+  `FROM <alias> WHERE (<predicate>)`, then `AND IS_DEFINED(<alias>.<field>)` per kept
+  `UNSET`, over top-level fields, as its patch is. The predicate is looked up among
+  those `WithPredicate` registered; an unregistered one is an error naming it.
+- **`mutate.NewJob(m, targets, editor, pool *writers.Pool)`** takes the pool, not a
+  size, so a test hands it a fake clock; the TUI builds it from `writersFor`.
+  `mutate.Confirmation(m, count)` reads the container from `m.Target`.
+  `NewReportCursor` returns `*mutate.ReportCursor` (an `adapter.Cursor`) with
+  `Banner()`, `FirstProblem()` and `Summary()`. `mutate.Changes(m)` words the review's
+  "Each gets" line. `mutate.DefaultMaxTargets` (10,000) is the cap's default.
+- **The probe lasts until the service has taken a write.** The job writes one target
+  at a time until one is applied or refused on its condition (a 412 proves the
+  predicate was evaluated); a first target `skipped: gone` proves nothing. A refusal
+  while probing ends the job with `mutate.ErrProbeRefused`, whose text carries the
+  `BEGIN BATCH … IF MATCH` advice. `MaxFailures` and `MaxUnknown` are judged since the
+  job started or last resumed (`Job.Resume`). A write throttled past
+  `writers.MaxThrottles`, or stopped during a throttle's pause, stays `not attempted`
+  for the resume.
+- **Report pages are 100 rows** (`reportPageSize`): the profile's `page_size` is an
+  adapter setting the TUI never sees. The first page carries the whole report's
+  statistics, later pages none, so appending pages counts every item once.
+- **Preview rows** are `mutate.FieldChange{Kind, Path, Before, After}`, drawn by the
+  review itself. 19's `panes.ItemDiff` is a whole-item line-diff overlay, and
+  `snapshot.FieldChange` has no "already that value" operation, so its renderer does not
+  fit; the rows take the dozen lines the plan allows.
+- **`*query.MutationSyntaxError` carries `Err`**, set to `ErrMutationUnsupported` for the
+  shapes the "Refused" table calls unsupported, so every refusal keeps its line and
+  column; the text leaves the sentinel out. `query.MutationTarget(text)` lets the TUI
+  refuse an account-qualified target with 14's text before parsing. `IsMutation` is
+  also true for `WITH … UPDATE`, which the parser then refuses. `MutationKind` has
+  `Applied()` ("updated") and `Ongoing()` ("updating") for 22 to extend.
+- **The parsers share `statementReader`**, extracted from 17's batch parser;
+  `splitConjuncts` and `topLevelBreakers` became free functions for the pin warning.
+  The TUI's `lookupContainer` is 17's `checkBatch` lookup, shared by both statements.
+- **Cosmos.** An integer key past 2^53 comes back from `EditItem` as
+  `ErrNoPartitionKey`, unsent, and the item is `skipped: no partition key`.
+  `cosmos.ScanQuery(request, keyPaths)` is the pure text builder the unit tests pin.
+  **Verified on the vNext emulator:** it serves conditional patch, answers a false
+  predicate with 412 and a missing item with 404; the integration test pins both.
+- **Keys.** Beside `ShowMutation` (`w`), two overlay-only bindings: `StartMutation`
+  (`enter start`, `MutationReviewKeys()`) and `ShowReport` (`esc report`,
+  `MutationProgressKeys()`). The progress view reuses the clone's `HideClone`,
+  `StopClone` and `ResumeClone`, which mean the same there. `w` is enabled only while an
+  update holds the slot (`Model.withJobKeys`), so it is absent from help otherwise.
+- **The job slot** gained `job.noun` and `job.named()` ("an update"), which fixed the
+  article in every refusal text; 17's batch refusal now names the job's own key
+  (`(w)`). The refusal of a second update is
+  `an update is running on prod/sales.orders: w in the catalog shows it`.
+- **Only a running job refuses another.** One that has ended (done, stopped, failed)
+  keeps the slot, so its view stays reachable and a stopped one resumable, until its
+  view is closed or the next job starts (`Model.retireEndedJob`). A clone ended the
+  same way no longer holds updates and snapshots out either; a capture already gave
+  the slot up as it ended.
+- **History is recorded when the slot is released**: when the ended view is closed,
+  when the next job replaces it, or at quit, synchronously. Until then a stopped job
+  can still be resumed, so its outcome is not final. `Error` joins `stopped after N of M`, `F failed, U unknown` and the
+  step's error. Quit logs the ids of the chunk in flight, read with `Job.Pending()`
+  before each step, since the model does not hold the job while a step runs.
+- **Read-only** is enforced in `Model.itemEditor()` before the selection, again at the
+  confirmation, and again on `r`: a profile turned read-only while a job was stopped
+  refuses the resume.
+- The status bar's `Progress.Mutation` is a `MutationBadge{Text, Failed}`; a report with
+  failed or unknown rows keeps the badge `updated` in the error style. A measured charge
+  of zero reads "the backend reported no request units": the TUI cannot tell an emulator
+  from an account. The vNext emulator now reports request units.
+- **13 landed first**, so its part is here: `UPDATE` is offered at the start of a
+  buffer; after `UPDATE`, databases then containers; `SET`, `UNSET`, `AS` and `WHERE`
+  where the grammar takes them; the target's fields after `SET`, `UNSET` and in the
+  `WHERE`; only `TRUE`, `FALSE`, `NULL` after `=`. `query.Completion.Writable` makes
+  `complete.Index` leave out the id, a key path or a field holding one, and system
+  fields. Report pages never feed the index: the report has no plan.
+- 23 has not landed on this branch, so there is no `Diagnose` to extend; its plan's step
+  adds `MutationSyntaxError` there.
+- **A WHERE's parentheses must pair up.** The condition is sent as `(<condition>)` with
+  more conditions ANDed after it, both as the selection's filter (after `Since` when a
+  scan has both) and as each patch's condition. `o.a = 1) OR (true` would escape that
+  pair and match every item, so `ParseMutation` refuses any condition whose depth goes
+  below zero or does not end at zero: `unbalanced parentheses in the WHERE`. The fuzz
+  target checks that every `Where` it accepts is balanced.
+- **A nested SET needs its parent** (verified on the emulator: 400 without it). The
+  selection reads whole items when any `SET` has more than one step, as for `UNSET`;
+  an item lacking the parent (an object for a named field, or for an index an array
+  holding that element) is kept as the target outcome `skipped: no parent` and never
+  sent, so the probe never blames the `WHERE` for it. An index past an array's end is
+  treated the same: there the service appends, with a condition or without, and a
+  rerun appends again, which is not idempotent.
+- **The patch condition is written in the shapes the vNext emulator takes.** Each
+  nested `SET` re-asserts `IS_OBJECT(<parent>)`, or `IS_ARRAY(<parent>)` for an index,
+  and each kept `UNSET` `IS_DEFINED(<path>)`, so a parent removed or turned into a
+  scalar since the selection is a 412 and `skipped: changed`. Verified refused with
+  400 in a condition: a bracketed property (`o["x"]`), an array index (`o.lines[0]`),
+  `ARRAY_LENGTH`, and a bare `true` beside an `AND` (`(true) AND IS_DEFINED(o.x)`;
+  `(true)` alone is taken). So a guard whose path needs a bracket is left out, the
+  selection's check covering it, and for `WHERE true` the condition is the guards
+  alone. The mock refuses the same shapes, so the engine's tests catch a regression.
+  `CheckMutation` warns of every nested `SET`, the preview marks each path an item has
+  no parent for with `!`, and the review counts the items that lack a parent.
+- **A comment never reaches the service.** The lexer ends a `--` comment at `\r` as
+  well as `\n`, as the service does, and `Where` holds the condition with each comment
+  replaced by a space: a comment the service ended where Alchemist did not would carry
+  the rest of the line out of the `(<condition>)` wrapper.
+- **Mid-job, a read-only account says what the job left:** `prod turned read-only: no
+  further item was sent`, before the next chunk and on `r`.
+- **Read-only is asked again before every chunk**, not only at the confirmation and on
+  `r`: the switcher re-reads the profiles, and one turned read-only mid-job ends the job
+  short (`failed`, resumable) before its next chunk.
+- **Past `MaxReportRows`, every omitted row is logged** (id, partition key, outcome) as
+  the report is built, which is what the banner's "The log names the rest" means.
+- `IsMutation` reads a `WITH` buffer's statement as the first `UPDATE` or `SELECT`
+  outside parentheses and not after a dot, so `WITH … SELECT c.update …` stays a query.

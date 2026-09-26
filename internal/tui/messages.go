@@ -4,6 +4,7 @@ import (
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/clone"
 	"github.com/colbytimm/alchemist/internal/history"
+	"github.com/colbytimm/alchemist/internal/mutate"
 	"github.com/colbytimm/alchemist/internal/saved"
 	"github.com/colbytimm/alchemist/internal/snapshot"
 	"github.com/colbytimm/alchemist/internal/tui/panes"
@@ -345,4 +346,57 @@ type ItemDiffLoadedMsg struct {
 	Err    error
 	store  *snapshot.Store
 	dialog dialogID
+}
+
+// TargetPageMsg reports one page of an update's selection, and hands the
+// selection back to the model, which issues the next read.
+type TargetPageMsg struct {
+	Account   string
+	Progress  mutate.SelectionProgress
+	selection *mutate.Selection
+	run       runID
+}
+
+// TargetsSelectedMsg ends an update's selection: every target, or the
+// reason there are none to review. The selection it carries is done with.
+type TargetsSelectedMsg struct {
+	Account   string
+	Targets   mutate.Targets
+	Err       error
+	selection *mutate.Selection
+	run       runID
+}
+
+// snapshotLineMsg is what the review of run knows of a copy taken before
+// it.
+type snapshotLineMsg struct {
+	line string
+	run  runID
+}
+
+// MutationChunkAppliedMsg reports a chunk of an update's writes, and hands
+// the job back to the model.
+type MutationChunkAppliedMsg struct {
+	Account  string
+	Progress mutate.Progress
+	mutation *mutate.Job
+	job      jobID
+}
+
+// MutationFinishedMsg reports the chunk that gave every target an outcome.
+type MutationFinishedMsg struct {
+	Account  string
+	Progress mutate.Progress
+	mutation *mutate.Job
+	job      jobID
+}
+
+// MutationFailedMsg reports a chunk that ended short: stopped, refused as a
+// whole, or out of time. Its targets without an outcome wait for a resume.
+type MutationFailedMsg struct {
+	Account  string
+	Progress mutate.Progress
+	Err      error
+	mutation *mutate.Job
+	job      jobID
 }

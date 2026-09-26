@@ -49,7 +49,7 @@ func TestSaveOmitsUnsetOptionalFields(t *testing.T) {
 
 	text, err := os.ReadFile(store.Path)
 	require.NoError(t, err)
-	for _, unset := range []string{"page_size", "max_join_rows", "writers", "database", "insecure_skip_verify", "snapshot"} {
+	for _, unset := range []string{"page_size", "max_join_rows", "writers", "database", "insecure_skip_verify", "snapshot", "max_mutation_items"} {
 		assert.NotContains(t, string(text), unset)
 	}
 }
@@ -86,6 +86,7 @@ page_size = 100
 max_join_rows = 5000
 writers = 8
 snapshot_max_items = 10000000
+max_mutation_items = 50000
 
 [profiles.prod]
 adapter = "cosmos"
@@ -107,6 +108,7 @@ endpoint = "https://myaccount.documents.azure.com:443/"
 		MaxJoinRows:        5000,
 		Writers:            8,
 		SnapshotMaxItems:   10000000,
+		MaxMutationItems:   50000,
 	}, profile)
 	assert.Equal(t, "/mnt/big/snapshots", cfg.SnapshotDir)
 	assert.Equal(t, []string{"emulator", "prod"}, cfg.Names())

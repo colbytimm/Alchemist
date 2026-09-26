@@ -12,11 +12,13 @@ Result sets export to JSON or CSV, every query is kept in a searchable history, 
 the ones worth keeping can be saved under a name.
 It also queries across containers, which the service cannot: unions and two-container
 joins are [simulated client-side](#querying-across-containers). Writes go through
-[transactional batches](#transactions), reviewed and confirmed before anything is sent.
+[transactional batches](#transactions) and [updates by query](#updating-by-query),
+reviewed and confirmed before anything is sent.
 [Snapshots](#snapshots) of a container, kept on disk, show what changed since.
 
 > **Status: early development.** Browsing, querying, cross-container queries,
-> catalog management, transactional batches, cloning, snapshots, autocomplete, profiles,
+> catalog management, transactional batches, updates by query, cloning, snapshots,
+> autocomplete, profiles,
 > history, saved queries, and export work today.
 > Release builds are still to come; the
 > [implementation plan](docs/plan/00-overview.md) tracks them.
@@ -86,6 +88,7 @@ the catalog and queries run against it, or name one in the query itself with
 | `y` | catalog | clone; with a clone under way, show it |
 | `s` | catalog, snapshots | take snapshot |
 | `v` | catalog | snapshots; with a capture under way, show it |
+| `w` | catalog, an update under way | show update/delete job |
 | `enter` | results | row detail |
 | `h/←`, `l/→` | results | scroll left, scroll right |
 | `m` | results | fetch more |
@@ -96,6 +99,12 @@ the catalog and queries run against it, or name one in the query itself with
 | `↑/↓`, `esc` | editor, list open | choose, dismiss |
 | `enter` | batch review, name typed | commit |
 | `↑/↓` | batch review | scroll |
+| `enter` | update review, confirmation typed | start |
+| `↑/↓` | update review | scroll |
+| `esc` | update progress, running | hide |
+| `x` | update progress, running | stop |
+| `r` | update progress, ended short | resume |
+| `esc`, `enter` | update progress, ended | report |
 | `esc` | clone progress | hide; close once the clone has ended |
 | `x` | clone progress, running | stop |
 | `r` | clone progress, ended short | resume |
@@ -310,8 +319,8 @@ and `q` wait too; `ctrl+c` still quits. There is no undo.
 
 Writing to anything but a local emulator is a decision made per profile. A profile
 with no `read_only` setting is read-only unless its endpoint is `localhost`,
-`127.0.0.1` or `::1`; a read-only account refuses every batch that writes, drafts
-nothing with `ctrl+b`, offers none of the catalog's `n`, `c`, `d` and `t`, and is
+`127.0.0.1` or `::1`; a read-only account refuses every batch that writes and every
+update, before an update reads anything, drafts nothing with `ctrl+b`, offers none of the catalog's `n`, `c`, `d` and `t`, and is
 never a clone's target, though it is always a valid source. The
 status bar and the account switcher say `read-only` beside its name. To allow writes:
 
@@ -322,6 +331,86 @@ alchemist profile add staging --endpoint https://staging.documents.azure.com:443
 
 `alchemist --read-only` makes every account of one session read-only, whatever its
 profile says; the flag only ever tightens. `--adapter mock` is writable.
+
+## Updating by query
+
+Cosmos DB has no `UPDATE … WHERE`: its SQL only reads. Alchemist does what a careful
+script would, and says so: it selects the matching items with a query the service
+evaluates, then writes to each one with a patch.
+
+```sql
+UPDATE sales.orders o
+SET o.status = "archived", o.archivedAt = "2026-01-01"
+WHERE o.status = "shipped" AND o.total < 50
+```
+
+- The target is always `<database>.<container>`, and the alias (`c` when none is
+  written) starts every path: `o.status`, `o.shipTo.region`, `o["order-id"]`,
+  `o.lines[0].qty`.
+- `SET path = value` sets the field, creating it where it is missing. A value is a
+  literal: a string in either quote, a number, `true`, `false`, `null`, or JSON.
+  `UNSET path` removes a field; an item that lacks it is left out of that operation.
+  A patch creates only the last step of a path: `SET o.shipTo.region` on an item with
+  no `shipTo` would be refused, so that item is `skipped: no parent` and never sent.
+- `WHERE` is required. `ctrl+r` pressed one clause early must not select a whole
+  container, so the every-item form is written out: `WHERE true`. The condition is the
+  service's own dialect and is never parsed; it is sent as written, twice.
+- Refused, with the reason: an expression or another field on the right of `=` (a
+  patch cannot read the item), `+=` and increment (not safe to run twice), `SET o =`,
+  array appends and moves, `id`, a partition key path or a system field, two paths
+  that overlap, more than 10 operations, a second container anywhere (`FROM`, `JOIN`,
+  `WITH`, or a `database.container` inside the `WHERE`), `TOP`, `ORDER BY`, `OFFSET`,
+  `LIMIT`, `RETURNING`, and anything after the statement's `;`. Every problem is listed
+  at once, and nothing is read.
+
+`ctrl+r` never writes. It is a dry run: it checks the statement, reads which items
+match (their identities only, or whole items when an `UNSET` must see which have the
+path), and opens a review. The review names the account, the container and its key,
+the condition, the exact number of items and when they were read, what the selection
+cost, a before → after of a few of them, a rough write cost, and every warning: a
+`WHERE` that does not pin the partition key, `WHERE true`, items with no partition key
+value, items that already lack an `UNSET` path, and whether a snapshot of the container
+exists. It starts only once the container's name is typed back exactly, and for
+`WHERE true` the name and the item count (`orders 60`); `esc` writes nothing and
+records nothing. A statement recalled from history or a saved query is reviewed again,
+every time. More matches than `max_mutation_items` (10,000 unless the profile says
+otherwise) is a refusal with nothing written, never a truncated run.
+
+What it means, in plain words:
+
+- **Not atomic.** Each item is its own write. A run that stops, fails or is quit has
+  updated some items and not others. There is no rollback and no undo; the report
+  lists exactly which.
+- **Not isolated.** The targets are the items that matched when the dry run read them.
+  Every write carries the `WHERE` as its condition, so an item changed since so that it
+  no longer matches is `skipped: changed` and left alone; one deleted since is
+  `skipped: gone`. A change to another field survives: a patch touches only its paths.
+- **A write is sent once.** A throttled write was not applied and is retried after the
+  wait the service asked for, with one writer fewer. A write with no answer is
+  `unknown`, never retried, and three in a row stop the job. So do more than 100
+  failed items, and a refusal of the very first write, which usually means the service
+  does not take the `WHERE` as a patch condition.
+- **Running it again is safe.** `SET` to a literal and `UNSET` give the same document
+  however often they run. Items already updated often stop matching and are not even
+  selected; the rest are written to the same values. That is also how an `unknown`
+  item is settled, and how a run stopped in an earlier session is finished.
+- Before a large run, take a copy: a [snapshot](#snapshots) of the container, and its
+  diff afterwards, or a [clone](#cloning).
+
+The job runs in the background, up to four writes at a time or `writers` on the
+profile, and holds the session's one job slot, which a clone and a snapshot use too.
+`esc` hides the progress view, the status bar carries `update prod/sales.orders 41% (w)`
+on every account, and `w` in the catalog brings it back. `x` stops it after the writes
+in flight; `r` resumes with the items not yet attempted. While it runs, `x` in the
+switcher refuses its account, `d` refuses its container, a batch into its container
+waits, and so do a clone, a snapshot and another update. The first `q` shows it; the
+second stops it and quits. Closing the view once the job has ended loads the report
+into the results: one row per item with its outcome (`updated`, `skipped: changed`,
+`skipped: gone`, `skipped: no partition key`, `skipped: no parent`, `failed`, `unknown`,
+`not attempted`),
+the service's status and its charge, and a status bar that splits the charge between
+the selection and the writes. Past 10,000 items it shows every item that was not
+updated first, and the log names the rest; the totals always cover every item.
 
 ## Cloning
 
@@ -492,7 +581,8 @@ page_size = 100
 max_join_rows = 5000             # rows a join holds across its held sides; 10000 when unset
 sample_fields = false            # autocomplete never queries a container for its fields
 read_only = false                # allow writes; unset, only a local endpoint allows them
-writers = 8                      # item writes a clone into this account keeps in flight; 4 when unset
+writers = 8                      # item writes a clone or an update keeps in flight here; 4 when unset
+max_mutation_items = 50000       # the most items one update may select; 10000 when unset
 snapshot_max_items = 10000000    # the largest container a snapshot takes on; 5000000 when unset
 
 [profiles.prod]
