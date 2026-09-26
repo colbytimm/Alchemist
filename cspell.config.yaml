@@ -55,6 +55,7 @@ words:
   - RTRIM
   - upserts
   - vnext
+  - ctes
   # Go tooling and linters
   - benchmem
   - bodyclose

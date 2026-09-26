@@ -268,3 +268,19 @@ func TestEveryFunctionOpensItsParenthesis(t *testing.T) {
 		assert.True(t, len(f.Signature) > len(f.Name) && f.Signature[:len(f.Name)+1] == f.Name+"(", "%s", f.Signature)
 	}
 }
+
+func TestASourcePositionOffersTheCTEsFirst(t *testing.T) {
+	got := loadedIndex().Suggest(query.Completion{Kind: query.CompleteDatabase, CTEs: []string{"west"}})
+
+	require.Equal(t, []string{"west", "sales", "telemetry"}, texts(got))
+	assert.Equal(t, "CTE", got[0].Detail)
+}
+
+func TestACTEsFieldsAreTheColumnsItsSelectListNames(t *testing.T) {
+	west := query.Alias{Name: "w", CTE: true, Fields: []string{"id", "name"}}
+	index := loadedIndex()
+
+	assert.Equal(t, []string{"id", "name"}, texts(index.Suggest(field(west, nil, ""))))
+	assert.Empty(t, index.Suggest(field(west, []string{"name"}, "")), "a column has no fields of its own")
+	assert.Equal(t, []string{"w", "w.id", "w.name"}, texts(index.Suggest(query.Completion{Kind: query.CompleteReference, Aliases: []query.Alias{west}})))
+}

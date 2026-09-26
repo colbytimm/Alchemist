@@ -115,31 +115,7 @@ func (b *PageBuilder) scanItem(item []byte) (map[string]string, error) {
 			b.seen[key] = true
 			b.columns = append(b.columns, key)
 		}
-		cells[key] = renderValue(value)
+		cells[key] = adapter.RenderCell(value)
 	}
 	return cells, nil
-}
-
-// renderValue renders one JSON value as a table cell: strings unquoted,
-// null as empty, scalars verbatim, and objects/arrays as compact JSON.
-func renderValue(v json.RawMessage) string {
-	t := bytes.TrimSpace(v)
-	if len(t) == 0 {
-		return ""
-	}
-	switch t[0] {
-	case '"':
-		var s string
-		if err := json.Unmarshal(t, &s); err == nil {
-			return s
-		}
-	case '{', '[':
-		var buf bytes.Buffer
-		if err := json.Compact(&buf, t); err == nil {
-			return buf.String()
-		}
-	case 'n':
-		return ""
-	}
-	return string(t)
 }

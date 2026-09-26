@@ -278,7 +278,7 @@ func TestCancellingAUnionClosesItsOpenLeaf(t *testing.T) {
 }
 
 func TestAPlanThatDoesNotFitItsMergeStepIsRefused(t *testing.T) {
-	_, err := query.Engine{Connection: newContainers(nil)}.Execute(context.Background(), query.Plan{Merge: query.HashJoin})
+	_, err := query.Engine{Connection: newContainers(nil)}.Execute(context.Background(), query.Plan{Root: &query.Join{}})
 
 	require.Error(t, err)
 }

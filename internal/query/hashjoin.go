@@ -6,95 +6,53 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
-	"strconv"
-	"strings"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/canonical"
 )
 
-// joinSide is one container of a join, at its index in Plan.Leaves.
-type joinSide struct {
-	index   int
-	leaf    Leaf
-	columns []JoinColumn // what the SELECT list takes from this side, in its order
-	cursor  adapter.Cursor
+// joinCursor is a hash join over a tree of inputs. On the first page every
+// input but the streamed one is read whole into a hash table, one after
+// another; then the streamed input's rows are piped through the tables, and
+// last the held rows an outer step keeps are flushed.
+type joinCursor struct {
+	run      *execution
+	rel      *relation
+	streamed int
+	hops     []hop
+	tables   []*heldTable // parallel to hops
+	absent   []aliasSlot
+	unserved pendingRows
+	// flushed counts the hops done flushing.
+	flushed int
+	built   bool
+	closed  bool
 }
 
-// leafPage is the header of one page of a side. placement says which of its
-// cells go where in the merged header, once that is decided.
-type leafPage struct {
-	side      joinSide
-	columns   []string
-	placement []cellMove
-}
-
-type cellMove struct {
-	from int
-	to   int
-}
-
-func (p leafPage) fill(row, cells []string) {
-	for _, move := range p.placement {
-		if move.from < len(cells) {
-			row[move.to] = cells[move.from]
+func (r *execution) newJoinCursor(join *Join) *joinCursor {
+	rel := r.newRelation(join)
+	streamed := r.streamedSide(join)
+	hops := orientSteps(join, streamed)
+	for h, hop := range hops {
+		from, into := rel.inputs[hop.from], rel.inputs[hop.into]
+		from.keys = append(from.keys, inputKey{hop: h, ref: hop.fromKey, required: !hop.keepFrom})
+		into.keys = append(into.keys, inputKey{hop: h, ref: hop.intoKey, required: !hop.keepInto})
+	}
+	var absent []aliasSlot
+	for _, alias := range join.Absent {
+		for _, in := range rel.inputs {
+			if slot := in.slot(alias); slot >= 0 {
+				absent = append(absent, aliasSlot{input: in.index, slot: slot})
+			}
 		}
 	}
-}
-
-// joinRow is one item of a side, ready to be combined with its matches.
-type joinRow struct {
-	cells []string
-	page  *leafPage
-	raw   json.RawMessage
-	keys  []string // parallel to joinCursor.hops; set for the hops that touch this row's side
-}
-
-// joinCursor is an inner hash join over a tree of sides. On the first page
-// every side but the streamed one is read whole into a hash table, one after
-// another; then the streamed side's rows are piped through the tables.
-type joinCursor struct {
-	connection adapter.Connection
-	sides      []joinSide
-	streamed   int
-	hops       []hop
-	tables     []map[string][]joinRow // parallel to hops
-	held       int                    // rows across all tables, against maxRows
-	unserved   pendingRows
-	selectAll  bool
-	maxRows    int
-	columns    *columnUnion
-	built      bool
-	closed     bool
-	// unplaced are the leaf pages read since the last streamed one: the
-	// merged header lists the sides in written order, whichever was read
-	// first.
-	unplaced []*leafPage
-}
-
-func (e Engine) openJoin(plan Plan) *joinCursor {
-	sides := make([]joinSide, len(plan.Leaves))
-	for i, leaf := range plan.Leaves {
-		sides[i] = joinSide{index: i, leaf: leaf}
-	}
-	var header []string
-	for _, column := range plan.Join.Columns {
-		side := &sides[column.Side]
-		side.columns = append(side.columns, column)
-		header = append(header, columnHeader(side.leaf.Alias, column))
-	}
-	streamed := streamedSide(plan)
-	hops := orientSteps(plan, streamed)
 	return &joinCursor{
-		connection: e.Connection,
-		sides:      sides,
-		streamed:   streamed,
-		hops:       hops,
-		tables:     make([]map[string][]joinRow, len(hops)),
-		selectAll:  len(plan.Join.Columns) == 0,
-		maxRows:    e.maxJoinRows(),
-		columns:    newColumnUnion(header...),
+		run:      r,
+		rel:      rel,
+		streamed: streamed,
+		hops:     hops,
+		tables:   make([]*heldTable, len(hops)),
+		absent:   absent,
 	}
 }
 
@@ -104,228 +62,182 @@ func (j *joinCursor) NextPage(ctx context.Context) (adapter.Page, error) {
 	if err != nil {
 		return adapter.Page{}, errors.Join(err, j.Close())
 	}
-	page.Columns = j.columns.snapshot()
+	page.Columns = j.rel.columns.snapshot()
 	page.Stats = meter.stats(len(page.Rows))
 	return page, nil
 }
 
-// build holds every side but the streamed one, then opens the streamed side.
-// An empty table ends the run: nothing can match, so nothing more is read.
+// nextMatches serves unserved rows, reading a streamed page or flushing a
+// hop only while it has none, so a stretch of unmatched rows never surfaces
+// as an empty page with more to come.
+func (j *joinCursor) nextMatches(ctx context.Context, meter *meter) (adapter.Page, error) {
+	if j.closed {
+		return adapter.Page{}, errExhausted
+	}
+	if !j.built {
+		if err := j.build(ctx, meter); err != nil {
+			return adapter.Page{}, err
+		}
+	}
+	var page adapter.Page
+	for {
+		j.serve(&page)
+		if len(page.Rows) > 0 {
+			return page, nil
+		}
+		switch {
+		case j.streaming():
+			rows, err := j.rel.readRows(ctx, j.rel.inputs[j.streamed], len(j.hops), meter)
+			if err != nil {
+				return adapter.Page{}, err
+			}
+			for _, row := range rows {
+				c := make(combination, len(j.rel.inputs))
+				c[j.streamed] = row
+				j.unserved.seeds = append(j.unserved.seeds, seed{combination: c})
+			}
+		case j.flushNext():
+		default:
+			j.rel.placeInWrittenOrder()
+			return page, nil
+		}
+	}
+}
+
+// build holds every input but the streamed one, then opens the streamed
+// input. A table nothing can match stops the stream, whose every row would
+// be dropped there, and ends the run unless a later hop has rows to flush.
 func (j *joinCursor) build(ctx context.Context, meter *meter) error {
+	streamDead := false
 	for h := range j.hops {
 		if err := j.hold(ctx, h, meter); err != nil {
 			return err
 		}
-		if len(j.tables[h]) == 0 {
+		if len(j.tables[h].byKey) > 0 || j.hops[h].keepFrom {
+			continue
+		}
+		streamDead = true
+		if !j.flushFollows(h) {
+			j.flushed = len(j.hops)
 			j.built = true
 			return nil
 		}
 	}
-	if err := j.open(ctx, &j.sides[j.streamed]); err != nil {
-		return err
+	if !streamDead {
+		if err := j.openInput(ctx, j.rel.inputs[j.streamed]); err != nil {
+			return err
+		}
 	}
 	j.built = true
 	return nil
 }
 
-// hold reads the side hop h leads into to the end, into that hop's table.
+// hold reads the input hop h leads into to the end, into that hop's table.
+// Its rows count against the run's budget unless a Materialize already
+// counted them.
 func (j *joinCursor) hold(ctx context.Context, h int, meter *meter) error {
-	side := &j.sides[j.hops[h].into]
-	if err := j.open(ctx, side); err != nil {
+	in := j.rel.inputs[j.hops[h].into]
+	if err := j.openInput(ctx, in); err != nil {
 		return err
 	}
-	j.tables[h] = map[string][]joinRow{}
-	for side.cursor != nil {
-		rows, err := j.readRows(ctx, side, meter)
+	table := newHeldTable(j.hops[h].keepInto)
+	j.tables[h] = table
+	holder := -1
+	if !in.shared {
+		holder = j.run.budget.holder(in.label)
+	}
+	for in.cursor != nil {
+		rows, err := j.rel.readRows(ctx, in, len(j.hops), meter)
 		if err != nil {
 			return err
 		}
-		j.held += len(rows)
-		if j.held > j.maxRows {
-			return j.tooLarge(h)
+		if holder >= 0 {
+			if err := j.run.budget.hold(holder, len(rows)); err != nil {
+				return err
+			}
 		}
 		for _, row := range rows {
-			j.tables[h][row.keys[h]] = append(j.tables[h][row.keys[h]], row)
+			table.add(row, row.keys[h])
 		}
 	}
 	return nil
 }
 
-func (j *joinCursor) open(ctx context.Context, side *joinSide) error {
-	cursor, err := j.connection.Query(ctx, side.leaf.Query)
+func (j *joinCursor) openInput(ctx context.Context, in *joinInput) error {
+	cursor, err := j.run.open(ctx, in.source.Rows)
 	if err != nil {
 		return err
 	}
-	side.cursor = cursor
+	in.cursor = cursor
 	return nil
 }
 
-// tooLarge names the side of hop h, which crossed maxRows, and what the
-// sides held before it already hold.
-func (j *joinCursor) tooLarge(h int) error {
-	var before []string
-	for earlier := range h {
-		before = append(before, fmt.Sprintf("%s %d", j.sides[j.hops[earlier].into].leaf.Label(), rowCount(j.tables[earlier])))
-	}
-	held := ""
-	if len(before) > 0 {
-		held = " (" + strings.Join(before, ", ") + ")"
-	}
-	return fmt.Errorf("query: join: %s takes the rows held in memory past %d%s: %w",
-		j.sides[j.hops[h].into].leaf.Label(), j.maxRows, held, ErrJoinTooLarge)
-}
-
-func rowCount(table map[string][]joinRow) int {
-	count := 0
-	for _, rows := range table {
-		count += len(rows)
-	}
-	return count
-}
-
-// readRows reads the next page of side, closing its cursor after the last
-// one. Items missing a key of any hop their side takes part in match
-// nothing and are dropped here.
-func (j *joinCursor) readRows(ctx context.Context, side *joinSide, meter *meter) ([]joinRow, error) {
-	page, err := side.cursor.NextPage(ctx)
-	if err != nil {
-		return nil, err
-	}
-	meter.charge(side.leaf, page)
-	if !side.cursor.HasMore() {
-		if err := closeSide(side); err != nil {
-			return nil, err
-		}
-	}
-	header := &leafPage{side: *side, columns: page.Columns}
-	j.unplaced = append(j.unplaced, header)
-	var rows []joinRow
-	for i, item := range page.Raw {
-		keys, ok, err := j.rowKeys(side.index, item)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			continue
-		}
-		raw, err := j.projectRaw(*side, item)
-		if err != nil {
-			return nil, err
-		}
-		row := joinRow{page: header, raw: raw, keys: keys}
-		if i < len(page.Rows) {
-			row.cells = page.Rows[i]
-		}
-		rows = append(rows, row)
-	}
-	return rows, nil
-}
-
-// rowKeys renders an item's key for every hop its side takes part in; ok is
-// false when any of them is missing.
-func (j *joinCursor) rowKeys(side int, item json.RawMessage) (keys []string, ok bool, err error) {
-	keys = make([]string, len(j.hops))
-	for h, hop := range j.hops {
-		path, touches := hop.keyOf(side)
-		if !touches {
-			continue
-		}
-		if keys[h], ok, err = joinKey(item, path); !ok {
-			return nil, false, err
-		}
-	}
-	return keys, true, nil
-}
-
-func (j *joinCursor) placeInWrittenOrder() {
-	slices.SortStableFunc(j.unplaced, func(a, b *leafPage) int { return a.side.index - b.side.index })
-	for _, header := range j.unplaced {
-		header.placement = j.place(header.side, header.columns)
-	}
-	j.unplaced = nil
-}
-
-// place maps the columns of one leaf page onto the merged header: all of
-// them as alias.column under SELECT *, otherwise the ones the SELECT list
-// names, as often as it names them.
-func (j *joinCursor) place(side joinSide, columns []string) []cellMove {
-	var placement []cellMove
-	for from, name := range columns {
-		for _, column := range j.selected(side, name) {
-			header := columnHeader(side.leaf.Alias, column)
-			placement = append(placement, cellMove{from: from, to: j.columns.place([]string{header})[0]})
-		}
-	}
-	return placement
-}
-
-func (j *joinCursor) selected(side joinSide, field string) []JoinColumn {
-	if j.selectAll {
-		return []JoinColumn{{Side: side.index, Field: field}}
-	}
-	var selected []JoinColumn
-	for _, column := range side.columns {
-		if column.Field == field {
-			selected = append(selected, column)
-		}
-	}
-	return selected
-}
-
-// projectRaw cuts an item down to the fields the SELECT list names.
-func (j *joinCursor) projectRaw(side joinSide, item json.RawMessage) (json.RawMessage, error) {
-	if j.selectAll {
-		return item, nil
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(item, &object); err != nil {
-		return nil, fmt.Errorf("query: join: read %s item: %w", side.leaf.Label(), err)
-	}
-	var raw bytes.Buffer
-	raw.WriteByte('{')
-	for _, column := range side.columns {
-		value, ok := object[column.Field]
-		if !ok {
-			continue
-		}
-		if raw.Len() > 1 {
-			raw.WriteByte(',')
-		}
-		raw.WriteString(strconv.Quote(rawName(column)))
-		raw.WriteByte(':')
-		raw.Write(value)
-	}
-	raw.WriteByte('}')
-	return raw.Bytes(), nil
-}
-
-func rawName(column JoinColumn) string {
-	if column.As != "" {
-		return column.As
-	}
-	return column.Field
+func (j *joinCursor) streaming() bool {
+	return j.rel.inputs[j.streamed].cursor != nil
 }
 
 func (j *joinCursor) HasMore() bool {
-	return !j.closed && (!j.built || !j.unserved.empty() || j.sides[j.streamed].cursor != nil)
+	return !j.closed && (!j.built || !j.unserved.empty() || j.streaming() || j.flushPending())
 }
 
 func (j *joinCursor) Close() error {
 	j.closed = true
-	var errs []error
-	for i := range j.sides {
-		errs = append(errs, closeSide(&j.sides[i]))
-	}
-	return errors.Join(errs...)
+	return j.rel.closeInputs()
 }
 
-func closeSide(side *joinSide) error {
-	if side.cursor == nil {
-		return nil
+// heldTable is one held input, hashed on its key for one hop. A table whose
+// hop keeps its unmatched rows keeps them all, in arrival order, with a flag
+// per row.
+type heldTable struct {
+	rows      []joinRow
+	byKey     map[string][]int
+	matched   []bool // nil when the hop does not keep unmatched rows
+	unmatched int
+}
+
+func newHeldTable(keepsUnmatched bool) *heldTable {
+	t := &heldTable{byKey: map[string][]int{}}
+	if keepsUnmatched {
+		t.matched = []bool{}
 	}
-	cursor := side.cursor
-	side.cursor = nil
-	return cursor.Close()
+	return t
+}
+
+// add holds row, hashed on key; a row with no key matches nothing, and is
+// held only to be flushed.
+func (t *heldTable) add(row joinRow, key string) {
+	if key != "" {
+		t.byKey[key] = append(t.byKey[key], len(t.rows))
+	}
+	t.rows = append(t.rows, row)
+	if t.matched != nil {
+		t.matched = append(t.matched, false)
+		t.unmatched++
+	}
+}
+
+// match returns the rows held under key, flagging them matched.
+func (t *heldTable) match(key string) []joinRow {
+	indexes := t.byKey[key]
+	rows := make([]joinRow, 0, len(indexes))
+	for _, i := range indexes {
+		if t.matched != nil && !t.matched[i] {
+			t.matched[i] = true
+			t.unmatched--
+		}
+		rows = append(rows, t.rows[i])
+	}
+	return rows
+}
+
+func (t *heldTable) unmatchedRows() []joinRow {
+	var rows []joinRow
+	for i, matched := range t.matched {
+		if !matched {
+			rows = append(rows, t.rows[i])
+		}
+	}
+	return rows
 }
 
 // joinKey renders the value at path as canonical JSON, so equal values hash

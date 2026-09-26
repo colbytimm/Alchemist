@@ -1,12 +1,9 @@
 package query
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -16,8 +13,7 @@ import (
 const DefaultMaxJoinRows = 10_000
 
 var (
-	// ErrJoinTooLarge aborts a join whose in-memory sides outgrew MaxJoinRows
-	// between them.
+	// ErrJoinTooLarge aborts a run whose rows in memory outgrew MaxJoinRows.
 	ErrJoinTooLarge = errors.New("narrow that side with a WHERE filter, or raise max_join_rows")
 	errMalformed    = errors.New("query: execute: plan does not fit its merge step")
 	errExhausted    = errors.New("query: no more pages")
@@ -26,39 +22,29 @@ var (
 // Engine executes plans over one connection. Every leaf runs through the
 // connection's own cursors, so a merged result costs the sum of its leaves.
 type Engine struct {
-	Connection  adapter.Connection
-	MaxJoinRows int // rows across all held sides; DefaultMaxJoinRows when zero
+	Connection adapter.Connection
+	// MaxJoinRows caps the rows one run holds in memory: join tables,
+	// materialized CTEs, and both sides of a cross join and its product.
+	// DefaultMaxJoinRows when zero.
+	MaxJoinRows int
 }
 
-// Execute returns a cursor over the plan's merged pages. A pass-through plan
-// gets the adapter's cursor itself.
+// Execute returns a cursor over the plan's merged pages without reading
+// anything yet. A pass-through plan gets the adapter's cursor itself.
 func (e Engine) Execute(ctx context.Context, plan Plan) (adapter.Cursor, error) {
-	switch {
-	case plan.Merge == PassThrough && len(plan.Leaves) == 1:
-		return e.Connection.Query(ctx, plan.Leaves[0].Query)
-	case plan.Merge == UnionAll && len(plan.Leaves) > 0:
-		return newUnionCursor(e.Connection, plan.Leaves), nil
-	case plan.Merge == HashJoin && joinFits(plan):
-		return e.openJoin(plan), nil
+	if err := checkPlan(plan); err != nil {
+		return nil, err
 	}
-	return nil, errMalformed
-}
-
-// joinFits reports whether the steps attach every leaf after the first to an
-// earlier one, and the columns read existing leaves.
-func joinFits(plan Plan) bool {
-	steps := plan.Join.Steps
-	if len(steps) == 0 || len(steps) != len(plan.Leaves)-1 {
-		return false
+	if scan, ok := plan.Root.(*Scan); ok {
+		return e.Connection.Query(ctx, plan.Leaves[scan.Leaf].Query)
 	}
-	for i, step := range steps {
-		if step.Left < 0 || step.Left > i {
-			return false
-		}
+	run := &execution{
+		connection: e.Connection,
+		plan:       plan,
+		budget:     &rowBudget{max: e.maxJoinRows()},
+		shared:     map[*Materialize]*materialized{},
 	}
-	return !slices.ContainsFunc(plan.Join.Columns, func(c JoinColumn) bool {
-		return c.Side < 0 || c.Side >= len(plan.Leaves)
-	})
+	return run.cursor(plan.Root), nil
 }
 
 func (e Engine) maxJoinRows() int {
@@ -68,166 +54,139 @@ func (e Engine) maxJoinRows() int {
 	return DefaultMaxJoinRows
 }
 
-// unionCursor reads its leaves one after another, so a page never mixes
-// containers and only one leaf cursor is open at a time.
-type unionCursor struct {
+// execution is one run of a plan: the connection its leaves query, the row
+// budget every node of the run draws on, and the CTEs it materializes.
+type execution struct {
 	connection adapter.Connection
-	pending    []Leaf
-	leaf       Leaf
-	current    adapter.Cursor
-	columns    *columnUnion
+	plan       Plan
+	budget     *rowBudget
+	shared     map[*Materialize]*materialized
 }
 
-func newUnionCursor(connection adapter.Connection, leaves []Leaf) *unionCursor {
-	return &unionCursor{connection: connection, pending: leaves, columns: newColumnUnion(ContainerColumn)}
-}
-
-func (u *unionCursor) NextPage(ctx context.Context) (adapter.Page, error) {
-	meter := startMeter()
-	page, err := u.readLeafPage(ctx)
-	if err != nil {
-		return adapter.Page{}, errors.Join(err, u.Close())
-	}
-	meter.charge(u.leaf, page)
-	merged, err := u.tag(page)
-	if err != nil {
-		return adapter.Page{}, errors.Join(err, u.Close())
-	}
-	merged.Stats = meter.stats(len(merged.Rows))
-	return merged, nil
-}
-
-func (u *unionCursor) readLeafPage(ctx context.Context) (adapter.Page, error) {
-	if u.current == nil {
-		if err := u.openNextLeaf(ctx); err != nil {
-			return adapter.Page{}, err
+// cursor is node's cursor. Nothing is read until its first page.
+func (r *execution) cursor(node Node) adapter.Cursor {
+	switch n := node.(type) {
+	case *Union:
+		return r.newUnionCursor(n)
+	case *Join:
+		if isCross(n) {
+			return r.newCrossCursor(n)
 		}
+		return r.newJoinCursor(n)
+	case *Flatten:
+		return r.newFlattenCursor(n)
+	case *Materialize:
+		return r.reader(n)
 	}
-	page, err := u.current.NextPage(ctx)
-	if err != nil || u.current.HasMore() {
-		return page, err
-	}
-	return page, u.Close()
-}
-
-func (u *unionCursor) openNextLeaf(ctx context.Context) error {
-	if len(u.pending) == 0 {
-		return errExhausted
-	}
-	cursor, err := u.connection.Query(ctx, u.pending[0].Query)
-	if err != nil {
-		return err
-	}
-	u.leaf, u.pending, u.current = u.pending[0], u.pending[1:], cursor
 	return nil
 }
 
-// tag places the leaf's cells under the merged columns, behind the container
-// they came from.
-func (u *unionCursor) tag(page adapter.Page) (adapter.Page, error) {
-	label := u.leaf.Label()
-	field, err := containerField(label)
+// open is node's cursor, ready to read: a leaf's query runs now.
+func (r *execution) open(ctx context.Context, node Node) (adapter.Cursor, error) {
+	if scan, ok := node.(*Scan); ok {
+		return r.openLeaf(ctx, r.plan.Leaves[scan.Leaf])
+	}
+	return r.cursor(node), nil
+}
+
+func (r *execution) openLeaf(ctx context.Context, leaf Leaf) (adapter.Cursor, error) {
+	cursor, err := r.connection.Query(ctx, leaf.Query)
 	if err != nil {
-		return adapter.Page{}, err
+		return nil, err
 	}
-	placement := u.columns.place(page.Columns)
-	merged := adapter.Page{Columns: u.columns.snapshot()}
-	for _, cells := range page.Rows {
-		row := make([]string, len(merged.Columns))
-		placeCells(row, cells, placement)
-		row[0] = label
-		merged.Rows = append(merged.Rows, row)
-	}
-	for _, raw := range page.Raw {
-		merged.Raw = append(merged.Raw, tagRaw(raw, field))
-	}
-	return merged, nil
+	return labeled{Cursor: cursor, label: leaf.chargeLabel()}, nil
 }
 
-func placeCells(row, cells []string, placement []int) {
-	for c, at := range placement {
-		if c < len(cells) {
-			row[at] = cells[c]
-		}
+// label is what the row budget calls the rows of node.
+func (r *execution) label(node Node) string {
+	switch n := node.(type) {
+	case *Scan:
+		return r.plan.Leaves[n.Leaf].chargeLabel()
+	case *Union:
+		return r.plan.Leaves[n.Leaves[0]].Name
+	case *Flatten:
+		return n.Name
+	case *Materialize:
+		return n.Name
 	}
+	return ""
 }
 
-func (u *unionCursor) HasMore() bool {
-	return u.current != nil || len(u.pending) > 0
+// labeled files the charge of each page of a leaf under the leaf's label.
+type labeled struct {
+	adapter.Cursor
+	label string
 }
 
-func (u *unionCursor) Close() error {
-	if u.current == nil {
-		return nil
-	}
-	cursor := u.current
-	u.current = nil
-	return cursor.Close()
-}
-
-// containerField is an object opened on its container field: `{"_container":"db.c"`.
-func containerField(label string) ([]byte, error) {
-	object, err := json.Marshal(map[string]string{ContainerColumn: label})
+func (l labeled) NextPage(ctx context.Context) (adapter.Page, error) {
+	page, err := l.Cursor.NextPage(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("query: union: tag %q: %w", label, err)
+		return page, err
 	}
-	return bytes.TrimSuffix(object, []byte("}")), nil
+	page.Stats.LeafCharges = map[string]float64{l.label: page.Stats.RequestCharge}
+	return page, nil
 }
 
-// tagRaw puts field at the head of an item. Anything but a JSON object, the
-// product of SELECT VALUE, has no place for it and is left as it is.
-func tagRaw(raw json.RawMessage, field []byte) json.RawMessage {
-	body := bytes.TrimSpace(raw)
-	if len(body) < 2 || body[0] != '{' {
-		return raw
-	}
-	tagged := bytes.Clone(field)
-	fields := bytes.TrimSpace(body[1:])
-	if fields[0] != '}' {
-		tagged = append(tagged, ',')
-	}
-	return append(tagged, fields...)
-}
-
-// Label is the db.container name a merged result tags the leaf's rows with.
+// Label is the db.container name a union tags the leaf's rows with.
 func (l Leaf) Label() string {
 	return strings.Join(l.Query.Scope, ".")
 }
 
-// columnUnion is the header of a merged result. Like an adapter's, it only
-// ever grows at the end, so a later page never moves a column already on
-// screen.
-type columnUnion struct {
-	names []string
-	index map[string]int
-}
-
-func newColumnUnion(names ...string) *columnUnion {
-	c := &columnUnion{index: map[string]int{}}
-	c.place(names)
-	return c
-}
-
-// place returns where each of names sits in the header, adding the new ones.
-func (c *columnUnion) place(names []string) []int {
-	placement := make([]int, len(names))
-	for i, name := range names {
-		at, ok := c.index[name]
-		if !ok {
-			at = len(c.names)
-			c.index[name] = at
-			c.names = append(c.names, name)
-		}
-		placement[i] = at
+// chargeLabel is what the leaf's charges are filed under: its container,
+// behind the name of the CTE it is the body of.
+func (l Leaf) chargeLabel() string {
+	if l.Name == "" {
+		return l.Label()
 	}
-	return placement
+	return l.Name + " (" + l.Label() + ")"
 }
 
-func (c *columnUnion) snapshot() []string {
-	return slices.Clone(c.names)
+// rowBudget is what one run may hold in memory, shared by every node that
+// holds rows.
+type rowBudget struct {
+	max  int
+	held []heldRows
 }
 
-// meter totals what one merged page cost across the leaf pages behind it.
+type heldRows struct {
+	label string
+	rows  int
+}
+
+// holder registers a holder of rows and returns its index.
+func (b *rowBudget) holder(label string) int {
+	b.held = append(b.held, heldRows{label: label})
+	return len(b.held) - 1
+}
+
+// hold adds rows to what holder h holds; past the cap, it names h and what
+// the holders before it already hold.
+func (b *rowBudget) hold(h, rows int) error {
+	b.held[h].rows += rows
+	if b.total() <= b.max {
+		return nil
+	}
+	var before []string
+	for _, earlier := range b.held[:h] {
+		before = append(before, fmt.Sprintf("%s %d", earlier.label, earlier.rows))
+	}
+	held := ""
+	if len(before) > 0 {
+		held = " (" + strings.Join(before, ", ") + ")"
+	}
+	return fmt.Errorf("query: join: %s takes the rows held in memory past %d%s: %w",
+		b.held[h].label, b.max, held, ErrJoinTooLarge)
+}
+
+func (b *rowBudget) total() int {
+	total := 0
+	for _, h := range b.held {
+		total += h.rows
+	}
+	return total
+}
+
+// meter totals what one merged page cost across the pages behind it.
 type meter struct {
 	start   time.Time
 	total   float64
@@ -238,9 +197,13 @@ func startMeter() *meter {
 	return &meter{start: time.Now(), perLeaf: map[string]float64{}}
 }
 
-func (m *meter) charge(leaf Leaf, page adapter.Page) {
+// charge adds a page read from a child: a leaf's, labeled, or a nested
+// node's, already broken down by leaf.
+func (m *meter) charge(page adapter.Page) {
 	m.total += page.Stats.RequestCharge
-	m.perLeaf[leaf.Label()] += page.Stats.RequestCharge
+	for label, charge := range page.Stats.LeafCharges {
+		m.perLeaf[label] += charge
+	}
 }
 
 func (m *meter) stats(rows int) adapter.Stats {

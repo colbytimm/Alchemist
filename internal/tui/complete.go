@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -289,27 +288,14 @@ func (m Model) fileCatalog(entry accountEntry, msg CatalogLoadedMsg) (Model, tea
 }
 
 // observePage files the fields of a page's items under the containers they
-// came from. Only items as stored are fields of a container: a projection
-// names what the query made of them. A join side is the exception, since a
-// projected half still holds top-level fields of its container, apart from
-// one the SELECT list renamed.
+// came from.
 func (m Model) observePage(page adapter.Page) {
 	entry, ok := m.accounts.get(m.runAccount)
 	if !ok || !entry.connected() {
 		return
 	}
-	for side, items := range m.plan.LeafItems(page.Raw) {
-		leaf := m.plan.Leaves[side]
-		if m.plan.Merge != query.HashJoin && !leaf.WholeItems() {
-			continue
-		}
-		fields := adapter.FlattenFields(items)
-		for _, column := range m.plan.Join.Columns {
-			if column.Side == side && column.As != "" {
-				fields = slices.DeleteFunc(fields, func(f adapter.Field) bool { return f.Path == column.As })
-			}
-		}
-		entry.index.AddFields(leaf.Query.Scope, fields)
+	for leaf, fields := range m.plan.ObservedFields(page.Raw) {
+		entry.index.AddFields(m.plan.Leaves[leaf].Query.Scope, fields)
 	}
 }
 

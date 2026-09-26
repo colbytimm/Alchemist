@@ -271,6 +271,15 @@ sampled fields (from the adapter) must flatten identically.
   Deleting a container drops its fields from the index.
 - **12, info view.** Both add an optional adapter interface found by type assertion;
   follow whichever lands first for naming and for where the assertion lives.
+- **20, CTEs and join types.** Landed after this iteration and made the moves its
+  plan lists: `LEFT`, `RIGHT`, `FULL`, `CROSS` and `OUTER` are offered after a source,
+  `OUTER` or `JOIN` after each of them, `APPLY` after `CROSS` and `OUTER`, `IN` after
+  an `APPLY` alias, and no `ON` after a `CROSS JOIN` source; `WITH` opens a statement,
+  a body of a `WITH` statement is completed on its own, the CTEs declared before a
+  source position come first there, and `cte.` completes the columns its select list
+  names without sampling. A `WHERE` of an outer join offers only the aliases no join
+  pads. The index files a join half under its container only for an input that is a
+  container, through `Plan.ObservedFields`; a CTE's items are a projection.
 
 ## Steps
 

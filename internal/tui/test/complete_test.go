@@ -299,8 +299,10 @@ func TestAfterACrossContainerJoinNoClauseThePlannerRefusesIsOffered(t *testing.T
 	assert.False(t, listed(view, "ORDER BY"))
 	assert.False(t, listed(view, "GROUP BY"))
 	assert.False(t, listed(view, "OFFSET"))
+	ordering := pressAll(t, typeQuery(t, newTallModel(t, newConnection(t)), mockJoin+" ORD"), keyCtrlSpace())
+	assert.False(t, listed(ordering.View(), "ORDER BY"), "not even when asked for by name")
 
-	single := pressAll(t, typeQuery(t, newTallModel(t, newConnection(t)), "SELECT * FROM sales.orders o "), keyCtrlSpace())
+	single := pressAll(t, typeQuery(t, newTallModel(t, newConnection(t)), "SELECT * FROM sales.orders o ORD"), keyCtrlSpace())
 	assert.True(t, listed(single.View(), "ORDER BY"), plain(single.View()))
 }
 

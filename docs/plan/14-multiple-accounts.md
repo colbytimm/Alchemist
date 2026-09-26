@@ -501,6 +501,10 @@ History is scoped to the account the session is on. `ctrl+o` lists the entries w
   offered as completions, since no query position takes one.
 - **15, saved queries.** Builds on "Contract for iteration 15", including its table of
   what moved.
+- **20, CTEs and join types.** Landed after this iteration. `query.SourcePaths`
+  descends into CTE bodies, so `errAccountInQuery` catches `prod.sales.orders` inside
+  one, and does not report a one-part CTE name as a source path. Every leaf of every
+  CTE runs on the active account's connection, under its `MaxJoinRows`.
 
 11, 12 and 13 landed before this iteration, so their messages carry the account (see
 "Implementation notes"). Whichever lands after this iteration adopts the account field from

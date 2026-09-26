@@ -12,55 +12,117 @@ import (
 // simulates correctly.
 var ErrUnsupported = errors.New("not supported across containers: run it server-side, one container at a time")
 
-// ContainerColumn is the synthetic leading column of a UnionAll result,
+// ContainerColumn is the synthetic leading column of a union's result,
 // naming the db.container each row came from.
 const ContainerColumn = "_container"
 
 const defaultAlias = "c"
 
-// Merge is how the pages of a plan's leaves become one result set.
-type Merge int
-
-const (
-	PassThrough Merge = iota // one leaf, served as the adapter returns it
-	UnionAll
-	HashJoin
-)
-
-// Plan is an editor query broken into single-container leaves plus the
-// client-side step that merges them.
+// Plan is an editor query broken into single-container leaves and the tree
+// of client-side operators that merges them.
 type Plan struct {
-	Merge  Merge
-	Leaves []Leaf
-	Join   Join // set for HashJoin, whose Leaves are its sides in written order
+	Leaves []Leaf // every single-container query, in the order the text names them
+	Root   Node
 }
 
 type Leaf struct {
 	Alias string
 	Query adapter.Query
-	// Filtered marks a join side a WHERE condition was pushed down to.
+	// Filtered marks a join input a WHERE or ON condition was pushed down to.
 	Filtered bool
+	Name     string   // the CTE the leaf is the body of, if any
+	Fields   []string // the columns its SELECT list names; nil when the text does not say
 }
 
+// Node is one operator of a plan; its cursor serves adapter.Pages.
+type Node interface{ isNode() }
+
+// Scan serves one leaf as the adapter returns it.
+type Scan struct{ Leaf int }
+
+// Union runs one body against each of its leaves' containers.
+type Union struct{ Leaves []int }
+
+// Join combines its Inputs; Steps[i] attaches Inputs[i+1] to an earlier one.
 type Join struct {
-	// Steps has one entry per JOIN, in written order: Steps[i] attaches
-	// Plan.Leaves[i+1] to an earlier leaf.
+	Inputs  []Source
 	Steps   []JoinStep
 	Columns []JoinColumn // empty for SELECT *
+	// Absent are the input and APPLY aliases that WHERE NOT IS_DEFINED
+	// requires missing from a row.
+	Absent []string
 }
 
-// JoinStep is one ON equality between the leaf a JOIN introduced and an
+// Flatten reads a join as one relation of flat items: a joined CTE body.
+type Flatten struct {
+	Name  string
+	Input *Join
+}
+
+// Materialize is a CTE read more than once; its readers share the pointer.
+type Materialize struct {
+	Name  string
+	Input Node
+}
+
+func (*Scan) isNode()        {}
+func (*Union) isNode()       {}
+func (*Join) isNode()        {}
+func (*Flatten) isNode()     {}
+func (*Materialize) isNode() {}
+
+// Source is one input of a join: the rows of a node under an alias, each
+// expanded by the APPLYs written after it.
+type Source struct {
+	Alias   string
+	Rows    Node // *Scan, *Union, *Flatten or *Materialize
+	Applies []Apply
+	Fields  []string // columns known from the text; nil when they are not
+}
+
+// Apply ranges Alias over the array at Array; an Outer one keeps an item
+// whose array has no element, with Alias absent.
+type Apply struct {
+	Alias string
+	Array FieldRef
+	Outer bool
+}
+
+type JoinKind int
+
+const (
+	InnerJoin JoinKind = iota
+	LeftOuterJoin
+	RightOuterJoin
+	FullOuterJoin
+	CrossJoin
+)
+
+func (k JoinKind) String() string {
+	return [...]string{"INNER", "LEFT", "RIGHT", "FULL", "CROSS"}[k]
+}
+
+// JoinStep is one ON equality between the input a JOIN introduced and an
 // earlier one.
 type JoinStep struct {
-	Left     int      // index into Plan.Leaves of the earlier leaf
-	LeftKey  []string // field path within an item of Leaves[Left]
-	RightKey []string // field path within an item of the joined leaf
+	Kind     JoinKind
+	Left     int      // index into Join.Inputs of the earlier input
+	LeftKey  FieldRef // zero for CrossJoin
+	RightKey FieldRef
 }
 
-// JoinColumn is one projected field; Side indexes Plan.Leaves.
+// FieldRef names a field through the alias that binds it: an input's own
+// alias or one of its APPLY aliases.
+type FieldRef struct {
+	Alias string
+	Path  []string
+}
+
+// JoinColumn is one projected field; Side indexes Join.Inputs.
 type JoinColumn struct {
 	Side  int
-	Field string
+	Alias string
+	Field string // empty for an APPLY alias named bare
 	As    string // the name `AS` gave it, if any
 }
 
@@ -78,7 +140,8 @@ func (l Leaf) WholeItems() bool {
 // Simulated reports whether the plan is merged client-side rather than run
 // as-is by the service.
 func (p Plan) Simulated() bool {
-	return p.Merge != PassThrough
+	_, scan := p.Root.(*Scan)
+	return p.Root != nil && !scan
 }
 
 // Scope is the container the plan's first leaf targets, empty when the query
@@ -107,133 +170,16 @@ func (p Plan) WithDefaultScope(scope []string) Plan {
 }
 
 // BuildPlan plans text without executing it. A query over at most one
-// db.container source passes through with that source rewritten to its alias;
-// any shape over several that cannot be simulated is an ErrUnsupported. It
-// never panics on arbitrary input.
+// db.container source, and none of the syntax only the engine knows, passes
+// through with that source rewritten to its alias; any shape the engine
+// cannot prove it simulates correctly is an ErrUnsupported. It never panics
+// on arbitrary input.
 func BuildPlan(text string) (Plan, error) {
-	p := parse(text)
-	containers := p.containerSources()
-	switch len(containers) {
-	case 0:
-		return passThrough(Leaf{Query: adapter.Query{Text: text}}), nil
-	case 1:
-		return passThrough(rewrittenLeaf(text, containers, aliasOrDefault(containers[0].alias))), nil
-	}
-	if err := checkMergeable(containers); err != nil {
-		return Plan{}, err
-	}
-	if containers[len(containers)-1].joined {
-		return planJoin(text, p.toks, containers)
-	}
-	return planUnion(text, p.sources, containers)
-}
-
-// containerSources are the sources of the form db.container; a two-part path
-// rooted at an alias is a property of that alias instead.
-func (p *parser) containerSources() []source {
-	var containers []source
-	for _, s := range p.sources {
-		if len(s.path) == 2 && !p.aliases[s.path[0].text] {
-			containers = append(containers, s)
-		}
-	}
-	return containers
-}
-
-func checkMergeable(containers []source) error {
-	for _, c := range containers {
-		switch {
-		case c.clause != 1 && c.depth == 0:
-			return unsupported("more than one statement in the editor")
-		case c.clause != 1:
-			return unsupported("a subquery over another container")
-		case c.modifier != "" && c.modifier != "INNER":
-			return unsupported(c.modifier + " JOIN")
-		}
-	}
-	return nil
-}
-
-func planUnion(text string, sources, containers []source) (Plan, error) {
-	if slices.ContainsFunc(containers, func(c source) bool { return c.joined }) {
-		return Plan{}, unsupported(shapeListWithJoin)
-	}
-	if !isPlainList(sources, containers) {
-		return Plan{}, unsupported("a container list mixed with other sources")
-	}
-	alias, err := sharedAlias(containers)
+	stmt, err := parseStatement(text)
 	if err != nil {
 		return Plan{}, err
 	}
-	plan := Plan{Merge: UnionAll}
-	for _, c := range containers {
-		leaf := rewrittenLeaf(text, containers, alias)
-		leaf.Query.Scope = scopeOf(c)
-		plan.Leaves = append(plan.Leaves, leaf)
-	}
-	return plan, nil
-}
-
-// isPlainList reports whether the first FROM clause holds the containers,
-// comma-separated, and nothing else: replacing the list with one alias would
-// silently drop anything written in between.
-func isPlainList(sources, containers []source) bool {
-	listed := 0
-	for _, s := range sources {
-		if s.clause == 1 {
-			listed++
-		}
-	}
-	if listed != len(containers) {
-		return false
-	}
-	for i := 1; i < len(containers); i++ {
-		if containers[i-1].nextTok+1 != containers[i].firstTok {
-			return false
-		}
-	}
-	return true
-}
-
-// sharedAlias is the one alias a container list declares: the body runs
-// unchanged against every container, so it can only know them by one name.
-func sharedAlias(containers []source) (string, error) {
-	alias := ""
-	for _, c := range containers {
-		switch {
-		case c.alias == "" || c.alias == alias:
-		case alias == "":
-			alias = c.alias
-		default:
-			return "", unsupported("a container list with more than one alias")
-		}
-	}
-	return aliasOrDefault(alias), nil
-}
-
-func aliasOrDefault(alias string) string {
-	if alias == "" {
-		return defaultAlias
-	}
-	return alias
-}
-
-// rewrittenLeaf replaces the whole run of container sources with alias and
-// targets the first of them.
-func rewrittenLeaf(text string, containers []source, alias string) Leaf {
-	first, last := containers[0], containers[len(containers)-1]
-	return Leaf{
-		Alias: alias,
-		Query: adapter.Query{Text: text[:first.start] + alias + text[last.end:], Scope: scopeOf(first)},
-	}
-}
-
-func passThrough(leaf Leaf) Plan {
-	return Plan{Merge: PassThrough, Leaves: []Leaf{leaf}}
-}
-
-func scopeOf(s source) []string {
-	return []string{s.path[0].text, s.path[1].text}
+	return newPlanner(stmt).plan()
 }
 
 func unsupported(shape string) error {
