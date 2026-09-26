@@ -176,8 +176,8 @@ SSH or through tmux, so the form is a setting: `diagnostics = "underline"` on th
 [profile](#profiles), or `--diagnostics underline` for one session, draws a plain
 underline, and `off` flags nothing and stops looking. Under `NO_COLOR` the editor has
 no color and every squiggle is a plain underline. An older terminal that reads the
-`:` in `4:3` as a `;` may draw a blinking or reversed word instead; set `diagnostics =
-"underline"` there. tmux passes the curly form through
+`:` in `4:3` as a `;` shows a squiggle as dim text or a colored background instead; set
+`diagnostics = "underline"` there. tmux passes the curly form through
 when told the outer terminal draws it:
 
 ```tmux
