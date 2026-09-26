@@ -212,7 +212,7 @@ func TestAConnectionThatCannotEditItemsRefusesAnUpdate(t *testing.T) {
 
 	m = dryRun(t, m, archiveShipped)
 
-	assert.Contains(t, plain(m.View()), "this adapter cannot update items")
+	assert.Contains(t, plain(m.View()), "this adapter cannot update or delete items")
 	assert.Zero(t, conn.scans)
 }
 

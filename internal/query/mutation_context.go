@@ -13,10 +13,30 @@ const (
 // valueKeywords are the literals an assignment takes that are words.
 var valueKeywords = []string{"TRUE", "FALSE", "NULL"}
 
-// mutationCompletion completes an update: its target, a database then a
+// deleteCompletion completes a delete: FROM and nothing else after DELETE,
+// then what follows it as an update's target would, with WHERE where an
+// update takes its changes.
+func deleteCompletion(before []token, typing bool) Completion {
+	switch {
+	case len(before) == 1:
+		return keywordsOnly([]string{"FROM"})
+	case !keywordAt(before, 1, "FROM"):
+		return Completion{}
+	}
+	head := append([]token{before[0]}, before[2:]...)
+	return mutationCompletion(head, typing, []string{"WHERE"})
+}
+
+// updateCompletion completes an update: its target, a database then a
 // container, the clause words where the grammar takes them, the target's
 // fields after SET, UNSET and in the WHERE, and only literals after =.
-func mutationCompletion(before []token, typing bool) Completion {
+func updateCompletion(before []token, typing bool) Completion {
+	return mutationCompletion(before, typing, []string{"SET", "UNSET"})
+}
+
+// mutationCompletion completes a statement read as UPDATE <target>, whose
+// target is followed by an alias or one of clauses.
+func mutationCompletion(before []token, typing bool, clauses []string) Completion {
 	n := len(before)
 	switch {
 	case n == afterUpdate:
@@ -26,7 +46,7 @@ func mutationCompletion(before []token, typing bool) Completion {
 	case n < afterTarget || before[2].kind != tokDot:
 		return Completion{}
 	}
-	u := updateCompleter{toks: before, target: []string{before[1].text, before[3].text}, typing: typing}
+	u := updateCompleter{toks: before, target: []string{before[1].text, before[3].text}, typing: typing, clauses: clauses}
 	return u.complete()
 }
 
@@ -34,6 +54,8 @@ type updateCompleter struct {
 	toks   []token
 	target []string
 	typing bool
+	// clauses are the words that may follow the target and its alias.
+	clauses []string
 }
 
 func (u updateCompleter) complete() Completion {
@@ -78,17 +100,17 @@ func mutationClause(word string) bool {
 }
 
 // afterHead completes what follows the target: an alias, which is the
-// person's to invent, then the clause that starts the changes.
+// person's to invent, then the clause that comes next.
 func (u updateCompleter) afterHead() Completion {
 	switch n := len(u.toks); {
 	case n == afterTarget && u.typing:
 		return Completion{}
 	case n == afterTarget:
-		return keywordsOnly([]string{"SET", "UNSET", "AS"})
+		return keywordsOnly(append(slices.Clone(u.clauses), "AS"))
 	case keywordAt(u.toks, afterTarget, "AS") && n == afterAliasKeyword:
 		return Completion{}
 	}
-	return keywordsOnly([]string{"SET", "UNSET"})
+	return keywordsOnly(u.clauses)
 }
 
 func (u updateCompleter) alias() Alias {

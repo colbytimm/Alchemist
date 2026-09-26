@@ -375,3 +375,56 @@ non-negative only.
   states when TTL is the better tool.
 - No adapter interface, config key or key binding is added beyond iteration 21's.
 - Everything 21's acceptance criteria require of the shared engine still holds.
+
+## Implementation notes
+
+What landed differs from the text above in these ways. The manual checklist was walked
+in part on the emulator, in scratch database `d22_shots`: the Goal's statement over 20
+cancelled orders (review with 20 and three `-` rows, `orders 20` deletes, the report
+agrees), an item replaced between the review and `enter` reported `skipped: changed`
+and kept, no `WHERE` refused with the hint, `WHERE true` showing the container warning,
+and a read-only profile refused with nothing read. The 19 snapshot-diff pass, the
+`x`-halfway pass and the 80×24 pass by eye were not done; a TUI test checks that the
+review keeps its prompt and confirmation at 80×24.
+
+- **`IsMutation` is true whenever the first word is `DELETE`**, not only for
+  `DELETE FROM`: the refusals `DELETE needs FROM: …`, `DELETE o FROM …` and
+  `DELETE o.tmp FROM …` can only be given to text the parser is handed. No query starts
+  with `DELETE`, and a batch is recognized first, so nothing else is captured.
+  `query.MutationKindOf(text)` names the kind before parsing, so a refusal is recorded
+  in history under `delete` even when the text does not parse. `MutationKind` gained
+  `Head()` (`UPDATE`, `DELETE FROM`) for the account-qualified refusal.
+- **Refusal texts take the kind**: `a DELETE has one target container`, `TOP in a
+  DELETE`, the other-container hint ends `delete WHERE o.id IN (…)`, and after a
+  delete's target only `expected WHERE`. `DELETE … USING` is refused beside `JOIN`.
+- **`mutate.Confirmation(m, count)`**, as 21 landed it (the container comes from
+  `m.Target`), asks every delete for the name and the count.
+  `mutate.PlanningCharge(kind)` picks 7 or 10 for the review.
+- **A delete target without a version is never sent.** A backend that served no `_etag`
+  would otherwise send a delete with no `If-Match`, which is unconditional; such a
+  target is `failed` from the start with `mutate.ErrNoVersion`. Cosmos always serves one.
+- **21's selection counted every delete target as needing no operation**: its "every
+  `UNSET` path is absent" test is true of a statement with no paths at all. It now
+  applies only to an update with `UNSET` paths (`leavesNothingToDo`).
+- **`ErrProbeRefused` lost its patch advice**, which 21 put in the sentinel's text; the
+  job appends it for an update only.
+- **Report wording.** The banner reads `Deleted 19 of 20 items from sales.orders. 1 had
+  changed and was kept.`, and a stopped delete's `not attempted` items `are still there`.
+  The quit warning names the job with its article for both kinds (`A delete is
+  running…`, `An update is running…`); 21 had `The update is running…`.
+- **The review's `-` rows** show the item without its id, its single-segment key fields
+  and the system fields, since the label before it names the id and the key. Its keys
+  hint still reads `enter start`, the binding 21 added, not `enter delete`.
+- **History**: `history.KindDelete`, and `Entry.NamesTarget()` replaces the two checks
+  that listed batch and update by hand.
+- **Autocomplete**: `DELETE` is offered at the start of a buffer beside `SELECT` and
+  `UPDATE`; then only `FROM`; then 21's target, alias and `WHERE` completion, with
+  `WHERE` where an update offers `SET` and `UNSET`.
+- **Integration tests** are in `test/integration/delete_test.go`, not beside 21's in
+  `mutation_test.go`, and every test creates and fills its own `d22_*` database rather
+  than copying the seeded `sales`, `telemetry` or `hr` data, which CI does not seed.
+  **Verified on the vNext emulator:** a delete with a stale `If-Match` is answered 412
+  and the item survives with its new body.
+- Nothing was added to `internal/adapter`, `internal/adapter/cosmos` or the mock:
+  21's `EditItem` already sent the delete. The cosmos request-capture tests now also
+  record the partition key header.

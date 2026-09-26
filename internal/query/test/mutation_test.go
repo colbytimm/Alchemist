@@ -214,6 +214,13 @@ var mutationSeeds = []string{
 	"UPDATE a.b",
 	"UPDATE a.b o SET",
 	"UPDATE a.b o SET o.x = ",
+	goalDelete,
+	"delete from a.b as item where item.y = 2;",
+	"DELETE FROM a.b WHERE true",
+	"DELETE a.b o WHERE true",
+	"DELETE o.tmp FROM a.b o WHERE true",
+	"DELETE FROM a.b o USING x.y z WHERE true",
+	"DELETE FROM",
 }
 
 func FuzzParseMutation(f *testing.F) {

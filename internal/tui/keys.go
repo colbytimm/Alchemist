@@ -27,8 +27,8 @@ type KeyMap struct {
 	StopClone    key.Binding
 	ResumeClone  key.Binding
 	DeleteClone  key.Binding
-	// ShowMutation reopens the view of an update job; StartMutation and
-	// ShowReport work only in the update's own overlays.
+	// ShowMutation reopens the view of an update or delete job; StartMutation and
+	// ShowReport work only in the job's own overlays.
 	ShowMutation  key.Binding
 	StartMutation key.Binding
 	ShowReport    key.Binding
@@ -150,7 +150,7 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("d"),
 			key.WithHelp("d", "delete the partial target"),
 		),
-		// w means "show the job" while an update runs, and nothing, absent
+		// w means "show the job" while an update or a delete runs, and nothing, absent
 		// from help too, while none does.
 		ShowMutation: key.NewBinding(
 			key.WithKeys("w"),
@@ -404,14 +404,14 @@ func (k KeyMap) CloneKeys() []key.Binding {
 	return []key.Binding{k.HideClone, k.StopClone, k.ResumeClone, k.DeleteClone}
 }
 
-// MutationReviewKeys are the bindings only an update's review answers to.
+// MutationReviewKeys are the bindings only a mutation's review answers to.
 // Its hint line shows Scroll and Close beside them; typed characters go to
 // its confirmation, so none of them is a letter.
 func (k KeyMap) MutationReviewKeys() []key.Binding {
 	return []key.Binding{k.StartMutation}
 }
 
-// MutationProgressKeys are the bindings only an update's progress view
+// MutationProgressKeys are the bindings only a mutation's progress view
 // adds to the clone view's HideClone, StopClone and ResumeClone, which mean
 // the same there.
 func (k KeyMap) MutationProgressKeys() []key.Binding {

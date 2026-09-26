@@ -1114,3 +1114,6 @@ and the progress view keep their prompt and keys at 80×24.
   fields. Report pages never feed the index: the report has no plan.
 - 23 has not landed on this branch, so there is no `Diagnose` to extend; its plan's step
   adds `MutationSyntaxError` there.
+- **22 has since landed** on this engine (see its "Implementation notes"): `operation`
+  switches on `Mutation.Kind`, `Confirmation` asks every delete for the name and the
+  count, and the job, selection, report cursor and job slot serve both kinds unchanged.

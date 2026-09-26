@@ -17,14 +17,16 @@ import (
 )
 
 const (
-	mutationConsequence = "Items are written one by one. Each write re-checks the WHERE; an item that " +
+	updateConsequence = "Items are written one by one. Each write re-checks the WHERE; an item that " +
 		"no longer matches is skipped. Stopping leaves the rest unchanged. There is no undo."
+	deleteConsequence = "Items are deleted one by one. An item changed since %s is skipped. " +
+		"Stopping leaves the rest in place. There is no undo."
 	noCharges   = "the backend reported no request units"
 	changeWidth = 14
 )
 
-// MutationDraft is what a review is opened for: an update that passed every
-// check, the account it would run on, the items it selected there, and the
+// MutationDraft is what a review is opened for: an update or a delete that
+// passed every check, the account it would run on, the items it selected there, and the
 // warnings the review must show.
 type MutationDraft struct {
 	Account  string
@@ -40,8 +42,8 @@ func (d MutationDraft) Confirmation() string {
 	return mutate.Confirmation(d.Mutation, len(d.Targets.Items))
 }
 
-// MutationReview shows what an update would do before any of it is
-// written, and asks for the container's name typed back as the one way to
+// MutationReview shows what an update or a delete would do before any of it
+// is written, and asks for the confirmation typed back as the one way to
 // start it. Like the field it wraps, its value receiver hides shared
 // pointers, so a caller must keep every MutationReview it is handed.
 type MutationReview struct {
@@ -144,15 +146,18 @@ func (r MutationReview) headerLines(width int) []string {
 	lines = append(lines, reviewField("Where", d.Mutation.Where, width)...)
 	lines = append(lines, reviewField("Items", fmt.Sprintf("%s matched at %s · selection cost %s",
 		FormatCount(int64(len(targets.Items))), targets.SelectedAt.Format("15:04:05"), measuredCharge(targets.RequestCharge)), width)...)
-	lines = append(lines, reviewField("Each gets", strings.Join(mutate.Changes(d.Mutation), " · "), width)...)
+	if changes := mutate.Changes(d.Mutation); len(changes) > 0 {
+		lines = append(lines, reviewField("Each gets", strings.Join(changes, " · "), width)...)
+	}
 	return append(lines, reviewField("Writes", r.writesText(), width)...)
 }
 
 func (r MutationReview) writesText() string {
 	d := r.draft
-	planned := int64(len(d.Targets.Items) * mutate.PlanningChargePerPatch)
+	perItem := mutate.PlanningCharge(d.Mutation.Kind)
+	planned := int64(len(d.Targets.Items) * perItem)
 	return fmt.Sprintf("%d at a time · roughly %s RU (%d RU per 1 KB item; larger or heavily indexed items cost more)",
-		d.Writers, FormatCount(planned), mutate.PlanningChargePerPatch)
+		d.Writers, FormatCount(planned), perItem)
 }
 
 // measuredCharge is a measured charge, or what a backend that measures none
@@ -185,6 +190,9 @@ func (r MutationReview) bodyLines(width int) []string {
 }
 
 func (r MutationReview) previewLines(width int) []string {
+	if r.draft.Mutation.Kind == query.MutationDelete {
+		return r.deletedLines(width)
+	}
 	var lines []string
 	for _, item := range r.draft.Targets.Preview {
 		changes, err := mutate.Preview(item, r.draft.Mutation)
@@ -198,6 +206,32 @@ func (r MutationReview) previewLines(width int) []string {
 		}
 	}
 	return lines
+}
+
+// deletedLines show each previewed item on one line: its id, its key, and
+// the rest of it as the service keeps it.
+func (r MutationReview) deletedLines(width int) []string {
+	var lines []string
+	for _, item := range r.draft.Targets.Preview {
+		line := "- " + itemLabel(item, r.draft.KeyPaths) + "  " + string(itemBody(item, r.draft.KeyPaths))
+		lines = append(lines, theme.ErrorStyle().Render(ansi.Truncate(line, width, "…")))
+	}
+	return lines
+}
+
+// itemBody is item without what its label shows or the service owns.
+func itemBody(item json.RawMessage, keyPaths []string) json.RawMessage {
+	shown := append(adapter.SystemFields(), "id")
+	for _, path := range keyPaths {
+		if name := strings.TrimPrefix(path, "/"); !strings.Contains(name, "/") {
+			shown = append(shown, name)
+		}
+	}
+	body, err := adapter.WithoutFields(item, shown...)
+	if err != nil {
+		return item
+	}
+	return body
 }
 
 // itemLabel names an item by its id and its key.
@@ -231,15 +265,25 @@ func changeLine(change mutate.FieldChange, width int) string {
 }
 
 func (r MutationReview) footerLines(width int) []string {
-	lines := wrapText(mutationConsequence, width)
+	lines := wrapText(r.consequence(), width)
 	lines = append(lines, r.prompt())
 	return append(styleAll(theme.TextStyle(), lines), r.name.view())
+}
+
+func (r MutationReview) consequence() string {
+	if r.draft.Mutation.Kind == query.MutationDelete {
+		return fmt.Sprintf(deleteConsequence, r.draft.Targets.SelectedAt.Format("15:04:05"))
+	}
+	return updateConsequence
 }
 
 func (r MutationReview) prompt() string {
 	d := r.draft
 	count := FormatCount(int64(len(d.Targets.Items)))
-	if d.Mutation.EveryItem {
+	switch {
+	case d.Mutation.Kind == query.MutationDelete:
+		return "Type the container name and the item count to delete:"
+	case d.Mutation.EveryItem:
 		return fmt.Sprintf("Every item in %s. Type the container name and the item count:", strings.Join(d.Mutation.Target, "."))
 	}
 	return fmt.Sprintf("Type the container name to %s %s items:", d.Mutation.Kind, count)

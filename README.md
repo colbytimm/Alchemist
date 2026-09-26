@@ -12,12 +12,12 @@ Result sets export to JSON or CSV, every query is kept in a searchable history, 
 the ones worth keeping can be saved under a name.
 It also queries across containers, which the service cannot: unions and two-container
 joins are [simulated client-side](#querying-across-containers). Writes go through
-[transactional batches](#transactions) and [updates by query](#updating-by-query),
-reviewed and confirmed before anything is sent.
+[transactional batches](#transactions), [updates by query](#updating-by-query) and
+[deletes by query](#deleting-by-query), reviewed and confirmed before anything is sent.
 [Snapshots](#snapshots) of a container, kept on disk, show what changed since.
 
 > **Status: early development.** Browsing, querying, cross-container queries,
-> catalog management, transactional batches, updates by query, cloning, snapshots,
+> catalog management, transactional batches, updates and deletes by query, cloning, snapshots,
 > autocomplete, profiles,
 > history, saved queries, and export work today.
 > Release builds are still to come; the
@@ -88,7 +88,7 @@ the catalog and queries run against it, or name one in the query itself with
 | `y` | catalog | clone; with a clone under way, show it |
 | `s` | catalog, snapshots | take snapshot |
 | `v` | catalog | snapshots; with a capture under way, show it |
-| `w` | catalog, an update under way | show update/delete job |
+| `w` | catalog, an update or delete under way | show update/delete job |
 | `enter` | results | row detail |
 | `h/←`, `l/→` | results | scroll left, scroll right |
 | `m` | results | fetch more |
@@ -99,12 +99,12 @@ the catalog and queries run against it, or name one in the query itself with
 | `↑/↓`, `esc` | editor, list open | choose, dismiss |
 | `enter` | batch review, name typed | commit |
 | `↑/↓` | batch review | scroll |
-| `enter` | update review, confirmation typed | start |
-| `↑/↓` | update review | scroll |
-| `esc` | update progress, running | hide |
-| `x` | update progress, running | stop |
-| `r` | update progress, ended short | resume |
-| `esc`, `enter` | update progress, ended | report |
+| `enter` | update or delete review, confirmation typed | start |
+| `↑/↓` | update or delete review | scroll |
+| `esc` | update or delete progress, running | hide |
+| `x` | update or delete progress, running | stop |
+| `r` | update or delete progress, ended short | resume |
+| `esc`, `enter` | update or delete progress, ended | report |
 | `esc` | clone progress | hide; close once the clone has ended |
 | `x` | clone progress, running | stop |
 | `r` | clone progress, ended short | resume |
@@ -320,7 +320,7 @@ and `q` wait too; `ctrl+c` still quits. There is no undo.
 Writing to anything but a local emulator is a decision made per profile. A profile
 with no `read_only` setting is read-only unless its endpoint is `localhost`,
 `127.0.0.1` or `::1`; a read-only account refuses every batch that writes and every
-update, before an update reads anything, drafts nothing with `ctrl+b`, offers none of the catalog's `n`, `c`, `d` and `t`, and is
+update or delete, before it reads anything, drafts nothing with `ctrl+b`, offers none of the catalog's `n`, `c`, `d` and `t`, and is
 never a clone's target, though it is always a valid source. The
 status bar and the account switcher say `read-only` beside its name. To allow writes:
 
@@ -408,6 +408,68 @@ into the results: one row per item with its outcome (`updated`, `skipped: change
 the service's status and its charge, and a status bar that splits the charge between
 the selection and the writes. Past 10,000 items it shows every item that was not
 updated first; the totals always cover every item.
+
+## Deleting by query
+
+Cosmos DB has no `DELETE … WHERE` either. Alchemist simulates it the way it simulates
+an update, and as openly: it selects the matching items with a query, then deletes each
+one.
+
+```sql
+DELETE FROM sales.orders o WHERE o.status = "cancelled"
+```
+
+- The grammar is `DELETE FROM <database>.<container> [[AS] alias] WHERE condition`.
+  `WHERE` is required, as for an update; to delete every item, write `WHERE true`.
+- Refused, with the reason: `DELETE` without `FROM`, a field before `FROM` (removing a
+  field is `UPDATE … UNSET`), a second container (`DELETE o FROM`, `USING`, `JOIN`,
+  `WITH`, or a `database.container` inside the `WHERE`), `TOP`, `ORDER BY`, `OFFSET`,
+  `LIMIT`, `RETURNING`, and anything after the `;`. `TRUNCATE` is not intercepted.
+  Choosing targets with another container ("orders whose customer is gone") is not
+  built: run that as a query, then `DELETE … WHERE o.id IN (…)`.
+
+**The guard is the version, not the `WHERE`.** A delete takes no condition, so each one
+is sent with `If-Match` and the ETag the dry run read. An item anyone has written
+since, in any field, is `skipped: changed` and stays, even when it still matches: it is
+no longer the document the review counted, and a skipped item costs a rerun while a
+wrongly deleted one costs a restore. An item already gone is `skipped: gone`, counted
+apart from `deleted`, and never makes a run a failure.
+
+**The confirmation is the container name and the item count, always**, one space
+apart, the count in plain digits: `orders 20`. The name proves you know where; the
+count is the one number that differs between the delete you meant and the one a loose
+`WHERE` selected. The review shows the first items that would go on one line each, a
+rough cost (7 RU per 1 KB item), the warnings an update shows, whether a snapshot of the
+container exists, and that deleted items cannot be brought back from Alchemist.
+
+Everything else is the update's: `ctrl+r` is a dry run that deletes nothing, recalled
+statements are reviewed again, read-only accounts refuse before anything is read, a
+delete is sent once and only a throttle is retried, an unanswered delete is `unknown`,
+and the job, its progress view, `w`, `x`, `r`, the report and the one job slot are the
+same, with `deleted` for `updated`. Running the statement again is safe and is how a
+stopped or `unknown` run is settled: deleted items no longer match.
+
+**Deleted is deleted.** Alchemist keeps no copy. Before a large delete, take a
+[snapshot](#snapshots), whose `.jsonl` export is the way back and whose diff afterwards
+lists exactly the removed items, or a [clone](#cloning). An account with continuous
+backup has a point-in-time restore, which is the one restore point consistent across
+items.
+
+When this is the wrong tool:
+
+- **Every item.** Deleting and recreating the container (`d`, then `c` in the catalog)
+  spends no request units per item. It is a new container, so its throughput, indexing
+  policy and other settings must be given again.
+- **Items that age out.** For "remove everything older than ninety days, from now on",
+  set a time to live: a container `DefaultTimeToLive` or a per-item `ttl`. The service
+  then deletes expired items in the background from leftover throughput, with no
+  client and no per-item request. `UPDATE … SET o.ttl = 86400 WHERE …` is the one-off
+  form for items already there. Do not schedule a nightly `DELETE` for this.
+- **A known handful, all or nothing.** `BEGIN BATCH … DELETE "id" IF MATCH "…"` deletes
+  them atomically within one partition key; see [Transactions](#transactions).
+- **One whole partition.** Cosmos DB's delete-by-partition-key operation is a preview
+  the Go SDK cannot call, so it is not used, even for a `WHERE` that is exactly a key
+  equality.
 
 ## Cloning
 

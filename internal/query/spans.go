@@ -30,17 +30,17 @@ var batchKeywords = map[string]bool{
 	"WHERE": true, "IF": true, "MATCH": true, "TRUE": true, "FALSE": true, "NULL": true,
 }
 
-// mutationKeywords are the words an UPDATE adds to a query's, kept apart
-// for batchKeywords' reason: SET can be an alias.
-var mutationKeywords = map[string]bool{"UPDATE": true, "SET": true, "UNSET": true}
+// mutationKeywords are the words an UPDATE or a DELETE adds to a query's,
+// kept apart for batchKeywords' reason: SET can be an alias.
+var mutationKeywords = map[string]bool{"UPDATE": true, "SET": true, "UNSET": true, "DELETE": true}
 
-// mutationSpanWords are what an update highlights: its condition is a
-// query's.
+// mutationSpanWords are what an update or a delete highlights: its
+// condition is a query's.
 var mutationSpanWords = withKeys(keywords, slices.Collect(maps.Keys(mutationKeywords))...)
 
 // Spans lists the keywords, string literals, numbers, and comments of text in
 // the order they appear. A batch statement's keywords are its own, and an
-// update's are a query's and its own.
+// update's or a delete's are a query's and its own.
 func Spans(text string) []Span {
 	words := keywords
 	switch {

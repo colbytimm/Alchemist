@@ -199,7 +199,7 @@ func (s *Selection) keep(item json.RawMessage) {
 			target.Absent |= 1 << i
 		}
 	}
-	if len(s.mutation.Assignments) == 0 && int(target.Absent) == 1<<len(s.mutation.Removals)-1 {
+	if s.leavesNothingToDo(target) {
 		s.targets.Unaffected++
 		return
 	}
@@ -214,6 +214,13 @@ func (s *Selection) keep(item json.RawMessage) {
 	if s.targets.WholeItems && len(s.targets.Preview) < previewSize {
 		s.targets.Preview = append(s.targets.Preview, item)
 	}
+}
+
+// leavesNothingToDo reports an update with only UNSET paths, of an item that
+// lacks every path it would unset.
+func (s *Selection) leavesNothingToDo(target Target) bool {
+	m := s.mutation
+	return len(m.Removals) > 0 && len(m.Assignments) == 0 && int(target.Absent) == 1<<len(m.Removals)-1
 }
 
 // readPreview reads a few matched items whole. One that is not a target

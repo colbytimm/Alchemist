@@ -39,6 +39,7 @@ const (
 const (
 	KindBatch  = "batch"
 	KindUpdate = "update"
+	KindDelete = "delete"
 )
 
 // Entry is one recorded run.
@@ -53,6 +54,12 @@ type Entry struct {
 	RequestCharge float64   `json:"ru"`
 	ElapsedMillis int64     `json:"elapsed_ms"`
 	Error         string    `json:"error,omitempty"`
+}
+
+// NamesTarget reports whether e's Scope is the container it wrote to, not
+// a scope a query ran under.
+func (e Entry) NamesTarget() bool {
+	return e.Kind == KindBatch || e.Kind == KindUpdate || e.Kind == KindDelete
 }
 
 // Store records runs and serves them back.

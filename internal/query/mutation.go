@@ -14,20 +14,41 @@ type MutationKind int
 
 const (
 	MutationUpdate MutationKind = iota + 1
+	MutationDelete
 )
 
 func (k MutationKind) String() string {
+	if k == MutationDelete {
+		return "delete"
+	}
 	return "update"
 }
 
-// Applied is what an item the statement wrote was: "updated".
+// Applied is what an item the statement wrote was: "updated", "deleted".
 func (k MutationKind) Applied() string {
-	return "updated"
+	return k.String() + "d"
 }
 
-// Ongoing is what the statement is doing while it writes: "updating".
+// Ongoing is what the statement is doing while it writes: "updating",
+// "deleting".
 func (k MutationKind) Ongoing() string {
-	return "updating"
+	return strings.TrimSuffix(k.String(), "e") + "ing"
+}
+
+// Head is what a statement of kind k opens with, up to its target.
+func (k MutationKind) Head() string {
+	if k == MutationDelete {
+		return "DELETE FROM"
+	}
+	return "UPDATE"
+}
+
+// statement is the kind's keyword with its article: "an UPDATE".
+func (k MutationKind) statement() string {
+	if k == MutationDelete {
+		return "a DELETE"
+	}
+	return "an UPDATE"
 }
 
 // MutationSyntaxError is a mutation statement that does not parse, at the
@@ -51,25 +72,38 @@ var ErrMutationUnsupported = errors.New("not supported in an UPDATE or DELETE")
 
 // Refusals a statement can meet while it is parsed.
 const (
-	errNoWhere        = "UPDATE needs a WHERE. To change every item, write WHERE true"
-	errTargetForm     = "name the target as database.container: a write never depends on the catalog cursor"
-	errOneTarget      = "an UPDATE has one target container"
-	errLiteralOnly    = "SET takes a literal JSON value: a patch cannot read another field"
-	errIncrement      = "increment is not built: it is the one patch operation that is not safe to run twice"
-	errWholeItem      = "SET needs a field: replacing whole items is a REPLACE in a BEGIN BATCH"
-	errUnsetWhole     = "UNSET needs a field, such as o.status"
-	errArrayMoves     = "appending to and moving within arrays is not built"
-	errOneStatement   = "a buffer holds one statement"
-	errOtherContainer = "the WHERE reads another container: choosing targets with a join is not built. " +
-		"Run the join as a query and update WHERE o.id IN (…)"
+	errTargetForm   = "name the target as database.container: a write never depends on the catalog cursor"
+	errLiteralOnly  = "SET takes a literal JSON value: a patch cannot read another field"
+	errIncrement    = "increment is not built: it is the one patch operation that is not safe to run twice"
+	errWholeItem    = "SET needs a field: replacing whole items is a REPLACE in a BEGIN BATCH"
+	errUnsetWhole   = "UNSET needs a field, such as o.status"
+	errArrayMoves   = "appending to and moving within arrays is not built"
+	errOneStatement = "a buffer holds one statement"
+	errDeleteField  = "DELETE removes whole items: removing a field is UPDATE … UNSET"
 )
+
+func noWhere(k MutationKind) string {
+	if k == MutationDelete {
+		return "DELETE needs a WHERE. To delete every item, write WHERE true"
+	}
+	return "UPDATE needs a WHERE. To change every item, write WHERE true"
+}
+
+func oneTarget(k MutationKind) string {
+	return k.statement() + " has one target container"
+}
+
+func otherContainer(k MutationKind) string {
+	return "the WHERE reads another container: choosing targets with a join is not built. " +
+		"Run the join as a query and " + k.String() + " WHERE o.id IN (…)"
+}
 
 // refusedClauses may not appear outside parentheses anywhere in a mutation.
 var refusedClauses = []string{"TOP", "ORDER", "OFFSET", "LIMIT", "RETURNING"}
 
-// Mutation is an UPDATE statement as it was written: the container it
-// writes, the name its items go by, what it changes, and the condition that
-// picks them, kept verbatim for the service to evaluate.
+// Mutation is an UPDATE or a DELETE as it was written: the container it
+// writes, the name its items go by, what an update changes, and the
+// condition that picks them, kept verbatim for the service to evaluate.
 type Mutation struct {
 	Kind        MutationKind
 	Target      []string // [database, container]
@@ -140,6 +174,9 @@ func (m Mutation) Operations() int {
 
 // String writes m back as a statement that parses to m.
 func (m Mutation) String() string {
+	if m.Kind == MutationDelete {
+		return fmt.Sprintf("DELETE FROM %s AS %s WHERE %s", strings.Join(m.Target, "."), m.Alias, m.Where)
+	}
 	text := fmt.Sprintf("UPDATE %s AS %s", strings.Join(m.Target, "."), m.Alias)
 	if len(m.Assignments) > 0 {
 		assignments := make([]string, 0, len(m.Assignments))
@@ -158,38 +195,66 @@ func (m Mutation) String() string {
 	return text + " WHERE " + m.Where
 }
 
-// IsMutation reports whether text is an UPDATE rather than a query: its
-// first word is UPDATE, which no query starts with, or it opens WITH and
-// goes on to one, which is refused when it is parsed.
+// IsMutation reports whether text is an UPDATE or a DELETE rather than a
+// query: its first word is one of them, which no query starts with, or it
+// opens WITH and goes on to one, which is refused when it is parsed.
 func IsMutation(text string) bool {
-	toks := code(lex(text))
-	if keywordAt(toks, 0, "UPDATE") {
-		return true
-	}
-	return keywordAt(toks, 0, "WITH") && slices.ContainsFunc(toks, func(tok token) bool {
-		return tok.kind == tokIdent && tok.upper == "UPDATE"
-	})
+	_, ok := MutationKindOf(text)
+	return ok
 }
 
-// MutationTarget is the dotted path an UPDATE names as its target, however
-// many parts it has, and nil for text that names none.
+// MutationKindOf is the kind of statement text starts, and false for text
+// that is no mutation.
+func MutationKindOf(text string) (MutationKind, bool) {
+	return mutationKind(code(lex(text)))
+}
+
+func mutationKind(toks []token) (MutationKind, bool) {
+	start := 0
+	if keywordAt(toks, 0, "WITH") {
+		start = slices.IndexFunc(toks, func(tok token) bool {
+			return tok.kind == tokIdent && (tok.upper == "UPDATE" || tok.upper == "DELETE")
+		})
+	}
+	switch {
+	case start < 0:
+		return 0, false
+	case keywordAt(toks, start, "UPDATE"):
+		return MutationUpdate, true
+	case keywordAt(toks, start, "DELETE"):
+		return MutationDelete, true
+	}
+	return 0, false
+}
+
+// MutationTarget is the dotted path an UPDATE or a DELETE FROM names as
+// its target, however many parts it has, and nil for text that names none.
 func MutationTarget(text string) []string {
 	toks := code(lex(text))
-	if !keywordAt(toks, 0, "UPDATE") || len(toks) < 2 || toks[1].kind != tokIdent {
+	start := 1
+	switch {
+	case keywordAt(toks, 0, "DELETE") && keywordAt(toks, 1, "FROM"):
+		start = 2
+	case !keywordAt(toks, 0, "UPDATE"):
 		return nil
 	}
-	path := []string{toks[1].text}
-	for i := 2; i+1 < len(toks) && toks[i].kind == tokDot && toks[i+1].kind == tokIdent; i += 2 {
+	if len(toks) <= start || toks[start].kind != tokIdent {
+		return nil
+	}
+	path := []string{toks[start].text}
+	for i := start + 1; i+1 < len(toks) && toks[i].kind == tokDot && toks[i+1].kind == tokIdent; i += 2 {
 		path = append(path, toks[i+1].text)
 	}
 	return path
 }
 
-// ParseMutation reads an UPDATE:
+// ParseMutation reads an UPDATE or a DELETE:
 //
 //	UPDATE <database>.<container> [[AS] <alias>]
 //	  SET <path> = <value> [, ...] [UNSET <path> [, ...]] | UNSET <path> [, ...]
 //	  WHERE <condition> [;]
+//
+//	DELETE FROM <database>.<container> [[AS] <alias>] WHERE <condition> [;]
 //
 // A statement without its WHERE does not parse, so a half-typed one can
 // never select a whole container. The condition is never parsed: the
@@ -205,27 +270,29 @@ func mutationSyntaxError(line, column int, message string) error {
 
 type mutationParser struct {
 	statementReader
+	kind MutationKind
 }
 
 func (p *mutationParser) parse() (Mutation, error) {
+	kind, ok := mutationKind(p.toks)
+	if !ok {
+		return Mutation{}, p.fail("a statement that writes starts UPDATE or DELETE")
+	}
+	p.kind = kind
 	if err := p.refuseClauses(); err != nil {
 		return Mutation{}, err
 	}
-	m := Mutation{Kind: MutationUpdate}
-	var err error
 	if keywordAt(p.toks, 0, "WITH") {
-		return Mutation{}, p.unsupported(errOneTarget)
+		return Mutation{}, p.unsupported(oneTarget(kind))
 	}
-	if !p.keyword("UPDATE") {
-		return Mutation{}, p.fail("an update starts UPDATE")
+	m := Mutation{Kind: kind}
+	var err error
+	if kind == MutationDelete {
+		err = p.parseDeleteHead(&m)
+	} else {
+		err = p.parseUpdateHead(&m)
 	}
-	if m.Target, err = p.parseTarget(); err != nil {
-		return Mutation{}, err
-	}
-	if m.Alias, err = p.parseAlias(); err != nil {
-		return Mutation{}, err
-	}
-	if err = p.parseChanges(&m); err != nil {
+	if err != nil {
 		return Mutation{}, err
 	}
 	if m.Where, err = p.parseWhere(m.Alias); err != nil {
@@ -233,6 +300,89 @@ func (p *mutationParser) parse() (Mutation, error) {
 	}
 	m.EveryItem = strings.EqualFold(m.Where, "true")
 	return m, nil
+}
+
+// parseUpdateHead reads everything of an update before its WHERE.
+func (p *mutationParser) parseUpdateHead(m *Mutation) error {
+	p.keyword("UPDATE")
+	var err error
+	if m.Target, err = p.parseTarget(); err != nil {
+		return err
+	}
+	if m.Alias, err = p.parseAlias(); err != nil {
+		return err
+	}
+	return p.parseChanges(m)
+}
+
+// parseDeleteHead reads everything of a delete before its WHERE: FROM, the
+// one target and its alias. A delete names no field and no second source.
+func (p *mutationParser) parseDeleteHead(m *Mutation) error {
+	p.keyword("DELETE")
+	if !keywordAt(p.toks, p.i, "FROM") {
+		return p.refuseDeleteWithoutFrom()
+	}
+	p.i++
+	var err error
+	if m.Target, err = p.parseTarget(); err != nil {
+		return err
+	}
+	if p.startsDeleteSource() {
+		return p.unsupported(oneTarget(p.kind))
+	}
+	if m.Alias, err = p.parseAlias(); err != nil {
+		return err
+	}
+	if p.startsDeleteSource() {
+		return p.unsupported(oneTarget(p.kind))
+	}
+	return nil
+}
+
+// startsDeleteSource reports a USING, the other way SQL gives a delete a
+// second source to read, or any source an update refuses.
+func (p *mutationParser) startsDeleteSource() bool {
+	return keywordAt(p.toks, p.i, "USING") || p.startsSource()
+}
+
+// refuseDeleteWithoutFrom names what came between DELETE and a FROM ahead
+// of the WHERE, or shows the statement with the FROM it lacks.
+func (p *mutationParser) refuseDeleteWithoutFrom() error {
+	head := p.toks[p.i:p.whereIndex()]
+	from := slices.IndexFunc(head, func(tok token) bool { return tok.kind == tokIdent && tok.upper == "FROM" })
+	switch {
+	case from < 0:
+		return p.fail("DELETE needs FROM: DELETE FROM " + p.headText(head) + " …")
+	case slices.ContainsFunc(head[:from], func(tok token) bool { return tok.kind == tokDot }):
+		return p.fail(errDeleteField)
+	}
+	return p.unsupported(oneTarget(p.kind))
+}
+
+// whereIndex is the index of the first WHERE from p.i on, or the end of
+// the tokens.
+func (p *mutationParser) whereIndex() int {
+	where := slices.IndexFunc(p.toks[p.i:], func(tok token) bool { return tok.kind == tokIdent && tok.upper == "WHERE" })
+	if where < 0 {
+		return len(p.toks)
+	}
+	return p.i + where
+}
+
+// headText writes head as the statement had it, and the WHERE after it.
+func (p *mutationParser) headText(head []token) string {
+	where := ""
+	if p.i+len(head) < len(p.toks) {
+		where = " WHERE"
+	}
+	if n := len(head); n > 0 && isSymbol(head[n-1], ";") {
+		head = head[:n-1]
+	}
+	text := "database.container"
+	if len(head) > 0 {
+		text = p.text[head[0].start:head[len(head)-1].end]
+	}
+	return text + where
 }
 
 // refuseClauses refuses a clause that would limit or order the items
@@ -247,7 +397,7 @@ func (p *mutationParser) refuseClauses() error {
 			depth--
 		case depth == 0 && tok.kind == tokIdent && slices.Contains(refusedClauses, tok.upper) && !followsDot(p.toks, i):
 			p.i = i
-			return p.unsupported(tok.upper + " in an UPDATE")
+			return p.unsupported(tok.upper + " in " + p.kind.statement())
 		}
 	}
 	return nil
@@ -272,7 +422,7 @@ func (p *mutationParser) parseTarget() ([]string, error) {
 		return nil, p.fail(errTargetForm)
 	}
 	if p.at(tokComma) {
-		return nil, p.unsupported(errOneTarget)
+		return nil, p.unsupported(oneTarget(p.kind))
 	}
 	return target, nil
 }
@@ -296,7 +446,7 @@ func (p *mutationParser) parseAlias() (string, error) {
 
 func (p *mutationParser) parseChanges(m *Mutation) error {
 	if p.startsSource() {
-		return p.unsupported(errOneTarget)
+		return p.unsupported(oneTarget(p.kind))
 	}
 	var err error
 	switch {
@@ -359,7 +509,7 @@ func (p *mutationParser) parseAssignment(alias string) (Assignment, error) {
 		return Assignment{}, err
 	}
 	if p.startsSource() {
-		return Assignment{}, p.unsupported(errOneTarget)
+		return Assignment{}, p.unsupported(oneTarget(p.kind))
 	}
 	if !p.endsChange() {
 		p.i = start
@@ -513,13 +663,13 @@ func (p *mutationParser) parseNumber() (json.RawMessage, error) {
 // of the statement.
 func (p *mutationParser) parseWhere(alias string) (string, error) {
 	if p.done() || isSymbolAt(p.toks, p.i, ";") {
-		return "", p.fail(errNoWhere)
+		return "", p.fail(noWhere(p.kind))
 	}
 	if p.startsSource() {
-		return "", p.unsupported(errOneTarget)
+		return "", p.unsupported(oneTarget(p.kind))
 	}
 	if !p.keyword("WHERE") {
-		return "", p.fail("expected WHERE, or a comma and another change")
+		return "", p.fail(p.expectedWhere())
 	}
 	start, end := p.i, p.statementEnd()
 	if end == start {
@@ -538,6 +688,13 @@ func (p *mutationParser) parseWhere(alias string) (string, error) {
 		return "", p.fail(errOneStatement)
 	}
 	return p.text[condition[0].start:condition[len(condition)-1].end], nil
+}
+
+func (p *mutationParser) expectedWhere() string {
+	if p.kind == MutationDelete {
+		return "expected WHERE"
+	}
+	return "expected WHERE, or a comma and another change"
 }
 
 // statementEnd is the index of the semicolon that ends the statement, or of
@@ -565,7 +722,7 @@ func (p *mutationParser) refuseOtherContainers(condition []token, offset int, al
 	sources.aliases[alias] = true
 	if others := sources.containerSources(); len(others) > 0 {
 		p.i = offset + others[0].firstTok
-		return p.unsupported(errOtherContainer)
+		return p.unsupported(otherContainer(p.kind))
 	}
 	return nil
 }
