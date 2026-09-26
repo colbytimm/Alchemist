@@ -421,7 +421,6 @@ func TestABatchIntoTheUpdatedContainerWaits(t *testing.T) {
 
 func TestAnUpdateWaitsForAClone(t *testing.T) {
 	o := newOpener(t)
-	o.options["prod"] = updateStore()
 	m := newCloneAccountsModel(t, o)
 	m, _ = cloneToStaging(t, m)
 	m = pressAll(t, m, keyMsg(tea.KeyEscape))
@@ -432,6 +431,54 @@ func TestAnUpdateWaitsForAClone(t *testing.T) {
 
 	assert.Contains(t, plain(m.View()), "a clone is running: updates wait for it (y)")
 	assert.Equal(t, scans, prod.scans, "refused before the dry run spends anything")
+}
+
+func TestAnUpdateThatEndedBehindItsHiddenViewLetsTheNextOneStart(t *testing.T) {
+	const flagEvery = `UPDATE sales.orders o SET o.flag = true WHERE true`
+	tests := []struct {
+		name     string
+		keys     []tea.KeyMsg
+		label    string
+		recorded bool
+	}{
+		{name: "done", keys: []tea.KeyMsg{keyMsg(tea.KeyEscape)}, label: "update done (w)", recorded: true},
+		{name: "stopped", keys: []tea.KeyMsg{keyRune('x'), keyMsg(tea.KeyEscape)}, label: "update stopped (w)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := newUpdateConnection(t)
+			store := &recordingStore{}
+			m := dryRun(t, newUpdateModel(t, conn, store), archiveShipped)
+			m, step := heldConfirm(t, m, firstContainer)
+			m = settleNow(pressAll(t, m, tt.keys...), step)
+			require.Contains(t, statusBar(m), tt.label)
+
+			m = rerun(t, m, flagEvery)
+			require.Contains(t, plain(m.View()), updateReviewTitle, "an ended job keeps no other job out")
+			assert.Empty(t, store.entries, "the ended job is recorded once the next one replaces it")
+
+			m = confirmUpdate(t, m, firstContainer+" 5")
+			require.Len(t, store.entries, 1, "the job the new one replaced is recorded")
+			assert.Equal(t, archiveShipped, store.entries[0].Query)
+			assert.Equal(t, tt.recorded, store.entries[0].OK)
+			m = pressAll(t, m, keyMsg(tea.KeyEnter))
+			assert.Contains(t, plain(m.View()), "Updated 5 of 5 items in sales.orders.")
+		})
+	}
+}
+
+func TestAnEndedCloneLetsAnUpdateSelect(t *testing.T) {
+	o := newOpener(t)
+	m := newCloneAccountsModel(t, o)
+	m, step := cloneToStaging(t, m)
+	m, _ = settle(pressAll(t, m, keyMsg(tea.KeyEscape)), step)
+	require.Contains(t, statusBar(m), "clone done (y)")
+	scans := o.last("prod").scans
+
+	m = dryRun(t, m, archiveShipped)
+
+	assert.NotContains(t, plain(m.View()), "a clone is running")
+	assert.Greater(t, o.last("prod").scans, scans, "the update reads its targets")
 }
 
 func TestAJobStaysOnTheAccountItWasConfirmedOn(t *testing.T) {
