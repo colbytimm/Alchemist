@@ -103,13 +103,18 @@ func applyChunk(ctx context.Context, cancel context.CancelFunc, id jobID, accoun
 }
 
 // mutationWritable asks the one gate again whether the job's account may
-// be written.
+// be written. A refusal says what a job that has written items left.
 func (m Model) mutationWritable() error {
-	entry, ok := m.accounts.get(m.mutating.draft.Account)
+	account := m.mutating.draft.Account
+	entry, ok := m.accounts.get(account)
 	if !ok || !entry.connected() {
 		return errRunAbandoned
 	}
 	_, err := m.itemEditor(entry)
+	if errors.Is(err, errReadOnly) {
+		return fmt.Errorf("%s turned %w: no further item was sent. To allow writes on this account:\n"+
+			"  alchemist profile set-read-only %s false", account, errReadOnly, account)
+	}
 	return err
 }
 

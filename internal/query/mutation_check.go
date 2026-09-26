@@ -123,8 +123,7 @@ func (c *mutationChecker) warnScope() {
 // creates the last step of its path, never a parent.
 func (c *mutationChecker) warnNested() {
 	for _, a := range c.mutation.Assignments {
-		if last := len(a.Path.Steps) - 1; last > 0 {
-			parent := FieldPath{Alias: a.Path.Alias, Steps: a.Path.Steps[:last]}
+		if parent, ok := a.Path.Parent(); ok {
 			c.check.Warnings = append(c.check.Warnings,
 				fmt.Sprintf("SET %s needs %s on each item: a patch creates only the last step of a path, so an item without it is skipped, not written.", a.Path, parent))
 		}

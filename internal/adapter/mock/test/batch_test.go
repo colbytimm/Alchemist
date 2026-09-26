@@ -236,9 +236,18 @@ func TestANestedPatchNeedsItsParent(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.False(t, missing.Committed, "set creates the last step of a path, never a parent")
+	past, err := batcher(t, a).ExecuteBatch(context.Background(), forCustomer("c01",
+		adapter.Operation{Kind: adapter.OperationPatch, ID: "o1", Body: json.RawMessage(`[{"op":"replace","path":"/lines/5","value":0}]`)}))
+	require.NoError(t, err)
+	assert.False(t, past.Committed, "replace needs the element")
 	assert.True(t, present.Committed)
 	assert.JSONEq(t, `{"id":"o1","customerId":"c01","ship":{"city":"x","region":"w"},"lines":[1,9]}`,
 		string(withoutSystemFields(t, a.Items(ordersPath)[0])))
+	appended, err := batcher(t, a).ExecuteBatch(context.Background(), forCustomer("c01",
+		adapter.Operation{Kind: adapter.OperationPatch, ID: "o1", Body: json.RawMessage(`[{"op":"set","path":"/lines/7","value":3}]`)}))
+	require.NoError(t, err)
+	require.True(t, appended.Committed)
+	assert.Contains(t, string(a.Items(ordersPath)[0]), `"lines":[1,9,3]`, "past the end a set appends")
 }
 
 func withoutSystemFields(t *testing.T, item json.RawMessage) json.RawMessage {
