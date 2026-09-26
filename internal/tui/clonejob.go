@@ -75,6 +75,7 @@ func (r cloneRun) items() bool { return r.plan.Job.Content == clone.DefinitionAn
 // the review's enter alone, with the target account's name typed.
 func (m Model) startClone(plan clone.Plan) (Model, tea.Cmd) {
 	source, target := plan.Job.Source, plan.Job.Target
+	m, retired := m.retireEndedJob()
 	m.lastJob++
 	m.job = job{
 		kind:     jobClone,
@@ -86,7 +87,8 @@ func (m Model) startClone(plan clone.Plan) (Model, tea.Cmd) {
 	m.overlay = overlayCloneProgress
 	m.logger.Info("clone started", "source", source, "target", target, "content", plan.Job.Content,
 		"fidelity", plan.Job.Fidelity, "capacity", plan.Job.Capacity, "writers", plan.Job.Writers)
-	return m.stepClone()
+	m, step := m.stepClone()
+	return m, tea.Batch(retired, step)
 }
 
 // stepClone issues the one step that comes next: create what is missing,
@@ -383,7 +385,8 @@ func (m Model) reloadTarget() (Model, tea.Cmd) {
 }
 
 // endClone stops a clone short: by x, by a failure, or for want of time. It
-// keeps the slot, so the clone can be resumed or its target deleted.
+// keeps the slot, so the clone can be resumed or its target deleted, until
+// its view is closed or another job starts.
 func (m Model) endClone(err error) (Model, tea.Cmd) {
 	run := &m.cloning
 	m.closeCopy(run.copy)
@@ -418,7 +421,9 @@ func (m Model) handleCloneProgressKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.overlay = overlayNone
 			return m.syncClone(), nil
 		}
-		return m.releaseClone(), nil
+		m = m.releaseClone()
+		m.overlay = overlayNone
+		return m, nil
 	case run.running() && key.Matches(msg, m.keys.StopClone):
 		return m.stopClone(), nil
 	case !run.running() && run.end != panes.CloneDone && key.Matches(msg, m.keys.ResumeClone):
@@ -456,7 +461,6 @@ func (m Model) resumeClone() (Model, tea.Cmd) {
 func (m Model) releaseClone() Model {
 	m.job = job{}
 	m.cloning = cloneRun{}
-	m.overlay = overlayNone
 	m.statusBar = m.statusBar.SetJob("")
 	return m
 }
@@ -544,7 +548,9 @@ func (m Model) releaseDeletedClone(msg CatalogChangedMsg) Model {
 	if m.overlay != overlayCloneDelete || msg.dialog != m.dialog {
 		return m
 	}
-	return m.releaseClone()
+	m = m.releaseClone()
+	m.overlay = overlayNone
+	return m
 }
 
 func (m Model) syncClone() Model {

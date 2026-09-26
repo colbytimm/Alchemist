@@ -777,7 +777,7 @@ func (m Model) handleCatalogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.showMutationProgress()
 	case m.job.kind == jobClone && reopensJob(msg, m.keys.Clone):
 		return m.showCloneProgress()
-	case m.job.active() && reopensJob(msg, m.keys.Clone):
+	case m.jobRunning() && reopensJob(msg, m.keys.Clone):
 		return m.notify(m.job.waitText("clones"))
 	case m.clonePrompt.refused && reopensJob(msg, m.keys.Clone):
 		return m.reopenRefusedClone()
