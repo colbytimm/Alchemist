@@ -322,3 +322,41 @@ func TestIntegrationASetUnderAMissingParentIsRefused(t *testing.T) {
 	require.Error(t, err, "the reason the engine never sends such a write")
 	assert.NotErrorIs(t, err, adapter.ErrWriteOutcomeUnknown)
 }
+
+func TestIntegrationBracketedNamesAndEveryItemWithGuards(t *testing.T) {
+	f := newMutationFixture(t)
+	f.create(t, "odd", singleKey("/pk"),
+		map[string]any{"id": "a", "pk": "p", "state": "due", "order-id": 7, "ship to": map[string]any{"x": 1}},
+		map[string]any{"id": "b", "pk": "p", "state": "due", "order-id": 8},
+	)
+
+	summary := f.update(t, `UPDATE `+mutationDatabase+`.odd o SET o["ship to"].y = 2 UNSET o["order-id"] WHERE o.state = "due"`, 1)
+
+	assert.Equal(t, mutate.Counts{Applied: 1, NoParent: 1}, summary.Counts, "a bracketed path is never guarded in the condition")
+	a := f.read(t, "odd", "a", azcosmos.NewPartitionKeyString("p"))
+	assert.JSONEq(t, `{"x":1,"y":2}`, string(a["ship to"]))
+	_, kept := a["order-id"]
+	assert.False(t, kept)
+
+	t.Run("WHERE true with guards", func(t *testing.T) {
+		summary := f.update(t, `UPDATE `+mutationDatabase+`.odd o SET o.flag = true UNSET o.state WHERE true`, 1)
+
+		assert.Equal(t, mutate.Counts{Applied: 2}, summary.Counts, "the emulator refuses a bare true beside an AND")
+	})
+}
+
+func TestIntegrationAParentTurnedScalarIsAChange(t *testing.T) {
+	f := newMutationFixture(t)
+	f.create(t, "ships", singleKey("/pk"), map[string]any{"id": "a", "pk": "p", "state": "due", "ship": map[string]any{"city": "x"}})
+	m, targets := f.selectTargets(t, `UPDATE `+mutationDatabase+`.ships s SET s.ship.region = "w" WHERE s.state = "due"`)
+	c, err := f.client.NewContainer(mutationDatabase, "ships")
+	require.NoError(t, err)
+	patch := azcosmos.PatchOperations{}
+	patch.AppendSet("/ship", "none")
+	_, err = c.PatchItem(context.Background(), azcosmos.NewPartitionKeyString("p"), "a", patch, nil)
+	require.NoError(t, err)
+
+	summary := f.apply(t, m, targets, 1)
+
+	assert.Equal(t, mutate.Counts{Changed: 1}, summary.Counts, "IS_OBJECT fails with 412, not 400")
+}

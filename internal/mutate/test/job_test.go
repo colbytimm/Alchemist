@@ -311,23 +311,57 @@ func TestANestedSetIsSentOnlyWhereItsParentIs(t *testing.T) {
 		json.RawMessage(`{"id":"with","customerId":"c01","status":"shipped","ship":{"city":"x"}}`),
 		json.RawMessage(`{"id":"without","customerId":"c01","status":"shipped"}`),
 		json.RawMessage(`{"id":"moved","customerId":"c01","status":"shipped","ship":{"city":"y"}}`),
+		json.RawMessage(`{"id":"flattened","customerId":"c01","status":"shipped","ship":{"city":"z"}}`),
 	})
 	m, targets := mustSelect(t, a, `UPDATE sales.orders o SET o.ship.region = "west" WHERE `+shipped)
 	require.True(t, targets.WholeItems)
 	assert.Equal(t, 1, targets.Unplaced())
 	require.NoError(t, a.PutItem(ordersPath, json.RawMessage(`{"id":"moved","customerId":"c01","status":"shipped"}`)))
+	require.NoError(t, a.PutItem(ordersPath, json.RawMessage(`{"id":"flattened","customerId":"c01","status":"shipped","ship":"none"}`)))
 	editor := &recordingEditor{ItemEditor: editorOf(t, a)}
 
 	progress, err := runJob(newJob(m, targets, editor, 1, &fakeClock{}))
 
 	require.NoError(t, err, "no item fails, so the probe blames nothing")
-	assert.Equal(t, mutate.Counts{Applied: 1, NoParent: 1, Changed: 1}, progress.Counts,
-		"a parent removed since the selection is a change")
+	assert.Equal(t, mutate.Counts{Applied: 1, NoParent: 1, Changed: 2}, progress.Counts,
+		"a parent removed since the selection, or turned into a scalar, is a change")
 	for _, op := range editor.sent() {
-		assert.Equal(t, `FROM o WHERE (o.status = "shipped") AND IS_DEFINED(o.ship)`, op.Condition)
+		assert.Equal(t, `FROM o WHERE (o.status = "shipped") AND IS_OBJECT(o.ship)`, op.Condition)
 		assert.NotEqual(t, "without", op.ID, "an item with nowhere to put the field is never sent")
 	}
 	assert.JSONEq(t, `{"city":"x","region":"west"}`, storedField(t, a, "with", "ship"))
+}
+
+func TestAGuardIsWrittenOnlyInAShapeTheServiceTakes(t *testing.T) {
+	tests := []struct {
+		name      string
+		statement string
+		want      string
+	}{
+		{name: "an index's array", statement: `UPDATE sales.orders o SET o.lines[0] = 1 WHERE ` + shipped,
+			want: `FROM o WHERE (o.status = "shipped") AND IS_ARRAY(o.lines)`},
+		{name: "no bracketed name", statement: `UPDATE sales.orders o SET o["ship to"].y = 2 UNSET o["order-id"] WHERE ` + shipped,
+			want: `FROM o WHERE (o.status = "shipped")`},
+		{name: "no parent under an index", statement: `UPDATE sales.orders o SET o.lines[0].qty = 2 WHERE ` + shipped,
+			want: `FROM o WHERE (o.status = "shipped")`},
+		{name: "guards alone for WHERE true", statement: `UPDATE sales.orders o SET o.ship.region = "w" UNSET o.note WHERE true`,
+			want: `FROM o WHERE IS_OBJECT(o.ship) AND IS_DEFINED(o.note)`},
+		{name: "WHERE true alone", statement: `UPDATE sales.orders o SET o.flag = 1 WHERE true`, want: `FROM o WHERE (true)`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item := json.RawMessage(`{"id":"i","customerId":"c01","status":"shipped","ship":{},"ship to":{},"lines":[{}],"note":1,"order-id":1}`)
+			a := store([]json.RawMessage{item})
+			m, targets := mustSelect(t, a, tt.statement)
+			editor := &recordingEditor{ItemEditor: editorOf(t, a)}
+
+			_, err := runJob(newJob(m, targets, editor, 1, &fakeClock{}))
+
+			require.NoError(t, err, "the mock refuses what the emulator refuses")
+			require.Len(t, editor.sent(), 1)
+			assert.Equal(t, tt.want, editor.sent()[0].Condition)
+		})
+	}
 }
 
 func TestPreviewMarksASetWithNoParent(t *testing.T) {

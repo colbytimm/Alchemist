@@ -3,7 +3,6 @@ package mutate
 import (
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
@@ -18,18 +17,17 @@ type patchEntry struct {
 
 // operation is the write sent for t: a patch of every SET and of each
 // UNSET the item had a path for, on condition that the item still matches
-// the statement's WHERE, still has those paths, and still has where each
-// nested SET goes. An item changed since it was selected so that it no
-// longer matches is left alone by the service, not written. The guards
-// are IS_DEFINED alone: the vNext emulator refuses IS_OBJECT, IS_ARRAY and
-// ARRAY_LENGTH in a patch condition.
+// the statement's WHERE, still has those paths, and still has an object or
+// an array where each nested SET goes. An item changed since it was
+// selected so that it no longer matches is left alone by the service, not
+// written.
 func operation(m query.Mutation, t Target) adapter.Operation {
 	entries := make([]patchEntry, 0, m.Operations())
-	condition := fmt.Sprintf("FROM %s WHERE (%s)", m.Alias, m.Where)
+	var guards []string
 	for _, a := range m.Assignments {
 		entries = append(entries, patchEntry{Op: "set", Path: a.Path.Pointer(), Value: a.Value})
-		if guard, ok := conditionGuard(a.Path); ok {
-			condition += " AND IS_DEFINED(" + guard.String() + ")"
+		if guard, ok := parentGuard(a.Path); ok {
+			guards = append(guards, guard)
 		}
 	}
 	for i, path := range m.Removals {
@@ -37,10 +35,23 @@ func operation(m query.Mutation, t Target) adapter.Operation {
 			continue
 		}
 		entries = append(entries, patchEntry{Op: "remove", Path: path.Pointer()})
-		condition += " AND IS_DEFINED(" + path.String() + ")"
+		if ref, ok := path.Dotted(); ok {
+			guards = append(guards, "IS_DEFINED("+ref+")")
+		}
 	}
 	body, _ := json.Marshal(entries) // strings and raw JSON a parser produced always marshal
-	return adapter.Operation{Kind: adapter.OperationPatch, ID: t.ID, Body: body, Condition: condition}
+	return adapter.Operation{Kind: adapter.OperationPatch, ID: t.ID, Body: body, Condition: condition(m, guards)}
+}
+
+// condition is the patch condition: the statement's WHERE, then each
+// guard. A WHERE of true is left out when there are guards: the vNext
+// emulator refuses a bare true beside an AND.
+func condition(m query.Mutation, guards []string) string {
+	head := "FROM " + m.Alias + " WHERE "
+	if m.EveryItem && len(guards) > 0 {
+		return head + strings.Join(guards, " AND ")
+	}
+	return head + "(" + m.Where + ")" + strings.Join(append([]string{""}, guards...), " AND ")
 }
 
 // Confirmation is what the review asks to have typed before the job may
@@ -78,15 +89,24 @@ func nestedSet(m query.Mutation) bool {
 	return false
 }
 
-// conditionGuard is the parent of path a patch's condition re-asserts. A
-// parent reached through an array index has none: the service refuses an
-// index in a patch condition, so only the selection's check covers it.
-func conditionGuard(path query.FieldPath) (query.FieldPath, bool) {
+// parentGuard is the check a patch's condition makes of where a nested SET
+// goes: an object for a named field, an array for an index. A parent that
+// cannot be written as a.b.c has none, since the vNext emulator refuses an
+// index or a bracketed name in a patch condition; the selection's own
+// check covers it.
+func parentGuard(path query.FieldPath) (string, bool) {
 	parent, ok := path.Parent()
-	if !ok || slices.ContainsFunc(parent.Steps, func(step query.PathStep) bool { return step.IsIndex }) {
-		return query.FieldPath{}, false
+	if !ok {
+		return "", false
 	}
-	return parent, true
+	ref, ok := parent.Dotted()
+	if !ok {
+		return "", false
+	}
+	if path.Steps[len(path.Steps)-1].IsIndex {
+		return "IS_ARRAY(" + ref + ")", true
+	}
+	return "IS_OBJECT(" + ref + ")", true
 }
 
 // placesEverySet reports whether item has somewhere to put every SET of m.
@@ -102,8 +122,8 @@ func placesEverySet(item json.RawMessage, m query.Mutation) bool {
 // placeable reports whether a set of path would succeed on item, and
 // succeed the same however often it runs: its parent is an object for a
 // named field, or an array holding the element an index replaces. Past an
-// array's end the service appends, a second run appending again, and with
-// a condition it refuses the patch.
+// array's end the service appends, condition or not, and a second run
+// appends again.
 func placeable(item json.RawMessage, path query.FieldPath) bool {
 	parent, ok := path.Parent()
 	if !ok {
