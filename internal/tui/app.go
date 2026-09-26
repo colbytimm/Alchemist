@@ -79,20 +79,22 @@ const (
 	overlayConnect
 	overlaySaved
 	overlaySavePrompt
+	overlayBatchReview
 )
 
 // runState is how far the current query has got.
 type runState int
 
 const (
-	runIdle     runState = iota // nothing has been run
-	runRunning                  // the first page of a run is in flight
-	runLoaded                   // a page is on screen
-	runFetching                 // a further page of that result set is in flight
-	runFailed                   // the run produced no page at all
+	runIdle       runState = iota // nothing has been run
+	runRunning                    // the first page of a run is in flight
+	runLoaded                     // a page is on screen
+	runFetching                   // a further page of that result set is in flight
+	runFailed                     // the run produced no page at all
+	runCommitting                 // a batch is sent and its answer not yet back
 )
 
-func (s runState) running() bool { return s == runRunning || s == runFetching }
+func (s runState) running() bool { return s == runRunning || s == runFetching || s == runCommitting }
 
 func (s runState) loaded() bool { return s == runLoaded || s == runFetching }
 
@@ -114,6 +116,9 @@ type Options struct {
 	// seen queried, for every account whose profile allows it.
 	SampleFields bool
 	Saved        saved.Store // nil keeps nothing and says why on save
+	// ReadOnly refuses every write on every account, whatever its profile
+	// allows.
+	ReadOnly bool
 }
 
 // Management is what a session may do with the catalog beyond browsing it:
@@ -125,6 +130,8 @@ type Management struct {
 	Throughput adapter.ThroughputEditor
 	Inspector  adapter.Inspector
 	Sampler    adapter.FieldSampler
+	Batcher    adapter.Batcher
+	Drafter    adapter.ItemDrafter
 }
 
 // Manager reports what a connection allows. cmd/ supplies it: every type
@@ -142,6 +149,8 @@ type Model struct {
 	logger       *log.Logger
 	history      history.Store
 	saved        saved.Store
+	// readOnly is the session's switch that makes every account read-only.
+	readOnly bool
 
 	connectPane   panes.Connect
 	accountsPane  panes.Accounts
@@ -155,6 +164,7 @@ type Model struct {
 	exportPrompt  panes.ExportPrompt
 	form          panes.Form
 	confirm       panes.Confirm
+	review        panes.BatchReview
 	statusBar     panes.StatusBar
 	help          panes.Help
 
@@ -183,6 +193,15 @@ type Model struct {
 	stats      adapter.Stats
 	// simulated marks a run merged client-side from several containers.
 	simulated bool
+
+	// batchState is how far the batch on screen has got, BatchNone for a
+	// query. committing is the batch in flight, batchText the statement the
+	// review was opened from, and pendingBatch one waiting for the tree to
+	// list its target's database.
+	batchState   panes.BatchState
+	committing   panes.BatchDraft
+	batchText    string
+	pendingBatch pendingBatch
 
 	// sampleFields is the session's switch for field samples, which each
 	// account's profile may turn off for that account alone.
@@ -248,17 +267,27 @@ func New(opts Options) Model {
 			append(keys.HistoryKeys(), keys.SavedKeys()...), keys.Confirm),
 		savePrompt:   panes.NewSavePrompt([]key.Binding{keys.Save, keys.Close}),
 		exportPrompt: panes.NewExportPrompt(append(keys.ExportKeys(), keys.Close)),
+		review:       panes.NewBatchReview(append(keys.BatchKeys(), keys.Close)),
 		statusBar:    panes.NewStatusBar(opts.Icons, ""),
 		help:         panes.NewHelp(keys.HelpSections()),
 		formAttempts: map[string]int{},
 		sampleFields: opts.SampleFields,
+		readOnly:     opts.ReadOnly,
 	}
-	m.accounts = newAccountSet(opts.Accounts, m.blankEntry)
+	m.accounts = newAccountSet(m.sessionAccounts(opts.Accounts), m.blankEntry)
 	if opts.Launch == "" {
 		m.overlay = overlayConnect
 		return m.withManagement(Management{}).setFocus(focusCatalog)
 	}
 	return m.startLaunch(opts.Launch).setFocus(focusCatalog)
+}
+
+func (m Model) sessionAccounts(accounts []Account) []Account {
+	applied := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		applied = append(applied, m.withSessionAccess(account))
+	}
+	return applied
 }
 
 // Init connects the account the session starts on. A first run needs nothing
@@ -329,6 +358,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.finishRemove(msg)
 	case ExportedMsg:
 		return m.finishExport(msg)
+	case BatchDoneMsg:
+		return m.finishBatch(msg)
+	case BatchFailedMsg:
+		return m.failBatch(msg)
 	}
 	return m.animate(msg)
 }
@@ -367,6 +400,8 @@ func (m Model) layout() string {
 		return m.confirm.View()
 	case overlayInfo:
 		return m.activeInfo().View()
+	case overlayBatchReview:
+		return m.review.View()
 	}
 	right := lipgloss.JoinVertical(lipgloss.Left, m.editor.View(), m.results.View())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, m.catalogPane().View(), right)
@@ -396,7 +431,9 @@ func (m Model) handleErr(msg ErrMsg) (Model, tea.Cmd) {
 	case OpConnect:
 		return m.failConnection(msg)
 	case OpCatalogRoot, OpCatalogChildren:
-		return m.failCatalog(msg).refreshSuggestions()
+		model, cmd := m.failCatalog(msg).refreshSuggestions()
+		model, refusal := model.failPendingBatch(msg)
+		return model, tea.Batch(cmd, refusal)
 	}
 	m.logger.Error("operation failed", "op", msg.Op, "error", msg.Err)
 	switch msg.Op {
@@ -427,6 +464,11 @@ func (m Model) handleErr(msg ErrMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if m.state == runCommitting {
+		if model, cmd, blocked := m.blockWhileCommitting(msg); blocked {
+			return model, cmd
+		}
+	}
 	if m.overlay != overlayNone {
 		return m.handleOverlayKey(msg)
 	}
@@ -505,6 +547,8 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleConfirmKey(msg)
 	case overlayInfo:
 		return m.handleInfoKey(msg)
+	case overlayBatchReview:
+		return m.handleReviewKey(msg)
 	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
@@ -517,6 +561,9 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.detail = m.detail.ScrollUp()
 	case m.overlay == overlayDetail && key.Matches(msg, m.keys.Down):
 		m.detail = m.detail.ScrollDown()
+	case m.overlay == overlayDetail && key.Matches(msg, m.keys.AddToBatch):
+		m.overlay = overlayNone
+		return m.draftReplace()
 	}
 	return m, nil
 }
@@ -576,6 +623,8 @@ func (m Model) handleResultsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.openDetail(), nil
 	case key.Matches(msg, m.keys.Export):
 		return m.openExport(), nil
+	case key.Matches(msg, m.keys.AddToBatch):
+		return m.draftReplace()
 	}
 	return m, nil
 }
@@ -606,15 +655,14 @@ func (m Model) openDetail() Model {
 
 // startRun replaces whatever is on screen with a fresh run of the editor
 // buffer, and takes down a completion list the buffer has outrun. A refusal
-// to run is reported the same way a service error is.
+// to run is reported the same way a service error is. A batch takes a path
+// of its own, decided before anything a query needs: no query starts
+// BEGIN BATCH.
 func (m Model) startRun() (Model, tea.Cmd) {
-	m = m.closeSuggestions().endRun()
-	m.run++
-	m.stats = adapter.Stats{}
-	m.simulated = false
-	m.runAccount = m.accounts.active
-	m.results = m.results.Clear().SetSource(m.runAccount)
-
+	if query.IsBatch(m.editor.Value()) {
+		return m.startBatch()
+	}
+	m = m.beginRun(m.accounts.active)
 	account, connected := m.activeConnection()
 	if !connected {
 		return m.showFailure(m.whyNoConnection(), runFailed)
@@ -632,6 +680,21 @@ func (m Model) startRun() (Model, tea.Cmd) {
 	engine := query.Engine{Connection: account.connection, MaxJoinRows: account.account.MaxJoinRows}
 	model, cmd := m.syncStatusBar()
 	return model, tea.Batch(cmd, model.runPlan(ctx, engine, plan))
+}
+
+// beginRun ends the run on screen and clears the results pane for a new
+// one on account.
+func (m Model) beginRun(account string) Model {
+	m = m.closeSuggestions().endRun()
+	m.run++
+	m.stats = adapter.Stats{}
+	m.simulated = false
+	m.plan = query.Plan{}
+	m.batchState = panes.BatchNone
+	m.pendingBatch = pendingBatch{}
+	m.runAccount = account
+	m.results = m.results.Clear().SetSource(account)
+	return m
 }
 
 // refuseRun reports a run that never reached the adapter. It is recorded like
@@ -816,6 +879,7 @@ func (m Model) syncStatusBar() (Model, tea.Cmd) {
 		Running:   m.state.running(),
 		Loaded:    m.state.loaded(),
 		Simulated: m.simulated,
+		Batch:     m.batchState,
 	})
 	return m, cmd
 }
@@ -861,7 +925,8 @@ func (m Model) applyCatalog(msg CatalogLoadedMsg) (Model, tea.Cmd) {
 	} else {
 		m, cmd = m.prefetch(msg.Account)
 	}
-	return m, tea.Batch(refresh, cmd)
+	m, resumed := m.resumeBatch(msg.Account, msg.Parent)
+	return m, tea.Batch(refresh, cmd, resumed)
 }
 
 func (m Model) failCatalog(msg ErrMsg) Model {
@@ -1015,6 +1080,7 @@ func (m Model) resize(width, height int) Model {
 	m.exportPrompt = m.exportPrompt.SetSize(width, height)
 	m.form = m.form.SetSize(width, height)
 	m.confirm = m.confirm.SetSize(width, height)
+	m.review = m.review.SetSize(width, height)
 	return m
 }
 

@@ -640,7 +640,9 @@ var (
 - `NewContainer(container[0], container[1])`. The three helpers every write path
   needs are 17's, in `internal/adapter/cosmos/write.go`: `partitionKey` folds the key,
   `withoutRetries(ctx)` turns azcore's retries off, `writeError(op, err)` classifies a
-  failure. Whichever of 17 and 21 lands first writes that file with its tests.
+  failure. 17 landed first and wrote that file; its tests live in the external test
+  package, so two of the three are exported as `cosmos.PartitionKey` and
+  `cosmos.WriteError`.
 - A patch body maps entry by entry onto `AppendSet` and `AppendRemove` (and the rest,
   for 17's sake). **Values are passed as `json.RawMessage`, never decoded:** a decoded
   `null` is a nil `any`, which the SDK's struct tag drops from the payload, turning

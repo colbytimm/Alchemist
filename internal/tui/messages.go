@@ -122,6 +122,24 @@ type PageFailedMsg struct {
 	run runID
 }
 
+// BatchDoneMsg reports a batch the backend answered, committed or rolled
+// back, on Account. Unlike a late page it is never dropped: it says what
+// became of a write.
+type BatchDoneMsg struct {
+	Account string
+	Batch   adapter.Batch
+	Result  adapter.BatchResult
+}
+
+// BatchFailedMsg reports a batch with no answer from the backend on Account:
+// refused whole before it could apply, or sent and never answered. Like
+// BatchDoneMsg it is never dropped.
+type BatchFailedMsg struct {
+	Account string
+	Batch   adapter.Batch
+	Err     error
+}
+
 // ErrMsg reports a failed operation on Account. Path names the catalog node
 // the failure belongs to so it can be rendered under that node; it is empty
 // when the failure has no place in the tree.
@@ -141,8 +159,9 @@ type AccountConnectedMsg struct {
 	Connection adapter.Connection
 	// attempt is the number of the attempt that connected it.
 	attempt int
-	// submitted is what the connect form said of the account it connected.
-	submitted Account
+	// saved is the account a connect form connected, as its profile was
+	// saved.
+	saved Account
 }
 
 // AccountsListedMsg carries the profiles as they stand now.

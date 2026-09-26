@@ -11,10 +11,12 @@ default, and pages with continuation tokens rather than loading a whole result s
 Result sets export to JSON or CSV, every query is kept in a searchable history, and
 the ones worth keeping can be saved under a name.
 It also queries across containers, which the service cannot: unions and two-container
-joins are [simulated client-side](#querying-across-containers).
+joins are [simulated client-side](#querying-across-containers). Writes go through
+[transactional batches](#transactions), reviewed and confirmed before anything is sent.
 
 > **Status: early development.** Browsing, querying, cross-container queries,
-> catalog management, autocomplete, profiles, history, saved queries, and export work today.
+> catalog management, transactional batches, autocomplete, profiles, history, saved queries,
+> and export work today.
 > Release builds are still to come; the
 > [implementation plan](docs/plan/00-overview.md) tracks them.
 
@@ -84,9 +86,12 @@ the catalog and queries run against it, or name one in the query itself with
 | `h/←`, `l/→` | results | scroll left, scroll right |
 | `m` | results | fetch more |
 | `ctrl+e` | results | export to file |
+| `ctrl+b` | results, row detail | add to batch |
 | `ctrl+space` | editor | complete |
 | `tab` | editor, list open | accept suggestion |
 | `↑/↓`, `esc` | editor, list open | choose, dismiss |
+| `enter` | batch review, name typed | commit |
+| `↑/↓` | batch review | scroll |
 | `r` | saved queries | rename |
 | `d`, then `y` | saved queries | delete |
 
@@ -229,6 +234,79 @@ Renaming is absent because Cosmos cannot rename a database or a container — th
 the resource identity. A backend that cannot manage its catalog, or a session that must
 not, simply does not offer these keys, and they disappear from the help overlay too.
 
+## Transactions
+
+Cosmos DB commits a group of item operations on one container and one logical
+partition key as a whole or not at all: a transactional batch. Write one in the editor
+and run it with `ctrl+r`:
+
+```sql
+BEGIN BATCH sales.orders PARTITION "c01";
+  CREATE  {"id": "o900", "customerId": "c01", "status": "open", "total": 45};
+  REPLACE "o004" {"id": "o004", "customerId": "c01", "status": "shipped"}
+          IF MATCH "\"0800-7f3a\"";
+  PATCH   "o007" [{"op": "set", "path": "/status", "value": "cancelled"}];
+  DELETE  "o003";
+  READ    "o011";
+COMMIT
+```
+
+- `BEGIN BATCH` always names `<database>.<container>`; the catalog's selection is never
+  a batch's target. `PARTITION` takes one value per key path, in order: a hierarchical
+  key names every one (`PARTITION "tenant-a", "eu", 42`).
+- The operations are `CREATE body`, `UPSERT body`, `REPLACE "id" body`, `DELETE "id"`,
+  `READ "id"` and `PATCH "id" [entries] [WHERE "condition"]`. `UPSERT`, `REPLACE`,
+  `DELETE` and `PATCH` take `IF MATCH "etag"`; `CREATE` and `READ` refuse it, since the
+  service would ignore it. A patch is the service's own array of `{"op", "path",
+  "value"}` entries; `move` and a fractional `incr` cannot be sent by the Go SDK.
+- Without its `COMMIT` a batch does not parse, so a half-typed one never runs. A buffer
+  holds one batch or one query, never two batches: the service cannot commit two
+  atomically, and Alchemist will not pretend to.
+- The service takes at most 100 operations and 2 MB per batch. Every check that can be
+  made before sending is made, and every problem is listed at once: the operation
+  count, the size, a body without an `id` or in another partition, a replace whose
+  body names another item, a patch of the `id` or the key, two creates of one `id`.
+
+A batch that writes opens a review first, every time, recalled from history or not: the
+account, the container, the key, each operation, and a warning for a write with no
+`IF MATCH` or two operations on one item. It commits only once the container's name
+is typed back exactly and `enter` pressed; `esc` sends nothing and records nothing. A
+batch that only reads runs straight away. `ctrl+b` on a row of a `SELECT *` query of
+one container, or in its detail, adds a `REPLACE` of that document, conditional on its current ETag, to the batch in the
+editor, or starts one when the editor holds a query.
+
+The outcome is a result set, one row per operation, which the detail view and export
+treat like any other. It is one of four, and the status bar says which:
+
+- **committed**: every operation applied.
+- **rolled back**: an operation failed and nothing was written; the failed one is
+  marked, and every other reads `424 Failed Dependency`.
+- **not applied**: the request never left, or the service refused it whole (a throttled
+  batch included). Nothing was written, and `ctrl+r` tries again.
+- **outcome unknown**: the batch was sent and no answer came back, from a timeout, a
+  dropped connection or a 5xx. It committed in full or not at all. Alchemist never
+  retries a batch, and shows a query over the batch's partition to check before
+  running it again.
+
+A batch waits at most 30 seconds for its answer. Until it arrives `ctrl+r`, `ctrl+g`
+and `q` wait too; `ctrl+c` still quits. There is no undo.
+
+### Read-only accounts
+
+Writing to anything but a local emulator is a decision made per profile. A profile
+with no `read_only` setting is read-only unless its endpoint is `localhost`,
+`127.0.0.1` or `::1`; a read-only account refuses every batch that writes, drafts
+nothing with `ctrl+b`, and offers none of the catalog's `n`, `c`, `d` and `t`. The
+status bar and the account switcher say `read-only` beside its name. To allow writes:
+
+```sh
+alchemist profile set-read-only prod false
+alchemist profile add staging --endpoint https://staging.documents.azure.com:443/ --read-only=false
+```
+
+`alchemist --read-only` makes every account of one session read-only, whatever its
+profile says; the flag only ever tightens. `--adapter mock` is writable.
+
 ## Inspecting a node
 
 `i` on a database or container opens a read-only overlay with everything the account
@@ -252,6 +330,7 @@ alchemist profile add emulator --endpoint https://localhost:8081 --insecure-skip
 alchemist profile add prod --endpoint https://myaccount.documents.azure.com:443/ --default
 alchemist profile list
 alchemist profile set-key prod
+alchemist profile set-read-only prod false
 alchemist profile remove emulator
 ```
 
@@ -272,6 +351,7 @@ database = "sales"               # opened in the catalog on start
 page_size = 100
 max_join_rows = 5000             # rows a join holds across its held sides; 10000 when unset
 sample_fields = false            # autocomplete never queries a container for its fields
+read_only = false                # allow writes; unset, only a local endpoint allows them
 
 [profiles.prod]
 adapter = "cosmos"

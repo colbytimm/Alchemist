@@ -20,9 +20,14 @@ var (
 )
 
 // savedScope is the scope a query is saved with: none when its text names
-// every container it reads, current otherwise. A draft the planner refuses is
-// still worth saving, with current.
+// every container it reads, current otherwise. A draft the planner refuses
+// is still worth saving, with current. A batch names its own target and
+// never reads the scope, complete or not, so it is asked about first: the
+// planner would refuse it.
 func savedScope(text string, current []string) []string {
+	if query.IsBatch(text) {
+		return nil
+	}
 	plan, err := query.BuildPlan(text)
 	if err == nil && !plan.NeedsDefaultScope() {
 		return nil

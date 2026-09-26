@@ -206,3 +206,24 @@ func TestStatusBarStopsSpinningOnceTheRunSettles(t *testing.T) {
 	assert.Nil(t, stopped, "the last tick of a settled run ends the animation")
 	assert.NotContains(t, plain(settled.View()), theme.Icons().SpinnerFrames[0])
 }
+
+func TestStatusBarNamesABatchAndCountsItsOperations(t *testing.T) {
+	for _, state := range []panes.BatchState{panes.BatchCommitting, panes.BatchCommitted, panes.BatchRolledBack, panes.BatchUnknown} {
+		bar, _ := panes.NewStatusBar(theme.Icons(), "dev").SetWidth(statusWidth).SetProgress(panes.Progress{
+			Stats:  adapter.Stats{RowCount: 5, RequestCharge: 37.01},
+			Loaded: true,
+			Batch:  state,
+		})
+
+		view := plain(bar.View())
+		assert.Contains(t, view, state.String())
+		assert.Contains(t, view, "5 operations")
+		assert.NotContains(t, view, "rows")
+	}
+}
+
+func TestStatusBarBadgesAReadOnlyAccount(t *testing.T) {
+	view := plain(panes.NewStatusBar(theme.Icons(), "prod").SetReadOnly(true).SetWidth(statusWidth).View())
+
+	assert.Contains(t, view, "prod ▪ read-only ▪ ")
+}

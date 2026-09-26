@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -47,10 +48,38 @@ type Profile struct {
 	// SampleFields lets completion read a few items of a container for its
 	// fields; unset means true, which a plain bool cannot say.
 	SampleFields *bool `toml:"sample_fields,omitempty"`
+	// ReadOnly refuses every write Alchemist can make; unset means read-only
+	// for any endpoint but the local emulator's.
+	ReadOnly *bool `toml:"read_only,omitempty"`
 }
 
 func (p Profile) SamplesFields() bool {
 	return p.SampleFields == nil || *p.SampleFields
+}
+
+// IsReadOnly reports whether writes are refused on this profile's account.
+// Writing to anything but an emulator is a decision made per profile.
+func (p Profile) IsReadOnly() bool {
+	if p.ReadOnly != nil {
+		return *p.ReadOnly
+	}
+	return !IsLocalEndpoint(p.Endpoint)
+}
+
+// localHosts are the names of this machine an endpoint may use.
+var localHosts = []string{"localhost", "127.0.0.1", "::1"}
+
+// IsLocalEndpoint reports whether endpoint names this machine, as an
+// emulator's does. The scheme may be left off.
+func IsLocalEndpoint(endpoint string) bool {
+	if !strings.Contains(endpoint, "://") {
+		endpoint = "https://" + endpoint
+	}
+	address, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	return slices.Contains(localHosts, strings.ToLower(address.Hostname()))
 }
 
 // Profile returns the profile called name, or the default profile when name

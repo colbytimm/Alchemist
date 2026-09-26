@@ -38,6 +38,9 @@ func NewEditor(accept key.Binding) Editor {
 	area.Placeholder = editorHint
 	area.Prompt = editorPrompt
 	area.ShowLineNumbers = false
+	// The bubble stops enter at 99 lines by default, short of a batch of the
+	// service's 100 operations written one to a line.
+	area.MaxHeight = 0
 	area.FocusedStyle, area.BlurredStyle = editorStyles()
 	// A static cursor stays visible without a blink timer waking the program
 	// twice a second; only the blinking mode returns a command to drive.

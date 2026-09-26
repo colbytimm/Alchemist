@@ -44,6 +44,7 @@ func account(profile config.Profile) tui.Account {
 		Database:     profile.Database,
 		MaxJoinRows:  profile.MaxJoinRows,
 		SampleFields: profile.SamplesFields(),
+		ReadOnly:     profile.IsReadOnly(),
 	}
 }
 
@@ -67,25 +68,27 @@ func (p Profiles) Open(ctx context.Context, name string) (adapter.Connection, er
 	return connect(ctx, profile.Adapter, profile.Settings(secret))
 }
 
-// Connect connects, pings, and only then saves what the connect form submitted.
-func (p Profiles) Connect(ctx context.Context, form panes.ConnectForm) (adapter.Connection, error) {
+// Connect connects, pings, and only then saves what the connect form
+// submitted. The account it reports is the profile as saved, so the session
+// holds what the file says rather than what the form implied.
+func (p Profiles) Connect(ctx context.Context, form panes.ConnectForm) (tui.Account, adapter.Connection, error) {
 	saved, err := p.profileFor(form)
 	if err != nil {
-		return nil, err
+		return tui.Account{}, nil, err
 	}
 	conn, err := connect(ctx, saved.Adapter, saved.Settings(config.Secret{Key: form.Key}))
 	if err != nil {
-		return nil, err
+		return tui.Account{}, nil, err
 	}
 	if err := conn.Ping(ctx); err != nil {
 		closeFailed(conn)
-		return nil, err
+		return tui.Account{}, nil, err
 	}
 	if err := p.save(saved, form); err != nil {
 		closeFailed(conn)
-		return nil, err
+		return tui.Account{}, nil, err
 	}
-	return conn, nil
+	return account(saved), conn, nil
 }
 
 // saving serializes the read-modify-write of config.toml: two connect forms
@@ -124,6 +127,10 @@ func (p Profiles) profileFor(form panes.ConnectForm) (config.Profile, error) {
 	}
 	if err := p.checkKeyless(profile); err != nil {
 		return config.Profile{}, err
+	}
+	if profile.Endpoint != form.Endpoint {
+		// Allowing writes was decided for the old endpoint, not this one.
+		profile.ReadOnly = nil
 	}
 	profile.Endpoint, profile.InsecureSkipVerify = form.Endpoint, form.SkipVerify
 	return profile, nil

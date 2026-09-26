@@ -128,3 +128,16 @@ func FuzzSpansStayInsideTheInputAndInOrder(f *testing.F) {
 		}
 	})
 }
+
+func TestBatchKeywordsAreKeywordsOnlyInABatch(t *testing.T) {
+	batch := `begin BATCH sales.read PARTITION 1; READ "a"; PATCH "b" [] WHERE "x" IF MATCH "e"; COMMIT`
+
+	require.Equal(t, []spanText{
+		{query.SpanKeyword, "begin"}, {query.SpanKeyword, "BATCH"}, {query.SpanKeyword, "PARTITION"},
+		{query.SpanNumber, "1"}, {query.SpanKeyword, "READ"}, {query.SpanString, `"a"`},
+		{query.SpanKeyword, "PATCH"}, {query.SpanString, `"b"`}, {query.SpanKeyword, "WHERE"}, {query.SpanString, `"x"`},
+		{query.SpanKeyword, "IF"}, {query.SpanKeyword, "MATCH"}, {query.SpanString, `"e"`}, {query.SpanKeyword, "COMMIT"},
+	}, spanTexts(batch))
+	require.Equal(t, []spanText{{query.SpanKeyword, "SELECT"}, {query.SpanKeyword, "FROM"}},
+		spanTexts("SELECT read FROM c"), "READ is an alias outside a batch")
+}
