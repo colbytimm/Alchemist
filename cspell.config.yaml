@@ -34,6 +34,11 @@ words:
   - termenv
   - textinput
   - zricethezav
+  # Terminal capabilities, emulators and Go tooling
+  - benchtime
+  - Ghostty
+  - Setulc
+  - Smulx
   # Cosmos DB REST and SQL vocabulary
   - colls
   - documentdb
