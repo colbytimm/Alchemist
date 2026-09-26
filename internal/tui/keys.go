@@ -22,6 +22,11 @@ type KeyMap struct {
 	Delete       key.Binding
 	Throughput   key.Binding
 	Info         key.Binding
+	Clone        key.Binding
+	HideClone    key.Binding
+	StopClone    key.Binding
+	ResumeClone  key.Binding
+	DeleteClone  key.Binding
 	Detail       key.Binding
 	ScrollLeft   key.Binding
 	ScrollRight  key.Binding
@@ -105,6 +110,28 @@ func DefaultKeyMap() KeyMap {
 		Info: key.NewBinding(
 			key.WithKeys("i"),
 			key.WithHelp("i", "node info"),
+		),
+		// y also reopens the view of a clone in progress, from any row and
+		// any account: one key that means clone in both states.
+		Clone: key.NewBinding(
+			key.WithKeys("y"),
+			key.WithHelp("y", "clone"),
+		),
+		HideClone: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "hide"),
+		),
+		StopClone: key.NewBinding(
+			key.WithKeys("x"),
+			key.WithHelp("x", "stop"),
+		),
+		ResumeClone: key.NewBinding(
+			key.WithKeys("r"),
+			key.WithHelp("r", "resume"),
+		),
+		DeleteClone: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d", "delete the partial target"),
 		),
 		Detail: key.NewBinding(
 			key.WithKeys("enter"),
@@ -297,6 +324,13 @@ func (k KeyMap) BatchKeys() []key.Binding {
 	return []key.Binding{k.Commit, k.Scroll}
 }
 
+// CloneKeys are the bindings only the clone progress view answers to. It
+// shows each in its hint line where it applies, with Close once the clone
+// has ended.
+func (k KeyMap) CloneKeys() []key.Binding {
+	return []key.Binding{k.HideClone, k.StopClone, k.ResumeClone, k.DeleteClone}
+}
+
 // InfoKeys are the bindings the info overlay answers to, shown in a hint line
 // of its own. Every one of them is a binding some pane already advertises.
 func (k KeyMap) InfoKeys() []key.Binding {
@@ -313,7 +347,7 @@ func (k KeyMap) globalKeys() []key.Binding {
 func (k KeyMap) catalogKeys() []key.Binding {
 	return []key.Binding{
 		k.Up, k.Down, k.Select, k.Refresh, k.Info,
-		k.NewDatabase, k.NewContainer, k.Delete, k.Throughput,
+		k.NewDatabase, k.NewContainer, k.Delete, k.Throughput, k.Clone,
 	}
 }
 
@@ -334,6 +368,9 @@ func (k KeyMap) forManagement(management Management) KeyMap {
 	}
 	if management.Drafter == nil {
 		k.AddToBatch.SetEnabled(false)
+	}
+	if management.Definitions == nil {
+		k.Clone.SetEnabled(false)
 	}
 	return k
 }

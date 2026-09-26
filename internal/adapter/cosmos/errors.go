@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
@@ -21,25 +22,64 @@ type refusalError struct {
 	op      string
 	message string
 	cause   error
+	// kind is the adapter's name for the refusal, when it has one.
+	kind error
 }
 
 func (e *refusalError) Error() string { return "cosmos: " + e.op + ": " + e.message }
 
-func (e *refusalError) Unwrap() error { return e.cause }
+func (e *refusalError) Unwrap() []error {
+	if e.kind == nil {
+		return []error{e.cause}
+	}
+	return []error{e.cause, e.kind}
+}
+
+// Headers naming how long a throttled request should wait. azcore's retry
+// policy reads the same ones before it gives up.
+var retryAfterHeaders = []struct {
+	name string
+	unit time.Duration
+}{
+	{"x-ms-retry-after-ms", time.Millisecond},
+	{"retry-after-ms", time.Millisecond},
+	{"retry-after", time.Second},
+}
 
 // wrap reports err under op. A refusal and a request that never reached
 // the service are the two whose SDK text carries the request URL; the
 // second is restated for every adapter alike, since the TUI offers a retry
-// for it.
+// for it. A refusal for rate is a ThrottledError, and a conflict is
+// adapter.ErrAlreadyExists.
 func wrap(op string, err error) error {
 	var respErr *azcore.ResponseError
 	if errors.As(err, &respErr) {
-		return &refusalError{op: op, message: refusal(respErr), cause: err}
+		refused := &refusalError{op: op, message: refusal(respErr), cause: err}
+		switch respErr.StatusCode {
+		case http.StatusTooManyRequests:
+			return &adapter.ThrottledError{RetryAfter: retryAfter(respErr.RawResponse), Err: refused}
+		case http.StatusConflict:
+			refused.kind = adapter.ErrAlreadyExists
+		}
+		return refused
 	}
 	if unreachable, ok := adapter.Unreachable(err); ok {
 		return unreachable
 	}
 	return fmt.Errorf("cosmos: %s: %w", op, err)
+}
+
+func retryAfter(resp *http.Response) time.Duration {
+	if resp == nil {
+		return 0
+	}
+	for _, header := range retryAfterHeaders {
+		value, err := strconv.ParseFloat(resp.Header.Get(header.name), 64)
+		if err == nil && value > 0 {
+			return time.Duration(value * float64(header.unit))
+		}
+	}
+	return 0
 }
 
 // notFound reports a request the service answered 404. A resource with no

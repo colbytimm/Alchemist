@@ -17,6 +17,7 @@ import (
 	"github.com/colbytimm/alchemist/internal/config"
 	"github.com/colbytimm/alchemist/internal/query"
 	"github.com/colbytimm/alchemist/internal/saved"
+	"github.com/colbytimm/alchemist/internal/writers"
 )
 
 // noKey is what the profile table shows when no source resolves a key.
@@ -129,6 +130,8 @@ func (a *addFlags) bind(flags *pflag.FlagSet) {
 	flags.IntVar(&a.profile.PageSize, "page-size", 0, "rows per result page (the adapter's default when 0)")
 	flags.IntVar(&a.profile.MaxJoinRows, "max-join-rows", 0,
 		fmt.Sprintf("rows a cross-container join may hold in memory, across all the sides held (%d when 0)", query.DefaultMaxJoinRows))
+	flags.IntVar(&a.profile.Writers, "writers", 0,
+		fmt.Sprintf("item writes a clone into this account keeps in flight, from 1 to %d (%d when 0)", writers.MaxSize, writers.DefaultSize))
 	flags.BoolVar(&a.makeDefault, "default", false, "make this the default profile")
 	flags.BoolVar(&a.readOnly, "read-only", false,
 		"refuse every write on this account (unset: read-only unless the endpoint is this machine)")

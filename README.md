@@ -82,6 +82,7 @@ the catalog and queries run against it, or name one in the query itself with
 | `d` | catalog | delete node |
 | `t` | catalog | throughput |
 | `i` | catalog | node info |
+| `y` | catalog | clone; with a clone under way, show it |
 | `enter` | results | row detail |
 | `h/←`, `l/→` | results | scroll left, scroll right |
 | `m` | results | fetch more |
@@ -92,6 +93,10 @@ the catalog and queries run against it, or name one in the query itself with
 | `↑/↓`, `esc` | editor, list open | choose, dismiss |
 | `enter` | batch review, name typed | commit |
 | `↑/↓` | batch review | scroll |
+| `esc` | clone progress | hide; close once the clone has ended |
+| `x` | clone progress, running | stop |
+| `r` | clone progress, ended short | resume |
+| `d` | clone progress, ended short | delete the partial target |
 | `r` | saved queries | rename |
 | `d`, then `y` | saved queries | delete |
 
@@ -296,7 +301,8 @@ and `q` wait too; `ctrl+c` still quits. There is no undo.
 Writing to anything but a local emulator is a decision made per profile. A profile
 with no `read_only` setting is read-only unless its endpoint is `localhost`,
 `127.0.0.1` or `::1`; a read-only account refuses every batch that writes, drafts
-nothing with `ctrl+b`, and offers none of the catalog's `n`, `c`, `d` and `t`. The
+nothing with `ctrl+b`, offers none of the catalog's `n`, `c`, `d` and `t`, and is
+never a clone's target, though it is always a valid source. The
 status bar and the account switcher say `read-only` beside its name. To allow writes:
 
 ```sh
@@ -306,6 +312,69 @@ alchemist profile add staging --endpoint https://staging.documents.azure.com:443
 
 `alchemist --read-only` makes every account of one session read-only, whatever its
 profile says; the flag only ever tightens. `--adapter mock` is writable.
+
+## Cloning
+
+`y` on a container or a database in the catalog copies it under a new name: the
+definition alone, or the definition and every item. The copy can land in the account
+the session is on or in any other the session knows, connected or not; the prompt
+connects a target on its own and leaves the session where it was. `prod` → `emulator`
+works with an untouched config, because a real account's profile is read-only until
+told otherwise, a clone only reads its source, and the emulator's endpoint is local.
+
+Cosmos DB has no clone a data-plane key can call, so a clone is a client-side copy:
+read the definition, create the target, read every item, write every item. That makes
+three things true, and the prompt, the review and the progress view say them:
+
+- It spends request units on both sides. Reading spends them on the source, writing on
+  the target, and a new provisioned container bills from the moment it exists. The
+  cost cannot be known up front; the progress view projects it from the first page on.
+  No `COUNT` query is ever spent on an estimate: the item count and size come with the
+  definition, labelled "about".
+- It is not a snapshot. A source that changes while it is read is copied as it was
+  seen, page by page.
+- It can take a long time. The session stays usable meanwhile, switching accounts
+  included: `esc` hides the progress view, the status bar carries
+  `clone prod/sales.orders → emulator 41% (y)` on every account, and `y` in the
+  catalog brings the view back from any row.
+
+The prompt offers every account that is not read-only, and says for each read-only one
+why it is missing. **Copy** is `definition and items` or `definition only`.
+**Definition** is `full`, or `portable`, which leaves out the analytical store TTL, the
+conflict resolution policy and the vector and full-text policies and indexes: whatever
+depends on a feature the target account may lack. `portable` is the default across
+accounts. **Throughput** is `minimum` (400 RU/s manual), `same as source`, or `none`;
+the default is `minimum`, so a source at 40,000 RU/s autoscale is never copied at that
+price by pressing `enter` twice. A container drawing on its database's throughput keeps
+doing so wherever the target database can have some.
+
+`enter` starts nothing: it opens a review that restates the job, what it creates and at
+what throughput, and asks for the **target account's** name typed back. Nothing that
+exists is ever written into: a target that exists is refused in the form, and again by
+the service at create.
+
+| Copied | Not copied |
+|---|---|
+| partition key paths, kind and version | stored procedures, triggers, user-defined functions |
+| indexing policy, unique keys, default TTL | computed properties, change feed and client encryption policies |
+| (`full` only) analytical TTL, conflict resolution, vector and full-text policies | `_rid`, `_self`, `_etag`, `_attachments`, `_ts` |
+| every item's `id`, `ttl` and fields, byte for byte | change feed history, users, permissions |
+
+Two consequences of dropping `_ts`: every copied item's TTL clock restarts at the
+moment it is written, and "last modified" order is the copy's order, not the source's.
+An item the target cannot take, one with nothing at a partition key path say, is
+skipped, counted, and named in the log; more than 100 in one container stop the clone.
+
+Writes go through up to four at a time, or `writers` on the target's profile (1 to 16).
+When the target throttles, every writer waits as long as it asked, and one writer is
+dropped for good: a 400 RU/s target settles at one writer within a few pages. `x`
+stops the clone after the writes in flight. A clone that stopped, failed or ran out of
+retries says exactly what it left behind; `r` resumes after the last page written in
+full, and `d` deletes the partial target, through the same typed confirmation as the
+catalog's `d`. Nothing is ever deleted automatically. While a clone runs, `x` in the
+switcher refuses its two accounts, `d` in the catalog refuses its target, and a batch
+into its target waits. The first `q` during a clone shows it, and the second stops it
+and quits.
 
 ## Inspecting a node
 
@@ -352,6 +421,7 @@ page_size = 100
 max_join_rows = 5000             # rows a join holds across its held sides; 10000 when unset
 sample_fields = false            # autocomplete never queries a container for its fields
 read_only = false                # allow writes; unset, only a local endpoint allows them
+writers = 8                      # item writes a clone into this account keeps in flight; 4 when unset
 
 [profiles.prod]
 adapter = "cosmos"

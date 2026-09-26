@@ -30,6 +30,7 @@ can be added without touching the TUI.
 | Data exporter | JSON / CSV export | 8 |
 | DDL via SQL (Cosmos has none) | Catalog management: create/delete, throughput | 11 |
 | Transactions | Transactional batch: `BEGIN BATCH … COMMIT`, reviewed and confirmed | 17 |
+| — | Cloning: a container or a database, into any writable account, with progress, stop and resume | 18 |
 | Adapter plugins | Go interfaces + registry | 2, 3 |
 | Profiles / config | TOML profiles + OS keychain secrets | 6 |
 | Help overlay | Keybinding help (`?`) | 4 |
@@ -47,10 +48,12 @@ main.go                       # thin entry
 cmd/                          # cobra: root launches TUI; version; profile subcommands
 internal/
   adapter/                    # CORE INTERFACES ONLY — no cosmos imports
-    adapter.go registry.go batch.go
+    adapter.go registry.go batch.go definition.go scan.go system.go
     mock/                     # in-memory adapter used by all TUI tests
     cosmos/                   # azcosmos v1.5.0 implementation
   query/                      # "db.container" scope tokenizer/rewriter; batch statements
+  clone/                      # client-side container and database copy, one step at a time
+  writers/                    # bounded, throttle-aware pool for item writes
   tui/
     app.go                    # root model: layout, focus, routing only
     keys.go messages.go

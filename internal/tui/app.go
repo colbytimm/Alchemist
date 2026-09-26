@@ -80,6 +80,10 @@ const (
 	overlaySaved
 	overlaySavePrompt
 	overlayBatchReview
+	overlayCloneForm
+	overlayCloneReview
+	overlayCloneProgress
+	overlayCloneDelete
 )
 
 // runState is how far the current query has got.
@@ -132,6 +136,11 @@ type Management struct {
 	Sampler    adapter.FieldSampler
 	Batcher    adapter.Batcher
 	Drafter    adapter.ItemDrafter
+	// Definitions, Scanner and Writer are what a clone reads a container
+	// with, and writes one with.
+	Definitions adapter.DefinitionReader
+	Scanner     adapter.ItemScanner
+	Writer      adapter.ItemWriter
 }
 
 // Manager reports what a connection allows. cmd/ supplies it: every type
@@ -165,6 +174,9 @@ type Model struct {
 	form          panes.Form
 	confirm       panes.Confirm
 	review        panes.BatchReview
+	cloneForm     panes.CloneForm
+	cloneReview   panes.Confirm
+	cloneProgress panes.CloneProgress
 	statusBar     panes.StatusBar
 	help          panes.Help
 
@@ -221,6 +233,17 @@ type Model struct {
 	target   []string
 	dialog   dialogID
 
+	// job is the session's one background job, lastJob the number of the
+	// newest. cloning is the clone holding the slot, and clonePrompt one
+	// between y and its confirmation.
+	job         job
+	lastJob     jobID
+	cloning     cloneRun
+	clonePrompt clonePrompt
+	// refusedDisconnect is the account the switcher last refused to
+	// disconnect, whose row says why.
+	refusedDisconnect string
+
 	focus         focus
 	previousFocus focus
 	overlay       overlay
@@ -268,6 +291,9 @@ func New(opts Options) Model {
 		savePrompt:   panes.NewSavePrompt([]key.Binding{keys.Save, keys.Close}),
 		exportPrompt: panes.NewExportPrompt(append(keys.ExportKeys(), keys.Close)),
 		review:       panes.NewBatchReview(append(keys.BatchKeys(), keys.Close)),
+		cloneProgress: panes.NewCloneProgress(opts.Icons, panes.CloneKeys{
+			Hide: keys.HideClone, Stop: keys.StopClone, Resume: keys.ResumeClone, Delete: keys.DeleteClone, Close: keys.Close,
+		}),
 		statusBar:    panes.NewStatusBar(opts.Icons, ""),
 		help:         panes.NewHelp(keys.HelpSections()),
 		formAttempts: map[string]int{},
@@ -319,7 +345,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case FieldsSampledMsg:
 		return m.fileSample(msg)
 	case CatalogChangedMsg:
-		return m.applyChange(msg)
+		return m.releaseDeletedClone(msg).applyChange(msg)
 	case ThroughputReadMsg:
 		if msg.Account != m.accounts.active {
 			return m, nil
@@ -343,7 +369,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.formAttempts[msg.Account] == msg.attempt {
 			return m.acceptFormConnection(msg)
 		}
-		return m.acceptConnection(msg)
+		model, cmd := m.acceptConnection(msg)
+		model, plan := model.continueClonePrompt(msg.Account)
+		return model, tea.Batch(cmd, plan)
 	case ConnectFailedMsg:
 		return m.failFormConnection(msg)
 	case AccountsListedMsg:
@@ -362,6 +390,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.finishBatch(msg)
 	case BatchFailedMsg:
 		return m.failBatch(msg)
+	case ClonePreparedMsg:
+		return m.fileSurvey(msg), nil
+	case ClonePlannedMsg:
+		return m.openCloneReview(msg), nil
+	case CloneTargetCreatedMsg:
+		return m.acceptCloneTarget(msg)
+	case ClonePageCopiedMsg:
+		return m.acceptClonePage(msg)
+	case CloneFailedMsg:
+		return m.failClone(msg)
 	}
 	return m.animate(msg)
 }
@@ -402,6 +440,14 @@ func (m Model) layout() string {
 		return m.activeInfo().View()
 	case overlayBatchReview:
 		return m.review.View()
+	case overlayCloneForm:
+		return m.cloneForm.View()
+	case overlayCloneReview:
+		return m.cloneReview.View()
+	case overlayCloneProgress:
+		return m.cloneProgress.View()
+	case overlayCloneDelete:
+		return m.confirm.View()
 	}
 	right := lipgloss.JoinVertical(lipgloss.Left, m.editor.View(), m.results.View())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, m.catalogPane().View(), right)
@@ -429,7 +475,8 @@ func (m Model) animate(msg tea.Msg) (Model, tea.Cmd) {
 func (m Model) handleErr(msg ErrMsg) (Model, tea.Cmd) {
 	switch msg.Op {
 	case OpConnect:
-		return m.failConnection(msg)
+		model, cmd := m.failConnection(msg)
+		return model.failClonePrompt(msg), cmd
 	case OpCatalogRoot, OpCatalogChildren:
 		model, cmd := m.failCatalog(msg).refreshSuggestions()
 		model, refusal := model.failPendingBatch(msg)
@@ -549,6 +596,14 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleInfoKey(msg)
 	case overlayBatchReview:
 		return m.handleReviewKey(msg)
+	case overlayCloneForm:
+		return m.handleCloneFormKey(msg)
+	case overlayCloneReview:
+		return m.handleCloneReviewKey(msg)
+	case overlayCloneProgress:
+		return m.handleCloneProgressKey(msg)
+	case overlayCloneDelete:
+		return m.handleCloneDeleteKey(msg)
 	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
@@ -569,8 +624,15 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 // quit ends the run in progress and closes every connection the session
-// holds.
+// holds. A clone that is running is shown first, with what quitting would
+// leave behind, and stopped by the quit that follows.
 func (m Model) quit() (Model, tea.Cmd) {
+	if model, warned := m.warnBeforeQuit(); warned {
+		return model, nil
+	}
+	if m.job.active() {
+		m = m.abandonClone()
+	}
 	m = m.endRun()
 	m.CloseConnections()
 	return m, tea.Quit
@@ -578,6 +640,12 @@ func (m Model) quit() (Model, tea.Cmd) {
 
 func (m Model) handleCatalogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
+	case m.job.active() && reopensJob(msg, m.keys.Clone):
+		return m.showCloneProgress()
+	case m.clonePrompt.refused && reopensJob(msg, m.keys.Clone):
+		return m.reopenRefusedClone()
+	case key.Matches(msg, m.keys.Clone):
+		return m.openClone()
 	case key.Matches(msg, m.keys.Up):
 		return m.setCatalogPane(m.catalogPane().CursorUp()), nil
 	case key.Matches(msg, m.keys.Down):
@@ -591,13 +659,20 @@ func (m Model) handleCatalogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.NewContainer):
 		return m.openContainerForm(), nil
 	case key.Matches(msg, m.keys.Delete):
-		return m.openDelete(), nil
+		return m.openDelete()
 	case key.Matches(msg, m.keys.Throughput):
 		return m, m.openThroughput()
 	case key.Matches(msg, m.keys.Info):
 		return m.openInfo()
 	}
 	return m, nil
+}
+
+// reopensJob reports whether msg is the key that started the job holding
+// the slot, which reopens its view even on an account whose own binding is
+// disabled.
+func reopensJob(msg tea.KeyMsg, binding key.Binding) bool {
+	return key.Matches(msg, key.NewBinding(key.WithKeys(binding.Keys()...)))
 }
 
 func (m Model) handleEditorKey(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -1081,6 +1156,9 @@ func (m Model) resize(width, height int) Model {
 	m.form = m.form.SetSize(width, height)
 	m.confirm = m.confirm.SetSize(width, height)
 	m.review = m.review.SetSize(width, height)
+	m.cloneForm = m.cloneForm.SetSize(width, height)
+	m.cloneReview = m.cloneReview.SetSize(width, height)
+	m.cloneProgress = m.cloneProgress.SetSize(width, height)
 	return m
 }
 
