@@ -299,3 +299,39 @@ func TestAThousandsCountIsTypedInPlainDigits(t *testing.T) {
 	m = pressAll(t, m, keyMsg(tea.KeyCtrlU))
 	heldDelete(t, m, "orders 1204")
 }
+
+func TestADeleteThatEndedBehindItsHiddenViewLetsTheNextOneStart(t *testing.T) {
+	tests := []struct {
+		name     string
+		keys     []tea.KeyMsg
+		label    string
+		recorded bool
+	}{
+		{name: "done", keys: []tea.KeyMsg{keyMsg(tea.KeyEscape)}, label: "delete done (w)", recorded: true},
+		{name: "stopped", keys: []tea.KeyMsg{keyRune('x'), keyMsg(tea.KeyEscape)}, label: "delete stopped (w)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := newUpdateConnection(t)
+			store := &recordingStore{}
+			m := dryRun(t, newUpdateModel(t, conn, store), deleteShipped)
+			m, step := heldDelete(t, m, deleteConfirmation)
+			m = settleNow(pressAll(t, m, tt.keys...), step)
+			require.Contains(t, statusBar(m), tt.label, "the ended job's view, and its report, are a w away")
+
+			m = rerun(t, m, `DELETE FROM sales.orders o WHERE true`)
+			require.Contains(t, plain(m.View()), deleteReviewTitle, "an ended job keeps no other job out")
+			assert.Empty(t, store.entries, "the ended job is recorded once the next one replaces it")
+
+			left := len(storedOrderIDs(t, conn))
+			m = confirmUpdate(t, m, fmt.Sprintf("orders %d", left))
+			require.Len(t, store.entries, 1, "the job the new one replaced is recorded")
+			assert.Equal(t, deleteShipped, store.entries[0].Query)
+			assert.Equal(t, history.KindDelete, store.entries[0].Kind)
+			assert.Equal(t, tt.recorded, store.entries[0].OK)
+			m = pressAll(t, m, keyMsg(tea.KeyEnter))
+			assert.Contains(t, plain(m.View()), fmt.Sprintf("Deleted %d of %d item", left, left))
+			assert.Empty(t, storedOrderIDs(t, conn))
+		})
+	}
+}
