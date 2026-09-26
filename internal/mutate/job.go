@@ -177,7 +177,7 @@ func NewJob(m query.Mutation, targets Targets, editor adapter.ItemEditor, pool *
 		case target.Key == nil:
 			j.results[i] = Result{Outcome: SkippedNoKey, Status: "no partition key"}
 		case target.NoParent:
-			j.results[i] = Result{Outcome: SkippedNoParent, Status: "a path the statement sets has no parent on this item"}
+			j.results[i] = Result{Outcome: SkippedNoParent, Status: "a path the statement sets has no parent, or no such element, on this item"}
 		case m.Kind == query.MutationDelete && target.Version == "":
 			j.results[i] = Result{Outcome: Failed, Status: ErrNoVersion.Error(), Err: ErrNoVersion}
 		}

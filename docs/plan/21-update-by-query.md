@@ -1124,14 +1124,23 @@ and the progress view keep their prompt and keys at 80×24.
   target checks that every `Where` it accepts is balanced.
 - **A nested SET needs its parent** (verified on the emulator: 400 without it). The
   selection reads whole items when any `SET` has more than one step, as for `UNSET`;
-  an item lacking the parent (an object for a named field, an array for an index) is
-  kept as the target outcome `skipped: no parent` and never sent, so the probe never
-  blames the `WHERE` for it. Each patch re-asserts `IS_DEFINED(<parent>)`, so a parent
-  removed since the selection is `skipped: changed`. A parent reached through an array
-  index is not re-asserted: the vNext emulator answers an index inside a patch condition
-  with 400. It does take a `set` of an index past an array's end, so that is not refused.
-  `CheckMutation` warns of every nested `SET`, the preview marks each path an item has no
-  parent for with `!`, and the review counts the items that lack a parent.
+  an item lacking the parent (an object for a named field, or for an index an array
+  holding that element) is kept as the target outcome `skipped: no parent` and never
+  sent, so the probe never blames the `WHERE` for it. An index past an array's end is
+  treated the same: the emulator appends there without a condition, again on every
+  rerun, and refuses the patch with one. Each patch re-asserts `IS_DEFINED(<parent>)`,
+  so a parent removed since the selection is `skipped: changed`. `IS_DEFINED` is the
+  only guard: the vNext emulator answers `IS_OBJECT`, `IS_ARRAY` and `ARRAY_LENGTH` in a
+  patch condition with 400, and an index inside one too, so a parent reached through an
+  index, and an array shortened since the selection, are left to the selection's check.
+  `CheckMutation` warns of every nested `SET`, the preview marks each path an item has
+  no parent for with `!`, and the review counts the items that lack a parent.
+- **A comment never reaches the service.** The lexer ends a `--` comment at `\r` as
+  well as `\n`, as the service does, and `Where` holds the condition with each comment
+  replaced by a space: a comment the service ended where Alchemist did not would carry
+  the rest of the line out of the `(<condition>)` wrapper.
+- **Mid-job, a read-only account says what the job left:** `prod turned read-only: no
+  further item was sent`, before the next chunk and on `r`.
 - **Read-only is asked again before every chunk**, not only at the confirmation and on
   `r`: the switcher re-reads the profiles, and one turned read-only mid-job ends the job
   short (`failed`, resumable) before its next chunk.

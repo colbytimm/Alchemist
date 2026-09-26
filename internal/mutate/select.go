@@ -68,11 +68,12 @@ type Targets struct {
 }
 
 // Unplaced counts the targets lacking the parent of a path the statement
-// sets.
+// sets; one with no partition key is counted by Keyless alone, as the job
+// skips it for that.
 func (t Targets) Unplaced() int {
 	n := 0
 	for _, target := range t.Items {
-		if target.NoParent {
+		if target.Key != nil && target.NoParent {
 			n++
 		}
 	}

@@ -135,6 +135,16 @@ type PathStep struct {
 	IsIndex bool
 }
 
+// Parent is the path one step up, and false for a field at the top level,
+// whose parent is the item.
+func (p FieldPath) Parent() (FieldPath, bool) {
+	last := len(p.Steps) - 1
+	if last <= 0 {
+		return FieldPath{}, false
+	}
+	return FieldPath{Alias: p.Alias, Steps: p.Steps[:last]}, true
+}
+
 // Pointer is the path as a JSON Pointer: /shipTo/region, /lines/0/qty.
 func (p FieldPath) Pointer() string {
 	var pointer strings.Builder
@@ -709,7 +719,27 @@ func (p *mutationParser) parseWhere(alias string) (string, error) {
 		p.i = end + 1
 		return "", p.fail(errOneStatement)
 	}
-	return p.text[condition[0].start:condition[len(condition)-1].end], nil
+	return p.conditionText(start, end), nil
+}
+
+// conditionText is the condition as written, each comment in it replaced
+// by a space. The text is sent inside a wrapper of its own, and a comment
+// the service ends somewhere Alchemist does not would carry the rest of
+// the line out of that wrapper.
+func (p *mutationParser) conditionText(start, end int) string {
+	from, to := p.toks[start].start, p.toks[end-1].end
+	var text strings.Builder
+	last := from
+	for _, tok := range lex(p.text[:to]) {
+		if tok.kind != tokComment || tok.start < from {
+			continue
+		}
+		text.WriteString(p.text[last:tok.start])
+		text.WriteByte(' ')
+		last = tok.end
+	}
+	text.WriteString(p.text[last:to])
+	return text.String()
 }
 
 func (p *mutationParser) expectedWhere() string {

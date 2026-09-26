@@ -517,7 +517,7 @@ func TestAResumeOnAnAccountTurnedReadOnlyWritesNothing(t *testing.T) {
 
 	m = pressNow(t, m, keyRune('r'))
 
-	assert.Contains(t, plain(m.View()), "mock is read-only, so nothing was sent.")
+	assert.Contains(t, plain(m.View()), "mock turned read-only: no further item was sent.")
 	assert.Zero(t, conn.edits.Load())
 }
 
@@ -551,7 +551,7 @@ func TestAnAccountTurnedReadOnlyMidJobWritesNoFurtherChunk(t *testing.T) {
 
 	view := plain(m.View())
 	assert.Contains(t, view, "Failed.")
-	assert.Contains(t, view, "mock is read-only, so nothing was sent.")
+	assert.Contains(t, view, "mock turned read-only: no further item was sent.")
 	assert.Contains(t, view, "r resume", "the job ends short, resumable")
 	assert.Equal(t, int32(1), conn.edits.Load(), "no chunk after the profile turned read-only")
 }

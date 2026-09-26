@@ -29,7 +29,9 @@ func operation(m query.Mutation, t Target) adapter.Operation {
 // on condition that the item still matches the statement's WHERE, still
 // has those paths, and still has where each nested SET goes. An item
 // changed since it was selected so that it no longer matches is left alone
-// by the service, not written.
+// by the service, not written. The guards are IS_DEFINED alone: the vNext
+// emulator refuses IS_OBJECT, IS_ARRAY and ARRAY_LENGTH in a patch
+// condition.
 func patch(m query.Mutation, t Target) adapter.Operation {
 	entries := make([]patchEntry, 0, m.Operations())
 	condition := fmt.Sprintf("FROM %s WHERE (%s)", m.Alias, m.Where)
@@ -87,28 +89,18 @@ func Changes(m query.Mutation) []string {
 // on the item: set creates only the last step of its path.
 func nestedSet(m query.Mutation) bool {
 	for _, a := range m.Assignments {
-		if _, ok := parentOf(a.Path); ok {
+		if _, ok := a.Path.Parent(); ok {
 			return true
 		}
 	}
 	return false
 }
 
-// parentOf is where a set of path goes: the object a named field goes in,
-// or the array an index goes in. A top-level field has none to need.
-func parentOf(path query.FieldPath) (query.FieldPath, bool) {
-	last := len(path.Steps) - 1
-	if last == 0 {
-		return query.FieldPath{}, false
-	}
-	return query.FieldPath{Alias: path.Alias, Steps: path.Steps[:last]}, true
-}
-
 // conditionGuard is the parent of path a patch's condition re-asserts. A
 // parent reached through an array index has none: the service refuses an
 // index in a patch condition, so only the selection's check covers it.
 func conditionGuard(path query.FieldPath) (query.FieldPath, bool) {
-	parent, ok := parentOf(path)
+	parent, ok := path.Parent()
 	if !ok || slices.ContainsFunc(parent.Steps, func(step query.PathStep) bool { return step.IsIndex }) {
 		return query.FieldPath{}, false
 	}
@@ -125,11 +117,13 @@ func placesEverySet(item json.RawMessage, m query.Mutation) bool {
 	return true
 }
 
-// placeable reports whether a set of path would succeed on item: its
-// parent is an object for a named field, or an array for an index, which
-// the service takes past the array's end too.
+// placeable reports whether a set of path would succeed on item, and
+// succeed the same however often it runs: its parent is an object for a
+// named field, or an array holding the element an index replaces. Past an
+// array's end the service appends, a second run appending again, and with
+// a condition it refuses the patch.
 func placeable(item json.RawMessage, path query.FieldPath) bool {
-	parent, ok := parentOf(path)
+	parent, ok := path.Parent()
 	if !ok {
 		return true
 	}
@@ -137,9 +131,9 @@ func placeable(item json.RawMessage, path query.FieldPath) bool {
 	if !found {
 		return false
 	}
-	if path.Steps[len(path.Steps)-1].IsIndex {
+	if last := path.Steps[len(path.Steps)-1]; last.IsIndex {
 		var array []json.RawMessage
-		return json.Unmarshal(value, &array) == nil && array != nil
+		return json.Unmarshal(value, &array) == nil && last.Index < len(array)
 	}
 	var object map[string]json.RawMessage
 	return json.Unmarshal(value, &object) == nil && object != nil
