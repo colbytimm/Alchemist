@@ -556,3 +556,10 @@ func TestAPropertyJoinAfterASubqueryPassesThrough(t *testing.T) {
 	require.Equal(t, query.PassThrough, plan.Merge)
 	require.Equal(t, text, plan.Leaves[0].Query.Text)
 }
+
+func TestASubqueryJoinAliasedLikeADatabaseLeavesTheScopeAlone(t *testing.T) {
+	plan, err := query.BuildPlan("SELECT * FROM sales.orders o JOIN (SELECT VALUE t FROM t IN o.tags) AS sales")
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"sales", "orders"}, plan.Scope())
+}

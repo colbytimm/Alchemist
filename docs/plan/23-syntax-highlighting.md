@@ -431,8 +431,11 @@ What landed differs from the text above in these ways:
   alone rather than squiggled.
 - **Non-ASCII names.** The lexer reads a letter, digit or mark of any script as part of
   a name, and any Unicode space as a space, so a property named in German or Spanish is
-  one token rather than a name broken by stray bytes. Completion's check for a name
-  before the cursor (`query.EndsName`) reads names the same way. Other
+  one token rather than a name broken by stray bytes. This is about not squiggling
+  such text, not a claim about the service: the SDK's grammar takes ASCII names only,
+  so the service likely wants a bracketed `c["…"]`, the spelling completion already writes.
+  Completion's check for a name before the cursor (`query.EndsName`) reads names the
+  same way as the lexer. Other
   non-ASCII characters are one token per rune. This changes what the planner sees only
   for text that was split mid-name before.
 - **Classes beyond the table.** `IS` is an operator word, the join modifiers (`LEFT`,

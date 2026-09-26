@@ -210,6 +210,7 @@ func TestDiagnoseLeavesAlone(t *testing.T) {
 		{name: "an update's bare alias near ORDER", input: `UPDATE sales.orders ord SET ord.status = "x" WHERE true`},
 		{name: "a SELECT-list value named without AS", input: "SELECT COUNT(1) orders FROM c"},
 		{name: "a SELECT-list property named without AS", input: "SELECT c.total ordr FROM c"},
+		{name: "SELECT-list names without AS near every clause", input: "SELECT c.x groups, c.a there, c.id limits, c.y frame FROM c"},
 		{name: "empty", input: ""},
 	}
 	for _, tt := range tests {
