@@ -1,7 +1,6 @@
 package query
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
+	"github.com/colbytimm/alchemist/internal/canonical"
 )
 
 // The service's limits on one transactional batch.
@@ -252,24 +252,18 @@ func fieldName(path string) string {
 	return strings.ReplaceAll(strings.TrimPrefix(path, "/"), "/", ".")
 }
 
-// sameKey compares two key values by the join-key rule: 1, 1.0 and 1e0 are
-// equal, and types are strict.
+// sameKey compares two partition key values by the join-key rule: 1, 1.0
+// and 1e0 are equal, and so are -0 and 0, and types are strict.
 func sameKey(a, b json.RawMessage) bool {
 	return canonicalJSON(a) == canonicalJSON(b)
 }
 
 func canonicalJSON(raw json.RawMessage) string {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var value any
-	if decoder.Decode(&value) != nil {
-		return string(raw)
-	}
-	canonical, err := json.Marshal(canonicalNumbers(value))
+	rendered, err := canonical.Marshal(raw)
 	if err != nil {
 		return string(raw)
 	}
-	return string(canonical)
+	return string(rendered)
 }
 
 // FormatSize renders a byte count the way the limits are stated.

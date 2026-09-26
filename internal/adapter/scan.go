@@ -21,7 +21,22 @@ type ScanRequest struct {
 	Container []string
 	From      ScanPosition // zero value: the beginning
 	PageSize  int32        // zero: the connection's page size
+	// Since keeps only items modified at or after it, to the backend's
+	// clock granularity. Zero keeps everything.
+	Since      time.Time
+	Projection ScanProjection
 }
+
+// ScanProjection is how much of each item a scan returns.
+type ScanProjection int
+
+const (
+	ScanWholeItems ScanProjection = iota
+	// ScanIdentity reduces each item to its id, the values at its
+	// partition key paths in their nested shape, and its system fields,
+	// each where the whole item has it.
+	ScanIdentity
+)
 
 // ScanPosition resumes a scan after the page that carried it. It is opaque,
 // and valid only for the container, the backend and the request that issued
@@ -74,3 +89,15 @@ type ThrottledError struct {
 func (e *ThrottledError) Error() string { return e.Err.Error() }
 
 func (e *ThrottledError) Unwrap() error { return e.Err }
+
+// defaultRetryAfter is the pause after a throttle that named no delay.
+const defaultRetryAfter = time.Second
+
+// Wait is how long to pause before trying again: RetryAfter, or a second
+// when the backend named no delay.
+func (e *ThrottledError) Wait() time.Duration {
+	if e.RetryAfter <= 0 {
+		return defaultRetryAfter
+	}
+	return e.RetryAfter
+}

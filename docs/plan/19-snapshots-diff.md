@@ -209,31 +209,33 @@ a record that outlives its pack is corruption.
 
 ### Worked size estimate
 
-1 000 000 items × 1 KB, 1% rewritten per day, 30 daily snapshots. Compression is taken
-as 4× for blocks of similar JSON; step 2 measures it and this table is corrected.
+1 000 000 items × 1 KB, 1% rewritten per day, 30 daily snapshots. Compression was
+planned at 4× for blocks of similar JSON; step 2 measured 6.3× at the chosen 256 KB
+block (see "Implementation notes"), and this table is corrected to it. A manifest
+entry also carries its body's length, two bytes more.
 
 | | One snapshot | 30 snapshots |
 |---|---|---|
 | Bodies, unique | 1.00 GB | 1.29 GB (1M + 29 × 10k) |
-| Bodies in packs at 4× | 250 MB | 323 MB |
+| Bodies in packs at 6.3× | 159 MB | 205 MB |
 | Body lengths in blocks | 2 MB | 3 MB |
 | Pack indexes, 22 B per blob | 22 MB | 28 MB |
-| Head manifest, 72 B per item | 72 MB | 72 MB |
-| Change sets, ~116 B per changed key | — | 34 MB (29 × 1.2 MB) |
+| Head manifest, 74 B per item | 74 MB | 74 MB |
+| Change sets, ~120 B per changed key | — | 35 MB (29 × 1.2 MB) |
 | Records | 2 KB | 60 KB |
-| **Total** | **346 MB** | **460 MB** |
+| **Total** | **257 MB** | **345 MB** |
 
 | Compared with | Size | Ratio |
 |---|---|---|
-| 30 JSON exports | 30 GB | 65× larger |
-| 30 gzipped exports | 7.5 GB | 16× larger |
-| one snapshot in this design | 346 MB | 30 snapshots cost 1.33× one |
+| 30 JSON exports | 30 GB | 87× larger |
+| 30 gzipped exports | 7.5 GB | 22× larger |
+| one snapshot in this design | 257 MB | 30 snapshots cost 1.34× one |
 
-A day costs 3.9 MB: 2.5 MB of new bodies, 0.2 MB of index, 1.2 MB of change set. A
-snapshot of a container nobody touched costs a record and an empty change set, under
-4 KB. If the documents are high-entropy and compress 2×, the 30-day total is 782 MB
-and still 38× smaller than the exports. Inserts and deletes cost the same as or less
-than the rewrites assumed here.
+A day costs about 3 MB: 1.6 MB of new bodies, 0.2 MB of index, 1.2 MB of change set.
+A snapshot of a container nobody touched costs a record and an empty change set, under
+4 KB (547 B measured). If the documents are high-entropy and compress 2×, the 30-day
+total is 782 MB and still 38× smaller than the exports. Inserts and deletes cost the
+same as or less than the rewrites assumed here.
 
 Memory: a capture holds the parent manifest and the index prefixes, about 100 bytes and
 22 bytes per item — 130 MB at a million items. That is a ceiling worth stating rather
@@ -335,7 +337,9 @@ closed.
 ### RU profile
 
 Planning figures until step 5 measures them on a real account: 0.04 RU per 1 KB item
-returned by a scan, 0.015 per key returned by the sweep.
+returned by a scan, 0.015 per key returned by the sweep. Step 5 could measure on the
+emulator only, which charges a flat 1 RU a page whatever the page holds; the figures
+below remain the plan's (see "Implementation notes").
 
 | | Reads | RU (planning) | Writes to disk |
 |---|---|---|---|
@@ -1062,3 +1066,125 @@ the first capture.
   and `ctrl+c` responsive between pages.
 - No new module in `go.mod`. `internal/snapshot` imports no TUI and no concrete
   adapter; `internal/tui` imports the `internal/adapter` interfaces only.
+
+## Implementation notes
+
+What landed differs from the text above in these ways:
+
+- **Measurements.** Step 2, on 20 000 generated order documents of about 744 bytes in
+  canonical form (GUID ids, enums, an address, two to five lines, free text): deflate
+  reaches 3.35× on 4 KB blocks, 5.87× on 64 KB, 6.13× on 128 KB, **6.28× on 256 KB**,
+  6.36× on 512 KB and 6.40× on 1 MB, against 1.72× compressing each document alone.
+  On the seed data (50 KB, one block per container) it is 8.59× against 1.10×. The
+  block stays at 256 KB: past it the gain is under 2%, and a read decompresses one
+  block. The size test, on the same generator: the first snapshot 4.26 MB, thirty at
+  1% churn 5.84 MB (**1.37×**), against 425 MB of exports (**72.7× smaller**); an
+  unchanged snapshot adds **547 B**; pruned to the last 7 and collected, the store is
+  **1.16×** a fresh store of the same 7. It runs in about 40 s and `-short` skips it.
+  Step 5 ran on the `vnext-preview` emulator only, which charges 1 RU a page whatever
+  the page holds: a full scan of 201 items of 2 KB took 5 RU and an incremental capture
+  6 RU (5 sweep pages, 1 fetch), and the sweep read 3 RU with `_etag` and 3 without.
+  So the RU question is not settled by measurement: the sweep keeps `_etag`, and the
+  `_ts` fallback is not built. The integration test asserts what the emulator can
+  show — the incremental capture read 39 KB against the full capture's 401 KB — and
+  logs the RU. No real account was measured, so the planning figures stand.
+- **The pack format is a package of its own**, `internal/snapshot/pack` (pack, index,
+  writer, set, walk, collect, header, file), so its reader and writer are tested and
+  fuzzed through exported names as the repo's `test/` rule requires. `ErrCorrupt` and
+  `ErrUnknownFormat` are its sentinels, and `snapshot`'s are the same values.
+- **A manifest entry also holds its body's length** (a variable-length integer), so an incremental
+  snapshot's logical bytes come without reading a body.
+- **Change sets are named `<parent>..<child>.changes`**, and a record names its parent.
+  A delete writes the composed or the undone file under a name nothing reads yet, then
+  commits by rewriting the child's record (or removing the head's); `Open` removes a
+  record an interrupted delete had cut out of an intact chain. A change set also keeps
+  a no-op replace (same hash, new version), so it turns one manifest into the next
+  exactly; a diff lists it as `Unchanged`, which is never shown.
+- **`Open` never deletes a pack.** It removes temporary files, change sets and
+  manifests no record needs, and only when it can take the lock. An abandoned
+  capture's published packs stay for the next capture to reuse, and garbage
+  collection reclaims what nothing reaches at the next delete or prune. A pack whose
+  index a crash lost is indexed from its content by readers and rebuilt by collection,
+  and collection deletes an index before its pack. Past 64 packs the smallest are
+  merged into one.
+- **Capture.** `Begin` creates the store and takes the lock; the first `Next` reads
+  the definition and loads the manifest and indexes. A page that fails closes the scan,
+  and the next `Next` reopens it at the last position, as 18's copy does.
+  `snapshot.MaxThrottles` (5) is shared by the TUI and the CLI, and the wait before a
+  retry is `adapter.ThrottledError.Wait()` everywhere, clones and the writer pool
+  included. `Progress` gained
+  `PhaseItems` and `Expected` for the status bar's percentage. An id that would repeat
+  or go back (two captures in one second, a clock stepped back) is a second past the
+  newest; database snapshots get the same rule, so `BeginGroup` reads the groups and
+  returns an error. The definition blob is `{partitionKeys, backend, policies,
+  throughput}` in canonical form; a throughput read that fails fails the capture.
+- **The lock is the operating system's**, not the file's existence: `lock` is held
+  under `flock` (`LockFileEx` on Windows) while a capture, delete, prune or tidy runs,
+  and holds the holder's pid, host and start only for a refusal to name. A process that
+  dies releases it, so there is no stale lock to take over and no takeover race; the
+  file stays, and `release` only unlocks. Within one process the stores held are
+  also kept in a mutex-guarded set by absolute path, checked before the advisory lock:
+  an NFS client emulates `flock` with a lock per process, which a second lock in the
+  process would share and a close of any handle would drop. A capture step cancelled by `x` or a quit
+  aborts its capture itself, so the lock goes even when no one reads the step's
+  message. `golang.org/x/sys`, already in `go.mod` indirectly, is now a direct
+  requirement for the Windows lock.
+- **Removals that commit are durable.** Removing the head's or the only snapshot's
+  record syncs `records/`, and garbage collection syncs it before it reclaims
+  anything, so a power loss cannot bring back a record whose bodies are gone.
+  `readManifest` refuses keys out of order, as `readChanges` does.
+- **Negative zero.** Canonical form treats `-0` as `0` everywhere: join keys, item
+  bodies, iteration 17's batch check (`query.sameKey`) and a snapshot's item keys.
+  On the `vnext-preview` emulator, a create of `{"id":"a","pk":-0.0}` under a `-0`
+  key after `{"id":"a","pk":0}` was a 409 Conflict (one logical partition), a `-0.0`
+  body under a `0` key was accepted and so was the reverse, and the service returned
+  `-0.0` as `0`. Not verified on a real account. For 17 this is a change only for
+  `-0.0`, which it used to keep apart; the integer `-0` it already counted as `0`.
+- **Retention and verify take a time** (`Delete(id, now)`, `Prune(policy, now)`,
+  `Pruned`, `Verify(options, now)`), and `Verify` holds the lock. Deleting a database
+  snapshot, or exporting one, is not offered: its containers' snapshots are deleted
+  and exported one by one.
+- **Exports** take `snapshot.Existing`: the CLI refuses a file that exists, and the
+  TUI's `!` replaces it through a temporary file and a rename. In a diff's `.json` an
+  undefined partition key value is written `{}`, which no key value can be, and each
+  patch entry carries `before` beside `value`, which a JSON Patch applier ignores.
+- **Adapter.** `ReadItemMeta` reads the system fields without splitting the body, for
+  the sweep, and `SystemFields` lists them for the Cosmos projection. Cosmos builds
+  `ScanIdentity` as `SELECT VALUE {…}` over every system field and the key paths, from
+  one container read per identity scan opened; `cosmos.IdentityProjection` is exported
+  for its test and the RU measurement.
+- **Mock.** Every write, seeding included, stamps `_ts` from `WithClock` beside
+  `_etag`, and `DraftReplace` strips both; two tests that compared whole items were
+  adjusted. `PutItem` files an item with no key value under the empty partition, as
+  seeding does.
+- **`canonical`** respells `-0` as `0`: fuzzing found `-0.0` did not survive a second
+  pass. See "Negative zero" above for where that applies.
+- **TUI.** A capture's failures travel in `SnapshotProgressMsg.Err`, with the job id and
+  the capturer to abort; `ErrMsg{Op: OpSnapshot}` carries a list that could not be
+  read. There is no `SnapshotDoneMsg`: the step that publishes ends the capture, as 18's
+  last page ends a clone. Added: `GroupDiffLoadedMsg`, `DiffFieldsMsg`,
+  `SnapshotDeletedMsg`, `SnapshotExportedMsg`, and an unexported retry tick. The job
+  slot is released when a capture ends, since there is nothing to resume, and the
+  status bar keeps `snapshot done (v)` or `snapshot failed (v)` until it is seen. A
+  database's diff is `overlayGroupDiff` (`panes.GroupDiff`), and exports use
+  `overlaySnapshotExport` on the export prompt, which learnt `WithFormats`. The diff's
+  store is handed from command to command rather than shared, and a read that finds it
+  out waits for it. The new bindings are `MarkSnapshot`, `DiffSnapshots`,
+  `DeleteSnapshot`, `CancelCapture`, `ConfirmTake` and `ConfirmDelete`
+  (`SnapshotKeys()`), and `OpenChange` and `CycleChanges` (`DiffKeys()`); the delete
+  confirmation is `d`, then `enter`. The overlays' hint lines wrap to a second line at
+  80 columns rather than cutting keys off. The theme's icons gained `Marked` and
+  `Removed`. Iteration 21 has not landed, so there is no `UPDATE` for `ctrl+r` to
+  refuse. The quit warning opens the capture's overlay with its list and its progress
+  line, the warning under it; leaving that overlay with `esc` takes the warning back,
+  so the next `q` warns again rather than cancelling. The switcher's refusal names the
+  job's own key and verb:
+  `a snapshot is using prod: cancel it first (v in the catalog)`.
+- **CLI.** Counts are grouped with commas, as the TUI's are. `prune` refuses to run
+  without `--keep-last` (0 keeps by day alone). `list` prints each store's usage line
+  and its snapshots. `--snapshot-dir` is a persistent flag of the root, so `profile
+  remove` finds the snapshots it reports or purges.
+- **The integration test** seeds a database of its own rather than `make
+  emulator-seed`'s, as every integration test here does. It ran against the
+  `vnext-preview` emulator in this iteration's environment, and passed, as did the
+  rest of the integration suite. The manual checklist was not run.

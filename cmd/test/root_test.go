@@ -65,6 +65,7 @@ func newHarness(t *testing.T) harness {
 	require.NoError(t, ensureAdaptersRegistered())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("COSMOS_CONNECTION_STRING", "")
 	return harness{keyring: newFakeKeyring()}
 }

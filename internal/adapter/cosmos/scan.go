@@ -13,18 +13,20 @@ import (
 
 var _ adapter.ItemScanner = (*connection)(nil)
 
-// scanQuery reads whole items. Unordered and across every partition, it is
-// served by the gateway walking the partition key ranges in a fixed order,
-// which is what makes its continuation token a stable place to resume.
-const scanQuery = "SELECT * FROM c"
-
 // ScanItems opens a scan resuming at request.From: the query's continuation
-// token, as the service issued it.
-func (c *connection) ScanItems(_ context.Context, request adapter.ScanRequest) (adapter.ItemScan, error) {
+// token, as the service issued it. Unordered and across every partition, a
+// scan is served by the gateway walking the partition key ranges in a fixed
+// order, which is what makes its continuation token a stable place to
+// resume.
+func (c *connection) ScanItems(ctx context.Context, request adapter.ScanRequest) (adapter.ItemScan, error) {
 	op := "scan " + pathText(request.Container)
 	container, err := c.containerAt(op, request.Container)
 	if err != nil {
 		return nil, err
+	}
+	text, err := c.scanQuery(ctx, container, request)
+	if err != nil {
+		return nil, wrap(op, err)
 	}
 	options := &azcosmos.QueryOptions{PageSizeHint: request.PageSize}
 	if options.PageSizeHint <= 0 {
@@ -34,8 +36,90 @@ func (c *connection) ScanItems(_ context.Context, request adapter.ScanRequest) (
 		from := string(request.From)
 		options.ContinuationToken = &from
 	}
-	pager := container.NewQueryItemsPager(scanQuery, azcosmos.NewPartitionKey(), options)
+	if !request.Since.IsZero() {
+		options.QueryParameters = []azcosmos.QueryParameter{{Name: "@since", Value: request.Since.Unix()}}
+	}
+	pager := container.NewQueryItemsPager(text, azcosmos.NewPartitionKey(), options)
 	return &scan{op: op, pager: pager}, nil
+}
+
+// scanQuery is the query a scan runs. _ts is in seconds, so Since keeps
+// the whole second it falls in.
+func (c *connection) scanQuery(ctx context.Context, container *azcosmos.ContainerClient, request adapter.ScanRequest) (string, error) {
+	projection := "*"
+	if request.Projection == adapter.ScanIdentity {
+		resp, err := container.Read(ctx, nil)
+		if err != nil {
+			return "", err
+		}
+		projection = "VALUE " + IdentityProjection(resp.ContainerProperties.PartitionKeyDefinition.Paths)
+	}
+	text := "SELECT " + projection + " FROM c"
+	if !request.Since.IsZero() {
+		text += " WHERE c._ts >= @since"
+	}
+	return text, nil
+}
+
+// IdentityProjection is an object literal of an item's id, its system
+// fields and the values at keyPaths, nested as the item nests them. An
+// object literal drops a member whose value is undefined, so a field the
+// item lacks is absent rather than null, and its keys are strings, so any
+// property name can be written.
+func IdentityProjection(keyPaths []string) string {
+	root := &literal{}
+	for _, name := range append([]string{"id"}, adapter.SystemFields()...) {
+		root.add([]string{name})
+	}
+	for _, path := range keyPaths {
+		root.add(strings.Split(strings.TrimPrefix(path, "/"), "/"))
+	}
+	return root.render("c")
+}
+
+// literal is one object of the projection, its members in the order they
+// were first named.
+type literal struct {
+	names   []string
+	members map[string]*literal
+}
+
+func (l *literal) add(path []string) {
+	if len(path) == 0 {
+		return
+	}
+	if l.members == nil {
+		l.members = map[string]*literal{}
+	}
+	child, ok := l.members[path[0]]
+	if !ok {
+		l.names = append(l.names, path[0])
+	}
+	if len(path) == 1 {
+		l.members[path[0]] = nil // a whole value: whatever lies beneath it comes with it
+		return
+	}
+	if ok && child == nil {
+		return
+	}
+	if child == nil {
+		child = &literal{}
+		l.members[path[0]] = child
+	}
+	child.add(path[1:])
+}
+
+func (l *literal) render(source string) string {
+	members := make([]string, 0, len(l.names))
+	for _, name := range l.names {
+		quoted, _ := json.Marshal(name) // a string always marshals
+		value := source + "[" + string(quoted) + "]"
+		if child := l.members[name]; child != nil {
+			value = child.render(value)
+		}
+		members = append(members, string(quoted)+": "+value)
+	}
+	return "{" + strings.Join(members, ", ") + "}"
 }
 
 type scan struct {

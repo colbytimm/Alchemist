@@ -31,6 +31,7 @@ can be added without touching the TUI.
 | DDL via SQL (Cosmos has none) | Catalog management: create/delete, throughput | 11 |
 | Transactions | Transactional batch: `BEGIN BATCH … COMMIT`, reviewed and confirmed | 17 |
 | — | Cloning: a container or a database, into any writable account, with progress, stop and resume | 18 |
+| — | Snapshots of a container or a database on disk, and diffs between them, from the catalog or cron | 19 |
 | Adapter plugins | Go interfaces + registry | 2, 3 |
 | Profiles / config | TOML profiles + OS keychain secrets | 6 |
 | Help overlay | Keybinding help (`?`) | 4 |
@@ -45,14 +46,16 @@ packages, and keybindings use plain, self-explanatory names.
 
 ```
 main.go                       # thin entry
-cmd/                          # cobra: root launches TUI; version; profile subcommands
+cmd/                          # cobra: root launches TUI; version; profile and snapshot subcommands
 internal/
   adapter/                    # CORE INTERFACES ONLY — no cosmos imports
     adapter.go registry.go batch.go definition.go scan.go system.go
     mock/                     # in-memory adapter used by all TUI tests
     cosmos/                   # azcosmos v1.5.0 implementation
   query/                      # "db.container" scope tokenizer/rewriter; batch statements
+  canonical/                  # one spelling of a JSON document, for hashing and comparing
   clone/                      # client-side container and database copy, one step at a time
+  snapshot/                   # snapshot store, capture, diff, retention; pack/ holds the bodies
   writers/                    # bounded, throttle-aware pool for item writes
   tui/
     app.go                    # root model: layout, focus, routing only
@@ -164,6 +167,7 @@ The TUI converts errors into messages rendered in the Assay pane.
 | 20 | [20-cte-join-types.md](20-cte-join-types.md) | Client-side LEFT/RIGHT/FULL OUTER and CROSS joins, CROSS/OUTER APPLY over item arrays, and CTEs (`WITH`) pushed down per container, materialized once, composable; plan becomes a small operator tree | 10, 16 |
 | 21 | [21-update-by-query.md](21-update-by-query.md) | Bulk update by query: `UPDATE db.container a SET … [UNSET …] WHERE …` simulated client-side — read-only dry run, review with typed confirmation, background job of per-item conditional patches, per-item report; introduces the shared select-then-write engine | 14, 17, 18 |
 | 22 | [22-delete-by-query.md](22-delete-by-query.md) | Delete by query: `DELETE FROM db.container a WHERE …` on 21's engine, each delete conditional on the item's ETag, confirmed by container name plus item count | 21 |
+| 23 | [23-syntax-highlighting.md](23-syntax-highlighting.md) | Live syntax highlighting while typing, every color from theme roles, and red curly-underline diagnostics for what Alchemist does not recognize; bounded by a typing-performance budget enforced in CI | 8, 13, 17 |
 
 Iterations 3 and 4 are parallelizable — both depend only on the interfaces from 2.
 

@@ -68,7 +68,9 @@ func NewRootCmd(keyring config.Keyring) *cobra.Command {
 		},
 	}
 	session.bind(cmd.Flags())
-	cmd.AddCommand(newProfileCmd(keyring))
+	cmd.PersistentFlags().String(snapshotDirFlag, "",
+		"keep snapshots here instead of snapshot_dir in config.toml or $XDG_DATA_HOME/alchemist/snapshots")
+	cmd.AddCommand(newProfileCmd(keyring), newSnapshotCmd(keyring))
 	cmd.SetVersionTemplate(fmt.Sprintf("%s {{.Version}}\n", app.Name))
 	cmd.CompletionOptions.DisableDefaultCmd = true
 	return cmd
@@ -118,6 +120,11 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 	defer func() { _ = logFile.Close() }()
 
 	logger.Info("session started", "account", launch.name)
+	snapshots, err := snapshotRoot(cmd)
+	if err != nil {
+		logger.Warn("snapshots are off for this session", "error", err)
+		snapshots = ""
+	}
 	program := tea.NewProgram(
 		tui.New(tui.Options{
 			Icons:        s.icons(),
@@ -133,6 +140,7 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 			SampleFields: s.sampleFields,
 			Saved:        savedStore(logger),
 			ReadOnly:     s.readOnly,
+			Snapshots:    snapshots,
 		}),
 		tea.WithAltScreen(),
 		tea.WithContext(cmd.Context()),

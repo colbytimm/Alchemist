@@ -132,6 +132,9 @@ func TestCheckBatchComparesKeysByValueAndType(t *testing.T) {
 		{name: "a null key", keyPaths: []string{"/n"}, key: key(`null`), body: `{"id":"a","n":null}`, ok: true},
 		{name: "a boolean key", keyPaths: []string{"/n"}, key: key(`true`), body: `{"id":"a","n":true}`, ok: true},
 		{name: "false is not null", keyPaths: []string{"/n"}, key: key(`null`), body: `{"id":"a","n":false}`},
+		{name: "negative zero matches zero", keyPaths: []string{"/n"}, key: key(`0`), body: `{"id":"a","n":-0.0}`, ok: true},
+		{name: "negative integer zero matches zero", keyPaths: []string{"/n"}, key: key(`0`), body: `{"id":"a","n":-0}`, ok: true},
+		{name: "zero matches negative zero", keyPaths: []string{"/n"}, key: key(`-0.0`), body: `{"id":"a","n":0}`, ok: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

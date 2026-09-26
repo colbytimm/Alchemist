@@ -132,6 +132,17 @@ func TestJoinKeysMatchByValueNotBySpelling(t *testing.T) {
 	}
 }
 
+func TestANegativeZeroJoinsZero(t *testing.T) {
+	conn := newContainers(map[string][]adapter.Page{
+		"sales.orders":    {page(t, 1, `{"customerId":-0.0,"id":"o1","total":1}`)},
+		"sales.customers": {page(t, 1, `{"id":0,"name":"Ada"}`)},
+	})
+
+	pages := drain(t, execute(t, conn, joinQuery))
+
+	assert.Len(t, rows(pages), 1, "a join compares numbers as values, and -0 equals 0")
+}
+
 func TestIntegerKeysBeyondFloatPrecisionStayDistinct(t *testing.T) {
 	conn := newContainers(map[string][]adapter.Page{
 		"sales.orders":    {page(t, 1, `{"customerId":9007199254740993,"id":"o1","total":1}`)},

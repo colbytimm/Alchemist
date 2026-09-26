@@ -84,9 +84,13 @@ type recordingConnection struct {
 	failQuery    int
 	failPage     int
 	failPing     int
-	pings        int
-	closed       int
-	closes       int
+	// throttleScans is how many page reads of a scan come back throttled,
+	// naming scanRetryAfter as the wait, before the rest are served.
+	throttleScans  int
+	scanRetryAfter time.Duration
+	pings          int
+	closed         int
+	closes         int
 }
 
 func newConnection(t *testing.T, opts ...mock.Option) *recordingConnection {
@@ -151,7 +155,25 @@ func (c *recordingConnection) ContainerDefinition(ctx context.Context, path []st
 }
 
 func (c *recordingConnection) ScanItems(ctx context.Context, request adapter.ScanRequest) (adapter.ItemScan, error) {
-	return c.scanner.ScanItems(ctx, request)
+	scan, err := c.scanner.ScanItems(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	return &throttlingScan{ItemScan: scan, connection: c}, nil
+}
+
+// throttlingScan throttles the page reads its connection was told to.
+type throttlingScan struct {
+	adapter.ItemScan
+	connection *recordingConnection
+}
+
+func (s *throttlingScan) NextPage(ctx context.Context) (adapter.ItemPage, error) {
+	if s.connection.throttleScans > 0 {
+		s.connection.throttleScans--
+		return adapter.ItemPage{}, &adapter.ThrottledError{RetryAfter: s.connection.scanRetryAfter, Err: errors.New("429 Too Many Requests")}
+	}
+	return s.ItemScan.NextPage(ctx)
 }
 
 func (c *recordingConnection) OpenItemSink(ctx context.Context, path []string) (adapter.ItemSink, error) {
@@ -317,6 +339,59 @@ func settle(m tea.Model, cmd tea.Cmd) (tea.Model, []tea.Msg) {
 	return m, delivered
 }
 
+// settleNow is settle for flows that do slow work and start no long timer:
+// captures, diffs and exports of snapshots. It runs every command to its
+// answer, however long a step takes under the race detector, where settle
+// would take a slow step for a timer and drop it. Animation ticks are
+// delivered but not followed, as settle does.
+func settleNow(m tea.Model, cmd tea.Cmd) tea.Model {
+	pending := answers(cmd)
+	for len(pending) > 0 {
+		var next []tea.Msg
+		for _, msg := range pending {
+			model, cmd := m.Update(msg)
+			m = model
+			if _, animating := msg.(spinner.TickMsg); animating {
+				continue
+			}
+			next = append(next, answers(cmd)...)
+		}
+		pending = next
+	}
+	return m
+}
+
+// answers runs cmd to its end, flattening batches, and waits on every
+// command however long it takes.
+func answers(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		if msg == nil {
+			return nil
+		}
+		return []tea.Msg{msg}
+	}
+	var msgs []tea.Msg
+	for _, c := range batch {
+		msgs = append(msgs, answers(c)...)
+	}
+	return msgs
+}
+
+// pressNow is press, driven by settleNow.
+func pressNow(t *testing.T, m tea.Model, keys ...tea.KeyMsg) tea.Model {
+	t.Helper()
+	for _, key := range keys {
+		model, cmd := m.Update(key)
+		m = settleNow(model, cmd)
+	}
+	return m
+}
+
 // timerGrace is how long messages waits on a command before taking it for a
 // timer. Every command a test does follow answers from memory, in microseconds.
 const timerGrace = 50 * time.Millisecond
@@ -367,27 +442,6 @@ func pressWriting(t *testing.T, m tea.Model, key tea.KeyMsg) tea.Model {
 		m, _ = settle(m.Update(msg))
 	}
 	return m
-}
-
-// answers runs cmd to its end, flattening batches, and waits on every command
-// however long it takes.
-func answers(cmd tea.Cmd) []tea.Msg {
-	if cmd == nil {
-		return nil
-	}
-	msg := cmd()
-	batch, ok := msg.(tea.BatchMsg)
-	if !ok {
-		if msg == nil {
-			return nil
-		}
-		return []tea.Msg{msg}
-	}
-	var msgs []tea.Msg
-	for _, c := range batch {
-		msgs = append(msgs, answers(c)...)
-	}
-	return msgs
 }
 
 func pressAll(t *testing.T, m tea.Model, keys ...tea.KeyMsg) tea.Model {

@@ -31,8 +31,11 @@ var profileNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // Config is the whole config file.
 type Config struct {
-	DefaultProfile string             `toml:"default_profile,omitempty"`
-	Profiles       map[string]Profile `toml:"profiles,omitempty"`
+	DefaultProfile string `toml:"default_profile,omitempty"`
+	// SnapshotDir moves the snapshot store off its default under
+	// $XDG_DATA_HOME, for a home directory with no room for it.
+	SnapshotDir string             `toml:"snapshot_dir,omitempty"`
+	Profiles    map[string]Profile `toml:"profiles,omitempty"`
 }
 
 // Profile is one named connection. Name is the table key in the file, not a
@@ -56,6 +59,9 @@ type Profile struct {
 	// ReadOnly refuses every write Alchemist can make; unset means read-only
 	// for any endpoint but the local emulator's.
 	ReadOnly *bool `toml:"read_only,omitempty"`
+	// SnapshotMaxItems refuses a snapshot of a larger container before any
+	// of it is read; snapshot.DefaultMaxItems when zero.
+	SnapshotMaxItems int64 `toml:"snapshot_max_items,omitzero"`
 }
 
 func (p Profile) SamplesFields() bool {
@@ -212,6 +218,8 @@ func (p Profile) validate() error {
 		return fmt.Errorf("profile %q: page_size must be positive: %w", p.Name, ErrInvalidConfig)
 	case p.MaxJoinRows < 0:
 		return fmt.Errorf("profile %q: max_join_rows must be positive: %w", p.Name, ErrInvalidConfig)
+	case p.SnapshotMaxItems < 0:
+		return fmt.Errorf("profile %q: snapshot_max_items must be positive: %w", p.Name, ErrInvalidConfig)
 	case p.Writers < 0 || p.Writers > writers.MaxSize:
 		return fmt.Errorf("profile %q: writers must be from 1 to %d: %w", p.Name, writers.MaxSize, ErrInvalidConfig)
 	}

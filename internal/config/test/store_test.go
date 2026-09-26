@@ -49,7 +49,7 @@ func TestSaveOmitsUnsetOptionalFields(t *testing.T) {
 
 	text, err := os.ReadFile(store.Path)
 	require.NoError(t, err)
-	for _, unset := range []string{"page_size", "max_join_rows", "writers", "database", "insecure_skip_verify"} {
+	for _, unset := range []string{"page_size", "max_join_rows", "writers", "database", "insecure_skip_verify", "snapshot"} {
 		assert.NotContains(t, string(text), unset)
 	}
 }
@@ -75,6 +75,7 @@ func TestLoadParsesTheDocumentedExample(t *testing.T) {
 	store := tempStore(t)
 	writeConfig(t, store, `
 default_profile = "emulator"
+snapshot_dir = "/mnt/big/snapshots"
 
 [profiles.emulator]
 adapter = "cosmos"
@@ -84,6 +85,7 @@ database = "sales"               # optional default scope
 page_size = 100
 max_join_rows = 5000
 writers = 8
+snapshot_max_items = 10000000
 
 [profiles.prod]
 adapter = "cosmos"
@@ -104,7 +106,9 @@ endpoint = "https://myaccount.documents.azure.com:443/"
 		PageSize:           100,
 		MaxJoinRows:        5000,
 		Writers:            8,
+		SnapshotMaxItems:   10000000,
 	}, profile)
+	assert.Equal(t, "/mnt/big/snapshots", cfg.SnapshotDir)
 	assert.Equal(t, []string{"emulator", "prod"}, cfg.Names())
 }
 

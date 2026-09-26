@@ -84,6 +84,11 @@ const (
 	overlayCloneReview
 	overlayCloneProgress
 	overlayCloneDelete
+	overlaySnapshots
+	overlaySnapshotExport
+	overlayDiff
+	overlayGroupDiff
+	overlayItemDiff
 )
 
 // runState is how far the current query has got.
@@ -123,6 +128,9 @@ type Options struct {
 	// ReadOnly refuses every write on every account, whatever its profile
 	// allows.
 	ReadOnly bool
+	// Snapshots is the directory snapshots are kept under; empty turns
+	// them off.
+	Snapshots string
 }
 
 // Management is what a session may do with the catalog beyond browsing it:
@@ -179,6 +187,18 @@ type Model struct {
 	cloneProgress panes.CloneProgress
 	statusBar     panes.StatusBar
 	help          panes.Help
+
+	// snapshotRoot is where snapshots are kept; empty turns them off.
+	snapshotRoot   string
+	snapshotsPane  panes.Snapshots
+	snapshotExport panes.ExportPrompt
+	diffPane       panes.Diff
+	groupDiffPane  panes.GroupDiff
+	itemDiffPane   panes.ItemDiff
+	// browsing is the store the snapshot overlays show, and capturing the
+	// capture holding the job slot, or the last one until it is seen.
+	browsing  snapshotBrowse
+	capturing captureRun
 
 	// lastAttempt numbers the newest attempt to connect an account, by the
 	// Opener or by a connect form. formAttempts are the accounts connect
@@ -296,9 +316,20 @@ func New(opts Options) Model {
 		}),
 		statusBar:    panes.NewStatusBar(opts.Icons, ""),
 		help:         panes.NewHelp(keys.HelpSections()),
-		formAttempts: map[string]int{},
-		sampleFields: opts.SampleFields,
-		readOnly:     opts.ReadOnly,
+		snapshotRoot: opts.Snapshots,
+		snapshotsPane: panes.NewSnapshots(opts.Icons, panes.SnapshotsKeys{
+			List:    []key.Binding{keys.TakeSnapshot, keys.MarkSnapshot, keys.DiffSnapshots, keys.Export, keys.DeleteSnapshot, keys.Close},
+			Capture: []key.Binding{keys.CancelCapture, keys.MarkSnapshot, keys.DiffSnapshots, keys.Close},
+			Prompt:  []key.Binding{keys.ConfirmTake, keys.Close},
+			Confirm: []key.Binding{keys.ConfirmDelete, keys.Close},
+		}),
+		snapshotExport: panes.NewExportPrompt(append(keys.ExportKeys(), keys.Close)),
+		diffPane:       panes.NewDiff(opts.Icons, append(keys.DiffKeys(), keys.Filter, keys.Export, keys.Close)),
+		groupDiffPane:  panes.NewGroupDiff(opts.Icons, []key.Binding{keys.DiffSnapshots, keys.Close}),
+		itemDiffPane:   panes.NewItemDiff(opts.Icons, []key.Binding{keys.Scroll, keys.Close}),
+		formAttempts:   map[string]int{},
+		sampleFields:   opts.SampleFields,
+		readOnly:       opts.ReadOnly,
 	}
 	m.accounts = newAccountSet(m.sessionAccounts(opts.Accounts), m.blankEntry)
 	if opts.Launch == "" {
@@ -330,6 +361,9 @@ func (m Model) Init() tea.Cmd {
 // so a session offers nothing its backend cannot carry out.
 func (m Model) withManagement(management Management) Model {
 	m.keys = DefaultKeyMap().forManagement(management)
+	if m.snapshotRoot == "" {
+		m.keys = m.keys.withoutSnapshots()
+	}
 	m.help = panes.NewHelp(m.keys.HelpSections()).SetSize(m.width, m.height)
 	return m
 }
@@ -400,6 +434,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.acceptClonePage(msg)
 	case CloneFailedMsg:
 		return m.failClone(msg)
+	case SnapshotsLoadedMsg:
+		return m.fileSnapshots(msg), nil
+	case SnapshotProgressMsg:
+		return m.acceptCaptureStep(msg)
+	case snapshotRetryMsg:
+		return m.retryCaptureStep(msg)
+	case SnapshotDeletedMsg:
+		return m.finishSnapshotDelete(msg)
+	case SnapshotExportedMsg:
+		return m.finishSnapshotExport(msg)
+	case DiffLoadedMsg:
+		return m.openDiff(msg)
+	case GroupDiffLoadedMsg:
+		return m.openGroupDiff(msg), nil
+	case DiffFieldsMsg:
+		return m.fileDiffFields(msg)
+	case ItemDiffLoadedMsg:
+		return m.openItemDiff(msg)
 	}
 	return m.animate(msg)
 }
@@ -448,6 +500,16 @@ func (m Model) layout() string {
 		return m.cloneProgress.View()
 	case overlayCloneDelete:
 		return m.confirm.View()
+	case overlaySnapshots:
+		return m.snapshotsPane.View()
+	case overlaySnapshotExport:
+		return m.snapshotExport.View()
+	case overlayDiff:
+		return m.diffPane.View()
+	case overlayGroupDiff:
+		return m.groupDiffPane.View()
+	case overlayItemDiff:
+		return m.itemDiffPane.View()
 	}
 	right := lipgloss.JoinVertical(lipgloss.Left, m.editor.View(), m.results.View())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, m.catalogPane().View(), right)
@@ -506,6 +568,8 @@ func (m Model) handleErr(msg ErrMsg) (Model, tea.Cmd) {
 		return m.failInspect(msg), nil
 	case OpSampleFields:
 		return m.failSample(msg)
+	case OpSnapshot:
+		return m.failSnapshots(msg), nil
 	}
 	return m, nil
 }
@@ -604,6 +668,16 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleCloneProgressKey(msg)
 	case overlayCloneDelete:
 		return m.handleCloneDeleteKey(msg)
+	case overlaySnapshots:
+		return m.handleSnapshotsKey(msg)
+	case overlaySnapshotExport:
+		return m.handleSnapshotExportKey(msg)
+	case overlayDiff:
+		return m.handleDiffKey(msg)
+	case overlayGroupDiff:
+		return m.handleGroupDiffKey(msg)
+	case overlayItemDiff:
+		return m.handleItemDiffKey(msg)
 	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
@@ -627,11 +701,14 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 // holds. A clone that is running is shown first, with what quitting would
 // leave behind, and stopped by the quit that follows.
 func (m Model) quit() (Model, tea.Cmd) {
-	if model, warned := m.warnBeforeQuit(); warned {
-		return model, nil
+	if model, load, warned := m.warnBeforeQuit(); warned {
+		return model, load
 	}
-	if m.job.active() {
+	switch m.job.kind {
+	case jobClone:
 		m = m.abandonClone()
+	case jobCapture:
+		m = m.abandonCapture()
 	}
 	m = m.endRun()
 	m.CloseConnections()
@@ -640,12 +717,20 @@ func (m Model) quit() (Model, tea.Cmd) {
 
 func (m Model) handleCatalogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
-	case m.job.active() && reopensJob(msg, m.keys.Clone):
+	case m.job.kind == jobClone && reopensJob(msg, m.keys.Clone):
 		return m.showCloneProgress()
+	case m.job.active() && reopensJob(msg, m.keys.Clone):
+		return m.notify(m.job.waitText("clones"))
 	case m.clonePrompt.refused && reopensJob(msg, m.keys.Clone):
 		return m.reopenRefusedClone()
 	case key.Matches(msg, m.keys.Clone):
 		return m.openClone()
+	case m.capturing.reopens() && reopensJob(msg, m.keys.Snapshots):
+		return m.showCapture()
+	case key.Matches(msg, m.keys.Snapshots):
+		return m.openSnapshots()
+	case key.Matches(msg, m.keys.TakeSnapshot):
+		return m.promptCapture()
 	case key.Matches(msg, m.keys.Up):
 		return m.setCatalogPane(m.catalogPane().CursorUp()), nil
 	case key.Matches(msg, m.keys.Down):
@@ -1159,6 +1244,11 @@ func (m Model) resize(width, height int) Model {
 	m.cloneForm = m.cloneForm.SetSize(width, height)
 	m.cloneReview = m.cloneReview.SetSize(width, height)
 	m.cloneProgress = m.cloneProgress.SetSize(width, height)
+	m.snapshotsPane = m.snapshotsPane.SetSize(width, height)
+	m.snapshotExport = m.snapshotExport.SetSize(width, height)
+	m.diffPane = m.diffPane.SetSize(width, height)
+	m.groupDiffPane = m.groupDiffPane.SetSize(width, height)
+	m.itemDiffPane = m.itemDiffPane.SetSize(width, height)
 	return m
 }
 

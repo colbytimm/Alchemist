@@ -17,6 +17,11 @@ type ItemMeta struct {
 	Modified time.Time
 }
 
+// SystemFields lists the fields IsSystemField is true for.
+func SystemFields() []string {
+	return slices.Clone(systemFields)
+}
+
 func IsSystemField(name string) bool {
 	return slices.Contains(systemFields, name)
 }
@@ -28,16 +33,22 @@ func SplitSystemFields(item json.RawMessage) (json.RawMessage, ItemMeta, error) 
 	if err != nil {
 		return nil, ItemMeta{}, err
 	}
+	meta, err := ReadItemMeta(item)
+	return body, meta, err
+}
+
+// ReadItemMeta is what item's system fields say, without the body.
+func ReadItemMeta(item json.RawMessage) (ItemMeta, error) {
 	var head struct {
 		ETag string `json:"_etag"`
 		TS   *int64 `json:"_ts"`
 	}
 	if err := json.Unmarshal(item, &head); err != nil {
-		return nil, ItemMeta{}, fmt.Errorf("adapter: read system fields: %w", err)
+		return ItemMeta{}, fmt.Errorf("adapter: read system fields: %w", err)
 	}
 	meta := ItemMeta{Version: head.ETag}
 	if head.TS != nil {
 		meta.Modified = time.Unix(*head.TS, 0).UTC()
 	}
-	return body, meta, nil
+	return meta, nil
 }

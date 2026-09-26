@@ -24,12 +24,15 @@ const (
 	overwriteMark = "!"
 )
 
-var exportFormats = []struct {
-	label     string
-	extension string
-}{
-	{label: "JSON", extension: export.ExtJSON},
-	{label: "CSV", extension: export.ExtCSV},
+// ExportFormat is a format the prompt offers, named by its extension.
+type ExportFormat struct {
+	Label     string
+	Extension string
+}
+
+var resultFormats = []ExportFormat{
+	{Label: "JSON", Extension: export.ExtJSON},
+	{Label: "CSV", Extension: export.ExtCSV},
 }
 
 type ExportTarget struct {
@@ -41,23 +44,35 @@ type ExportTarget struct {
 // its value receiver hides shared pointers, so a caller must keep every
 // ExportPrompt it is handed.
 type ExportPrompt struct {
-	frame   frame
-	hints   help.Model
-	keys    []key.Binding
-	input   textinput.Model
-	failure string
-	saving  bool
+	frame       frame
+	hints       help.Model
+	keys        []key.Binding
+	input       textinput.Model
+	defaultName string
+	formats     []ExportFormat
+	failure     string
+	saving      bool
 }
 
 func NewExportPrompt(keys []key.Binding) ExportPrompt {
 	hints := help.New()
 	hints.Styles = helpStyles()
 	return ExportPrompt{
-		frame: frame{title: exportTitle, focused: true},
-		hints: hints,
-		keys:  keys,
-		input: newInput(defaultExportName, ""),
+		frame:       frame{title: exportTitle, focused: true},
+		hints:       hints,
+		keys:        keys,
+		input:       newInput(defaultExportName, ""),
+		defaultName: defaultExportName,
+		formats:     resultFormats,
 	}
+}
+
+// WithFormats offers formats, cycled in order, and suggests defaultName.
+func (p ExportPrompt) WithFormats(title, defaultName string, formats ...ExportFormat) ExportPrompt {
+	p.frame.title = title
+	p.defaultName, p.formats = defaultName, formats
+	p.input.Placeholder = defaultName
+	return p
 }
 
 func (p ExportPrompt) SetSize(width, height int) ExportPrompt {
@@ -71,7 +86,7 @@ func (p ExportPrompt) SetSize(width, height int) ExportPrompt {
 // Open starts over from the suggested name: a name typed for the last result
 // set is rarely the one wanted for this one.
 func (p ExportPrompt) Open() ExportPrompt {
-	p.input.SetValue(defaultExportName)
+	p.input.SetValue(p.defaultName)
 	p.input.CursorEnd()
 	p.input.Focus()
 	p.failure = ""
@@ -86,15 +101,15 @@ func (p ExportPrompt) Update(msg tea.KeyMsg) (ExportPrompt, tea.Cmd) {
 	return p, cmd
 }
 
-// SwitchFormat renames the file to the other format, keeping the rest of
+// SwitchFormat renames the file to the next format, keeping the rest of
 // what was typed. An extension that names no format is part of the name.
 func (p ExportPrompt) SwitchFormat() ExportPrompt {
 	target := p.Target()
 	if target.Path == "" {
-		target.Path = defaultExportName
+		target.Path = p.defaultName
 	}
-	base, current := splitFormat(target.Path)
-	name := base + otherExtension(current)
+	base, current := p.splitFormat(target.Path)
+	name := base + p.nextExtension(current)
 	if target.Overwrite {
 		name += overwriteMark
 	}
@@ -104,21 +119,34 @@ func (p ExportPrompt) SwitchFormat() ExportPrompt {
 	return p
 }
 
-func splitFormat(path string) (base, extension string) {
+func (p ExportPrompt) splitFormat(path string) (base, extension string) {
 	extension = filepath.Ext(path)
-	for _, format := range exportFormats {
-		if strings.EqualFold(extension, format.extension) {
-			return strings.TrimSuffix(path, extension), extension
-		}
+	if p.formatIndex(extension) < 0 {
+		return path, ""
 	}
-	return path, ""
+	return strings.TrimSuffix(path, extension), extension
 }
 
-func otherExtension(current string) string {
-	if strings.EqualFold(current, export.ExtCSV) {
-		return export.ExtJSON
+// formatIndex is the place among the formats of the one extension names,
+// or -1.
+func (p ExportPrompt) formatIndex(extension string) int {
+	for i, format := range p.formats {
+		if strings.EqualFold(extension, format.Extension) {
+			return i
+		}
 	}
-	return export.ExtCSV
+	return -1
+}
+
+// nextExtension is the format after current, or, when current names none,
+// the one after the suggested name's: a switch always changes the format
+// the prompt shows as chosen.
+func (p ExportPrompt) nextExtension(current string) string {
+	i := p.formatIndex(current)
+	if i < 0 {
+		i = p.formatIndex(filepath.Ext(p.defaultName))
+	}
+	return p.formats[(i+1)%len(p.formats)].Extension
 }
 
 func (p ExportPrompt) Target() ExportTarget {
@@ -169,12 +197,12 @@ func (p ExportPrompt) destinationLines(width int) []string {
 func (p ExportPrompt) formatLine() string {
 	current := filepath.Ext(p.Target().Path)
 	line := theme.HintStyle().Render(formatLabel)
-	for _, format := range exportFormats {
+	for _, format := range p.formats {
 		style := theme.TextStyle()
-		if strings.EqualFold(current, format.extension) {
+		if strings.EqualFold(current, format.Extension) {
 			style = theme.SelectedStyle()
 		}
-		line += style.Render(format.label) + formatGap
+		line += style.Render(format.Label) + formatGap
 	}
 	return line
 }
