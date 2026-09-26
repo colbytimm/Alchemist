@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -19,8 +20,8 @@ import (
 	"github.com/colbytimm/alchemist/internal/writers"
 )
 
-// mutationDatabase holds scratch copies of seeded containers; the seeded
-// ones are only ever read.
+// mutationDatabase holds every container these tests read and write; they
+// seed it themselves, and depend on no other data in the emulator.
 const mutationDatabase = "u21_mutation_it"
 
 const archiveCheapShipped = `UPDATE ` + mutationDatabase + `.orders o
@@ -88,32 +89,37 @@ func (f mutationFixture) create(t *testing.T, name string, key azcosmos.Partitio
 	}
 }
 
-// copySeeded copies the seeded database.container into the scratch
-// database under the same name, reading the seeded one and nothing more.
-func (f mutationFixture) copySeeded(t *testing.T, database, name string) int {
+// seedOrders fills an orders container keyed on /customerId, with a mix
+// of statuses and totals, some items shipped and cheap and some not, a few
+// of each carrying a note.
+func (f mutationFixture) seedOrders(t *testing.T) {
 	t.Helper()
-	ctx := context.Background()
-	source, err := f.client.NewContainer(database, name)
-	require.NoError(t, err)
-	properties, err := source.Read(ctx, nil)
-	require.NoError(t, err)
-	key := properties.ContainerProperties.PartitionKeyDefinition
+	statuses := []string{"open", "shipped", "cancelled"}
 	var items []map[string]any
-	pager := source.NewQueryItemsPager("SELECT * FROM c", azcosmos.NewPartitionKey(), nil)
-	for pager.More() {
-		page, err := pager.NextPage(ctx)
-		require.NoError(t, err)
-		for _, raw := range page.Items {
-			body, _, err := adapter.SplitSystemFields(raw)
-			require.NoError(t, err)
-			var item map[string]any
-			require.NoError(t, json.Unmarshal(body, &item))
-			items = append(items, item)
+	for i := range 60 {
+		item := map[string]any{
+			"id":         fmt.Sprintf("o%03d", i),
+			"customerId": fmt.Sprintf("c%02d", i%9),
+			"status":     statuses[i%len(statuses)],
+			"total":      10 + (i*7)%80,
 		}
+		if i%4 == 0 {
+			item["note"] = "seeded"
+		}
+		items = append(items, item)
 	}
-	require.NotEmpty(t, items, "%s.%s is seeded: make emulator-seed", database, name)
-	f.create(t, name, azcosmos.PartitionKeyDefinition{Paths: key.Paths}, items...)
-	return len(items)
+	f.create(t, "orders", singleKey("/customerId"), items...)
+}
+
+// seedEvents fills an events container keyed on /deviceId with count
+// items.
+func (f mutationFixture) seedEvents(t *testing.T, count int) {
+	t.Helper()
+	items := make([]map[string]any, 0, count)
+	for i := range count {
+		items = append(items, map[string]any{"id": fmt.Sprintf("e%04d", i), "deviceId": fmt.Sprintf("d%02d", i%12), "reading": i})
+	}
+	f.create(t, "events", singleKey("/deviceId"), items...)
 }
 
 func (f mutationFixture) keyPaths(t *testing.T, container string) []string {
@@ -189,7 +195,7 @@ func (f mutationFixture) read(t *testing.T, container, id string, key azcosmos.P
 
 func TestIntegrationUpdateByQuery(t *testing.T) {
 	f := newMutationFixture(t)
-	f.copySeeded(t, "sales", "orders")
+	f.seedOrders(t)
 	cheapShipped := f.ids(t, "orders", `SELECT VALUE c.id FROM c WHERE c.status = "shipped" AND c.total < 50`)
 	require.NotEmpty(t, cheapShipped)
 
@@ -277,7 +283,8 @@ func TestIntegrationUpdateOnAHierarchicalKeyAndOddValues(t *testing.T) {
 
 func TestIntegrationUpdateEveryItemThroughThePool(t *testing.T) {
 	f := newMutationFixture(t)
-	count := f.copySeeded(t, "telemetry", "events")
+	const count = 300
+	f.seedEvents(t, count)
 
 	summary := f.update(t, `UPDATE `+mutationDatabase+`.events e SET e.checked = true WHERE true`, 8)
 
