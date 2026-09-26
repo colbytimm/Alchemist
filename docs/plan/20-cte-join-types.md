@@ -908,10 +908,14 @@ the text above:
 - **A CTE body whose only new syntax is `CROSS APPLY` is opaque too**, rewritten to
   `JOIN … IN` exactly as the main query is, rather than simulated: same answer, run on
   the service.
-- **A body reading its own name or a later one reads the container in scope.** The
-  name-resolution rules and the test list say `WITH c AS (… FROM c …)` reads the
-  container inside, which a "recursive CTE" refusal of the same shape would contradict;
-  the rules win, and `WITH RECURSIVE` is the one recursion refused by name.
+- **A body reading its own name reads the container in scope.** The name-resolution
+  rules and the test list say `WITH c AS (… FROM c …)` reads the container inside,
+  which a "recursive CTE" refusal of the same shape would contradict; the rules win,
+  and `WITH RECURSIVE` is the one recursion refused by name. A body naming a CTE
+  declared after it is refused as `y is neither a container nor a CTE declared before
+  it`, and so is a one-part name that is no CTE anywhere but the first `FROM` source of
+  a simulated body: joined, it is a mistyped CTE or a container missing its database,
+  never the container in scope.
 - **The cross join's product is checked on its own** against `max_join_rows`, before
   the first page, while its two sides draw on the shared budget like any held rows.
   The product is served from the two sides and never held, so adding it to the total
@@ -922,6 +926,9 @@ the text above:
   the run ends at once when no hop from there on flushes, as planned, and otherwise
   holds the rest and goes straight to the flush without querying the streamed input.
   `A JOIN B(empty) RIGHT JOIN C` returns every row of `C` and never reads `A`.
+- **A Materialize's items count once, their APPLY rows too.** A join table or a cross
+  join side over a shared CTE adds to the budget only the rows its `APPLY`s expanded
+  the items by, beyond one per item.
 - **Key-less rows, in general.** A row is dropped as it is read when it lacks the key
   of a hop that does not keep its side unmatched: a held row of a hop that does not
   flush, or a from-row of a hop that does not pad. That is 16's rule where nothing is
@@ -930,7 +937,9 @@ the text above:
   beside a CTE input, which has no leaf of this body to take it. An extra `ON`
   condition of an inner join that reads an earlier source is refused with 16's `ON`
   wording. A
-  `USING` is refused as `JOIN ... USING`. On a `RIGHT` or `FULL` join the hint for a
+  `USING` is refused as `JOIN ... USING`, and `NATURAL` is a join modifier to the
+  scanner, so `FROM a.b x NATURAL JOIN c.d y` is refused as `NATURAL JOIN` rather
+  than sent to the service as one container. On a `RIGHT` or `FULL` join the hint for a
   condition on a padded side is to filter it in a CTE, since `ON` cannot take it.
 - **`Plan.ObservedFields`** replaces the TUI's reading of `Merge` and `Join.Columns`:
   it files a join half only for an input that is a container of the query, never for

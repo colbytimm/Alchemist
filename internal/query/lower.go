@@ -139,7 +139,7 @@ func (p *planner) rowsOf(c *cte) Node {
 // Anything else is simulated.
 func (p *planner) lowerBody(f fragment, owner string) (lowered, error) {
 	scanned := parseTokens(f.toks)
-	reads, err := p.readsOf(scanned)
+	reads, err := p.readsOf(scanned, owner)
 	if err != nil {
 		return lowered{}, err
 	}
@@ -163,14 +163,20 @@ func (p *planner) lowerBody(f fragment, owner string) (lowered, error) {
 	return p.simulated(f, owner)
 }
 
-// readsOf lists the CTE sources of a body, refusing one read by a subquery.
-func (p *planner) readsOf(scanned *parser) ([]source, error) {
+// readsOf lists the CTE sources of the body of owner, refusing one read by a
+// subquery and one that names a CTE declared after owner: that CTE is not
+// visible there, and reading the scoped container instead would surprise.
+func (p *planner) readsOf(scanned *parser, owner string) ([]source, error) {
 	var reads []source
 	for _, s := range scanned.sources {
 		if len(s.path) != 1 {
 			continue
 		}
-		if _, ok := p.visible(s.path[0].text); !ok {
+		name := s.path[0].text
+		if _, ok := p.visible(name); !ok {
+			if name != owner && slices.Contains(p.stmt.names(), name) {
+				return nil, notASource(name)
+			}
 			continue
 		}
 		if s.clause != 1 || s.depth != 0 {
@@ -183,6 +189,10 @@ func (p *planner) readsOf(scanned *parser) ([]source, error) {
 
 // isSourceList reports whether the first FROM clause lists sources with
 // commas.
+func notASource(name string) error {
+	return unsupported(name + " is neither a container nor a CTE declared before it")
+}
+
 func isSourceList(scanned *parser) bool {
 	listed := 0
 	for _, s := range scanned.sources {
@@ -205,7 +215,6 @@ func checkMergeable(containers []source) error {
 	return nil
 }
 
-// applyKeywords indexes the APPLY keywords of toks.
 func applyKeywords(toks []token) []int {
 	var applies []int
 	for i := range toks {
@@ -228,7 +237,7 @@ func checkApplyOperands(toks []token, applies []int) error {
 // allCrossApplies reports whether every APPLY is a CROSS APPLY, which the
 // service runs as its own JOIN ... IN.
 func allCrossApplies(toks []token, applies []int) bool {
-	return !slices.ContainsFunc(applies, func(i int) bool { return !keywordAt(toks, i-1, "CROSS") })
+	return !slices.ContainsFunc(applies, func(i int) bool { return !keywordAt(toks, i-1, "CROSS") || followsDot(toks, i-1) })
 }
 
 // opaque lowers a body the service runs whole: its container is rewritten to

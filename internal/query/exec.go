@@ -153,7 +153,6 @@ type heldRows struct {
 	rows  int
 }
 
-// holder registers a holder of rows and returns its index.
 func (b *rowBudget) holder(label string) int {
 	b.held = append(b.held, heldRows{label: label})
 	return len(b.held) - 1
@@ -168,7 +167,9 @@ func (b *rowBudget) hold(h, rows int) error {
 	}
 	var before []string
 	for _, earlier := range b.held[:h] {
-		before = append(before, fmt.Sprintf("%s %d", earlier.label, earlier.rows))
+		if earlier.rows > 0 {
+			before = append(before, fmt.Sprintf("%s %d", earlier.label, earlier.rows))
+		}
 	}
 	held := ""
 	if len(before) > 0 {

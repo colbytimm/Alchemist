@@ -143,7 +143,7 @@ func (j *joinCursor) expand(s seed) []combination {
 		}
 		combinations = extended
 	}
-	return slices.DeleteFunc(combinations, j.hasPresentAbsent)
+	return slices.DeleteFunc(combinations, j.rel.hasPresentAbsent)
 }
 
 // matches are the held rows of hop h that c's from row matches, flagged as
@@ -158,8 +158,8 @@ func (j *joinCursor) matches(h int, c combination) []joinRow {
 
 // hasPresentAbsent reports whether c holds an alias WHERE NOT IS_DEFINED
 // wants absent.
-func (j *joinCursor) hasPresentAbsent(c combination) bool {
-	for _, alias := range j.absent {
+func (rel *relation) hasPresentAbsent(c combination) bool {
+	for _, alias := range rel.absent {
 		row := c[alias.input]
 		if row.present() && row.members[alias.slot].raw != nil {
 			return true

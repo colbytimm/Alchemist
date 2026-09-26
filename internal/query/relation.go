@@ -21,7 +21,7 @@ type joinInput struct {
 	// columns are what the SELECT list takes from this input, in its order.
 	columns []JoinColumn
 	keys    []inputKey
-	// shared marks an input whose rows a Materialize holds, and counted.
+	// shared marks an input whose items a Materialize holds, and counted.
 	shared      bool
 	knownPlaced bool
 }
@@ -43,6 +43,15 @@ func (in *joinInput) aliases() []string {
 		names = append(names, apply.Alias)
 	}
 	return names
+}
+
+// heldRows is what holding rows, read from items, adds to the budget: all
+// of them, or for a Materialize's items only what APPLYs expanded them by.
+func (in *joinInput) heldRows(rows, items int) int {
+	if !in.shared {
+		return rows
+	}
+	return max(rows-items, 0)
 }
 
 func (in *joinInput) slot(alias string) int {
@@ -123,6 +132,8 @@ type relation struct {
 	inputs    []*joinInput
 	columns   *columnUnion
 	selectAll bool
+	// absent are the aliases WHERE NOT IS_DEFINED wants missing from a row.
+	absent []aliasSlot
 	// unplaced are the pages read since the last placement: the merged
 	// header lists the inputs in written order, whichever was read first.
 	unplaced []*leafPage
@@ -141,25 +152,32 @@ func (r *execution) newRelation(join *Join) *relation {
 		header = append(header, columnHeader(column))
 	}
 	rel.columns = newColumnUnion(header...)
+	for _, alias := range join.Absent {
+		for _, in := range rel.inputs {
+			if slot := in.slot(alias); slot >= 0 {
+				rel.absent = append(rel.absent, aliasSlot{input: in.index, slot: slot})
+			}
+		}
+	}
 	return rel
 }
 
 // readRows reads the next page of in, closing its cursor after the last one,
 // and returns its items as rows: expanded by the input's APPLYs, keyed for
-// the hops, and cut down to what the SELECT list names.
-func (rel *relation) readRows(ctx context.Context, in *joinInput, hops int, meter *meter) ([]joinRow, error) {
+// the hops, and cut down to what the SELECT list names. items is how many
+// items the page held.
+func (rel *relation) readRows(ctx context.Context, in *joinInput, hops int, meter *meter) (rows []joinRow, items int, err error) {
 	page, err := in.cursor.NextPage(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	meter.charge(page)
 	if !in.cursor.HasMore() {
 		if err := in.close(); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 	headers := rel.headers(in, page.Columns)
-	var rows []joinRow
 	for i, item := range page.Raw {
 		first := joinRow{members: make([]member, len(headers))}
 		first.members[0] = member{header: headers[0], raw: item}
@@ -168,19 +186,19 @@ func (rel *relation) readRows(ctx context.Context, in *joinInput, hops int, mete
 		}
 		expanded, err := rel.expand(in, headers, first)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		for _, row := range expanded {
 			kept, err := rel.finish(in, row, hops)
 			if err != nil {
-				return nil, err
+				return nil, 0, err
 			}
 			if kept.present() {
 				rows = append(rows, kept)
 			}
 		}
 	}
-	return rows, nil
+	return rows, len(page.Raw), nil
 }
 
 // headers opens one leafPage per slot of in for a page of its items.
@@ -374,7 +392,6 @@ func (rel *relation) combinedRaw(c combination) json.RawMessage {
 	return raw.Bytes()
 }
 
-// closeInputs closes every input cursor still open.
 func (rel *relation) closeInputs() error {
 	var errs []error
 	for _, in := range rel.inputs {

@@ -301,6 +301,30 @@ func TestTheAbsentSideTestLeavesAPreservedSideFilterToItsLeaf(t *testing.T) {
 	assert.Equal(t, `SELECT * FROM o WHERE (o.id != "o3")`, conn.queries[0].Text)
 }
 
+func TestTheAbsentSideTestOfAnApplyFiltersACrossJoin(t *testing.T) {
+	const crossed = "SELECT o.id, cu.id AS c FROM sales.orders o OUTER APPLY l IN o.lines " +
+		"CROSS JOIN sales.customers cu WHERE NOT IS_DEFINED(l)"
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "in the main query", input: crossed},
+		{name: "in a CTE read whole", input: "WITH j AS (" + crossed + ") SELECT * FROM j"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := newContainers(map[string][]adapter.Page{
+				"sales.orders":    {page(t, 1, `{"id":"o1","lines":[{"sku":"s1"}]}`, `{"id":"o2"}`)},
+				"sales.customers": {page(t, 1, `{"id":"c1"}`, `{"id":"c2"}`)},
+			})
+
+			pages := drain(t, execute(t, conn, tt.input))
+
+			assert.Equal(t, [][]string{{"o2", "c1"}, {"o2", "c2"}}, rows(pages), "o1 has a line")
+		})
+	}
+}
+
 func TestTheAbsentSideTestOnAFullJoinKeepsTheUnmatchedCustomers(t *testing.T) {
 	pages := drain(t, execute(t, unmatchedSales(t), fullList+" WHERE NOT IS_DEFINED(o)"))
 

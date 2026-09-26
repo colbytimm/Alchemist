@@ -182,7 +182,6 @@ func withCompletion(toks, before []token, typing bool) Completion {
 	}
 }
 
-// cteColumns is a CTE as a body after it can read it.
 type cteColumns struct {
 	name   string
 	fields []string
@@ -326,6 +325,8 @@ func afterModifier(since []token) Completion {
 		return keywordsOnly([]string{"OUTER", "JOIN"})
 	case "CROSS":
 		return keywordsOnly([]string{"JOIN", "APPLY"})
+	case "NATURAL":
+		return Completion{}
 	case "OUTER":
 		if len(since) > 1 && outerKinds[since[len(since)-2].upper] != InnerJoin {
 			return keywordsOnly([]string{"JOIN"})
@@ -660,7 +661,6 @@ func (c classifier) simulated() bool {
 	return joined || outerApply || len(c.cteSources()) > 0
 }
 
-// cteSources are the sources of the first FROM clause that read a CTE.
 func (c classifier) cteSources() []source {
 	var reads []source
 	for _, s := range c.inputs() {

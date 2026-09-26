@@ -79,14 +79,20 @@ func (j *joinPlanner) lower() (lowered, error) {
 	return j.flatten(join)
 }
 
+// resolveInputs binds each input to a CTE or a container. A one-part name
+// that is no CTE is the container in scope only as the first source, as
+// Cosmos reads `FROM c`; joined, it is most likely a mistyped CTE or a
+// container missing its database.
 func (j *joinPlanner) resolveInputs() error {
-	for _, text := range j.body.inputs {
+	for k, text := range j.body.inputs {
 		input := plannedInput{alias: text.name()}
 		switch c, isCTE := j.visible(text.path[0].text); {
 		case len(text.path) == 1 && isCTE:
 			input.cte = c
 		case len(text.path) == 2:
 			input.scope = []string{text.path[0].text, text.path[1].text}
+		case k > 0:
+			return notASource(text.path[0].text)
 		}
 		j.inputs = append(j.inputs, input)
 	}

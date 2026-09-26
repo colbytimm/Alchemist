@@ -55,7 +55,6 @@ type cteText struct {
 	body fragment
 }
 
-// names are the CTEs the statement declares, in order.
 func (s statement) names() []string {
 	names := make([]string, 0, len(s.ctes))
 	for _, c := range s.ctes {
@@ -226,6 +225,8 @@ func (d descent) parseTail(b body, i int) (body, error) {
 		return b, nil
 	case d.toks[i].kind == tokComma:
 		return body{}, unsupported(shapeListWithJoin)
+	case keywordAt(d.toks, i, "NATURAL"):
+		return body{}, unsupported("NATURAL JOIN")
 	case keywordAt(d.toks, i, "WHERE"):
 		b.where, b.hasWhere = d.toks[i+1:], true
 		return b, nil
@@ -268,9 +269,6 @@ func (d descent) parseSource(i int) (inputText, int, error) {
 		input.alias = d.toks[i+1].text
 		i += 2
 	case d.isBareAlias(i):
-		if syntax := misreadAlias(d.toks, i); syntax != "" {
-			return inputText{}, i, unsupported(syntax)
-		}
 		input.alias = d.toks[i].text
 		i++
 	}
@@ -280,20 +278,11 @@ func (d descent) parseSource(i int) (inputText, int, error) {
 	return input, i, nil
 }
 
+// isBareAlias reports whether the word at i names the source before it.
+// USING never does: it opens the join condition this planner refuses.
 func (d descent) isBareAlias(i int) bool {
-	return i < len(d.toks) && d.toks[i].kind == tokIdent && !keywords[d.toks[i].upper] && !joinModifiers[d.toks[i].upper]
-}
-
-// misreadAlias names the join syntax that the word at i, read as a bare
-// alias, really starts.
-func misreadAlias(toks []token, i int) string {
-	switch {
-	case toks[i].upper == "NATURAL" && keywordAt(toks, i+1, "JOIN"):
-		return "NATURAL JOIN"
-	case toks[i].upper == "USING":
-		return "JOIN ... USING"
-	}
-	return ""
+	return i < len(d.toks) && d.toks[i].kind == tokIdent && !keywords[d.toks[i].upper] &&
+		!joinModifiers[d.toks[i].upper] && d.toks[i].upper != "USING"
 }
 
 func (d descent) parseApplies(i int) ([]applyText, int, error) {

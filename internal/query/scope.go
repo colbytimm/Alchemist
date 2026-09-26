@@ -44,7 +44,7 @@ var keywords = map[string]bool{
 // joinModifiers are the idents that may precede JOIN, and so can never be a
 // bare source alias either.
 var joinModifiers = map[string]bool{
-	"CROSS": true, "FULL": true, "INNER": true, "LEFT": true, "OUTER": true, "RIGHT": true,
+	"CROSS": true, "FULL": true, "INNER": true, "LEFT": true, "NATURAL": true, "OUTER": true, "RIGHT": true,
 }
 
 // source is one FROM-clause source: a dotted path plus an optional alias.

@@ -530,6 +530,7 @@ var plannerSeeds = []string{
 	"WITH RECURSIVE r AS (",
 	"WITH x AS (SELECT",
 	"SELECT * FROM a.b x CROSS APPLY (SELECT",
+	"FROM A.CROSS APPLY",
 }
 
 func FuzzBuildPlan(f *testing.F) {

@@ -42,7 +42,10 @@ func (c *crossCursor) NextPage(ctx context.Context) (adapter.Page, error) {
 	var page adapter.Page
 	for len(page.Rows) < maxMergedPageRows && c.next < c.size() {
 		right := len(c.sides[1])
-		c.rel.appendRow(&page, combination{c.sides[0][c.next/right], c.sides[1][c.next%right]})
+		pair := combination{c.sides[0][c.next/right], c.sides[1][c.next%right]}
+		if !c.rel.hasPresentAbsent(pair) {
+			c.rel.appendRow(&page, pair)
+		}
 		c.next++
 	}
 	page.Columns = c.rel.columns.snapshot()
@@ -78,20 +81,15 @@ func (c *crossCursor) holdWhole(ctx context.Context, in *joinInput, meter *meter
 		return nil, err
 	}
 	in.cursor = cursor
-	holder := -1
-	if !in.shared {
-		holder = c.run.budget.holder(in.label)
-	}
+	holder := c.run.budget.holder(in.label)
 	var held []joinRow
 	for in.cursor != nil {
-		rows, err := c.rel.readRows(ctx, in, 0, meter)
+		rows, items, err := c.rel.readRows(ctx, in, 0, meter)
 		if err != nil {
 			return nil, err
 		}
-		if holder >= 0 {
-			if err := c.run.budget.hold(holder, len(rows)); err != nil {
-				return nil, err
-			}
+		if err := c.run.budget.hold(holder, in.heldRows(len(rows), items)); err != nil {
+			return nil, err
 		}
 		held = append(held, rows...)
 	}

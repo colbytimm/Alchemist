@@ -2,6 +2,8 @@ package query_test
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -111,6 +113,25 @@ func TestMaterializedCTEsCountOnceAgainstTheCap(t *testing.T) {
 			assert.ErrorContains(t, err, "staff takes the rows held in memory past 2")
 		})
 	}
+}
+
+func TestTheElementsAnApplyAddsToAMaterializedCTECountAgainstTheCap(t *testing.T) {
+	var lines []string
+	for i := range 10 {
+		lines = append(lines, fmt.Sprintf(`{"s":"s%d"}`, i))
+	}
+	each := "[" + strings.Join(lines, ",") + "]"
+	conn := newContainers(map[string][]adapter.Page{
+		"sales.orders": {page(t, 1, `{"id":"o1","k":1,"lines":`+each+`}`, `{"id":"o2","k":2,"lines":`+each+`}`)},
+	})
+	text := "WITH x AS (SELECT * FROM sales.orders o) " +
+		"SELECT a.id, l.s, b.id AS bid FROM x a JOIN x b ON a.k = b.k OUTER APPLY l IN b.lines"
+	cursor, err := query.Engine{Connection: conn, MaxJoinRows: 5}.Execute(context.Background(), plan(t, text))
+	require.NoError(t, err)
+
+	_, err = cursor.NextPage(context.Background())
+
+	require.ErrorIs(t, err, query.ErrJoinTooLarge, "two orders held once, and eighteen rows more once their lines are applied")
 }
 
 func TestComposedCTEsAreReadAsFlatItemsUnderTheirNames(t *testing.T) {

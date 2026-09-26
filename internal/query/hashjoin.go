@@ -21,7 +21,6 @@ type joinCursor struct {
 	streamed int
 	hops     []hop
 	tables   []*heldTable // parallel to hops
-	absent   []aliasSlot
 	unserved pendingRows
 	// flushed counts the hops done flushing.
 	flushed int
@@ -38,21 +37,12 @@ func (r *execution) newJoinCursor(join *Join) *joinCursor {
 		from.keys = append(from.keys, inputKey{hop: h, ref: hop.fromKey, required: !hop.keepFrom})
 		into.keys = append(into.keys, inputKey{hop: h, ref: hop.intoKey, required: !hop.keepInto})
 	}
-	var absent []aliasSlot
-	for _, alias := range join.Absent {
-		for _, in := range rel.inputs {
-			if slot := in.slot(alias); slot >= 0 {
-				absent = append(absent, aliasSlot{input: in.index, slot: slot})
-			}
-		}
-	}
 	return &joinCursor{
 		run:      r,
 		rel:      rel,
 		streamed: streamed,
 		hops:     hops,
 		tables:   make([]*heldTable, len(hops)),
-		absent:   absent,
 	}
 }
 
@@ -87,7 +77,7 @@ func (j *joinCursor) nextMatches(ctx context.Context, meter *meter) (adapter.Pag
 		}
 		switch {
 		case j.streaming():
-			rows, err := j.rel.readRows(ctx, j.rel.inputs[j.streamed], len(j.hops), meter)
+			rows, _, err := j.rel.readRows(ctx, j.rel.inputs[j.streamed], len(j.hops), meter)
 			if err != nil {
 				return adapter.Page{}, err
 			}
@@ -132,9 +122,8 @@ func (j *joinCursor) build(ctx context.Context, meter *meter) error {
 	return nil
 }
 
-// hold reads the input hop h leads into to the end, into that hop's table.
-// Its rows count against the run's budget unless a Materialize already
-// counted them.
+// hold reads the input hop h leads into to the end, into that hop's table,
+// counting its rows against the run's budget.
 func (j *joinCursor) hold(ctx context.Context, h int, meter *meter) error {
 	in := j.rel.inputs[j.hops[h].into]
 	if err := j.openInput(ctx, in); err != nil {
@@ -142,19 +131,14 @@ func (j *joinCursor) hold(ctx context.Context, h int, meter *meter) error {
 	}
 	table := newHeldTable(j.hops[h].keepInto)
 	j.tables[h] = table
-	holder := -1
-	if !in.shared {
-		holder = j.run.budget.holder(in.label)
-	}
+	holder := j.run.budget.holder(in.label)
 	for in.cursor != nil {
-		rows, err := j.rel.readRows(ctx, in, len(j.hops), meter)
+		rows, items, err := j.rel.readRows(ctx, in, len(j.hops), meter)
 		if err != nil {
 			return err
 		}
-		if holder >= 0 {
-			if err := j.run.budget.hold(holder, len(rows)); err != nil {
-				return err
-			}
+		if err := j.run.budget.hold(holder, in.heldRows(len(rows), items)); err != nil {
+			return err
 		}
 		for _, row := range rows {
 			table.add(row, row.keys[h])
