@@ -654,3 +654,45 @@ func checkJoin(t *testing.T, plan query.Plan, join *query.Join, readers map[*que
 		}), "absent alias %s", alias)
 	}
 }
+
+// A subquery's alias is a name the statement reads through, never an alias
+// that makes a db.container path a property instead.
+func TestASubqueryAliasedLikeADatabaseLeavesTheScopeAlone(t *testing.T) {
+	plan, err := query.BuildPlan("SELECT * FROM sales.orders o WHERE EXISTS(SELECT VALUE 1 FROM (SELECT * FROM c) sales)")
+
+	require.NoError(t, err)
+	require.IsType(t, &query.Scan{}, plan.Root)
+	require.Equal(t, []string{"sales", "orders"}, plan.Scope())
+}
+
+func TestASubqueryAliasedLikeADatabaseLeavesAJoinPlanned(t *testing.T) {
+	plan, err := query.BuildPlan("SELECT o.id, cu.name FROM sales.orders o JOIN sales.customers cu ON o.cid = cu.id " +
+		"WHERE EXISTS(SELECT VALUE 1 FROM (SELECT * FROM c) sales)")
+
+	require.NoError(t, err)
+	require.IsType(t, &query.Join{}, plan.Root)
+	require.Len(t, plan.Leaves, 2)
+}
+
+func TestSourcesAfterASubqueryAreStillParsed(t *testing.T) {
+	_, err := query.BuildPlan("SELECT * FROM (SELECT * FROM sales.orders) x JOIN sales.customers cu ON x.cid = cu.id")
+
+	require.ErrorIs(t, err, query.ErrUnsupported, "the join after the subquery is seen, and refused")
+}
+
+func TestAPropertyJoinAfterASubqueryPassesThrough(t *testing.T) {
+	text := "SELECT * FROM (SELECT * FROM c) x JOIN t IN x.tags WHERE t.a = 1"
+
+	plan, err := query.BuildPlan(text)
+
+	require.NoError(t, err)
+	require.IsType(t, &query.Scan{}, plan.Root)
+	require.Equal(t, text, plan.Leaves[0].Query.Text)
+}
+
+func TestASubqueryJoinAliasedLikeADatabaseLeavesTheScopeAlone(t *testing.T) {
+	plan, err := query.BuildPlan("SELECT * FROM sales.orders o JOIN (SELECT VALUE t FROM t IN o.tags) AS sales")
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"sales", "orders"}, plan.Scope())
+}

@@ -1,6 +1,6 @@
 package query_test
 
-// cspell:ignore müller dirección calle größe
+// cspell:ignore müller dirección calle größe größ WHER WHRE WHEER ordr
 
 import (
 	"testing"
@@ -284,4 +284,25 @@ func TestUpdateKeywordsAreKeywordsOnlyInAnUpdate(t *testing.T) {
 func TestAnUpdateWithoutAnAliasReadsThroughTheDefault(t *testing.T) {
 	require.Equal(t, []spanText{keyword("UPDATE"), keyword("SET"), alias("c"), number("1"), keyword("WHERE"), literal("true")},
 		wordTexts("UPDATE sales.orders SET c.n = 1 WHERE true"))
+}
+
+func TestEndsNameReadsNamesAsTheLexerDoes(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{name: "an ASCII name", text: "SELECT c.tot", want: true},
+		{name: "a non-ASCII name", text: "SELECT c.größ", want: true},
+		{name: "a dot", text: "SELECT c.", want: true},
+		{name: "a number", text: "WHERE c.n = 12", want: false},
+		{name: "a space", text: "SELECT ", want: false},
+		{name: "a no-break space", text: "SELECT ", want: false},
+		{name: "nothing", text: "", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, query.EndsName(tt.text))
+		})
+	}
 }

@@ -1,6 +1,6 @@
 package query_test
 
-// cspell:ignore müller dirección calle größe
+// cspell:ignore müller dirección calle größe größ WHER WHRE WHEER ordr
 
 import (
 	"fmt"
@@ -129,6 +129,31 @@ func TestDiagnoseFlags(t *testing.T) {
 			want:  []flagged{{"x", "x is not declared: the query reads o"}},
 		},
 		{
+			name:  "a misspelled WHERE before NOT c.done",
+			input: "SELECT * FROM c WHER NOT c.done",
+			want:  []flagged{{"WHER", "WHER is not a clause: did you mean WHERE?"}},
+		},
+		{
+			name:  "a misspelled WHERE before EXISTS(SELECT VALUE 1)",
+			input: "SELECT * FROM c WHRE EXISTS(SELECT VALUE 1)",
+			want:  []flagged{{"WHRE", "WHRE is not a clause: did you mean WHERE?"}},
+		},
+		{
+			name:  "a misspelled WHERE before true",
+			input: "SELECT * FROM c WHEER true",
+			want:  []flagged{{"WHEER", "WHEER is not a clause: did you mean WHERE?"}},
+		},
+		{
+			name:  "a misspelled WHERE before -1 < c.x",
+			input: "SELECT * FROM c WHEER -1 < c.x",
+			want:  []flagged{{"WHEER", "WHEER is not a clause: did you mean WHERE?"}},
+		},
+		{
+			name:  "a misspelled WHERE before udf.f(c.x)",
+			input: "SELECT * FROM c WHEER udf.f(c.x)",
+			want:  []flagged{{"WHEER", "WHEER is not a clause: did you mean WHERE?"}},
+		},
+		{
 			name:  "several problems, in the order they appear",
 			input: "SELECT * FORM c WHERE CONTAIN(c.name, 'A')",
 			want: []flagged{
@@ -175,10 +200,17 @@ func TestDiagnoseLeavesAlone(t *testing.T) {
 		{name: "a subquery join's alias", input: "SELECT * FROM c JOIN (SELECT VALUE t FROM t IN c.tags WHERE t.x = 1) AS tt WHERE tt.y = 1"},
 		{name: "a subquery join's bare alias", input: "SELECT * FROM c JOIN (SELECT VALUE t FROM t IN c.tags) tt WHERE tt.y = 1"},
 		{name: "a subquery source's alias", input: "SELECT x.n FROM (SELECT VALUE c FROM c) AS x"},
+		{name: "a join after a subquery join", input: "SELECT * FROM c JOIN (SELECT VALUE t FROM t IN c.tags) tt JOIN (SELECT VALUE u FROM u IN c.us) uu WHERE uu.x = 1"},
+		{name: "an element join after a subquery join", input: "SELECT * FROM c JOIN (SELECT VALUE t FROM t IN c.tags) tt JOIN u IN c.us WHERE u.x = 1"},
+		{name: "an element join after a subquery source", input: "SELECT * FROM (SELECT * FROM c) x JOIN t IN x.tags WHERE t.a = 1"},
+		{name: "a subquery join after a subquery source", input: "SELECT * FROM (SELECT * FROM c) x JOIN (SELECT VALUE t FROM t IN c.tags) tt WHERE tt.a = 1"},
 		{name: "a bare alias near a clause", input: "SELECT * FROM orders ord"},
 		{name: "a bare alias near LIMIT", input: "SELECT * FROM limits lim WHERE true"},
 		{name: "a delete's bare alias near ORDER", input: "DELETE FROM sales.orders ord WHERE true"},
 		{name: "an update's bare alias near ORDER", input: `UPDATE sales.orders ord SET ord.status = "x" WHERE true`},
+		{name: "a SELECT-list value named without AS", input: "SELECT COUNT(1) orders FROM c"},
+		{name: "a SELECT-list property named without AS", input: "SELECT c.total ordr FROM c"},
+		{name: "SELECT-list names without AS near every clause", input: "SELECT c.x groups, c.a there, c.id limits, c.y frame FROM c"},
 		{name: "empty", input: ""},
 	}
 	for _, tt := range tests {
