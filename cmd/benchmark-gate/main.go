@@ -11,16 +11,21 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/colbytimm/alchemist/internal/benchgate"
+	"github.com/colbytimm/alchemist/internal/benchmark"
 )
 
-// budget is docs/plan/23-syntax-highlighting.md's "The budget, enforced".
-// Allocations are held to the baseline because they do not depend on the
-// machine; times only to ceilings and ratios with room for a slow runner.
-var budget = benchgate.Budget{
+// budget is docs/plan/23-syntax-highlighting.md's "The budget, enforced",
+// as its implementation notes settle it. Allocations are held to the
+// baseline because they do not depend on the machine; times only to a
+// ceiling with room for a slow runner, and to ratios within one run.
+var budget = benchmark.Budget{
 	Tolerance: 0.05,
-	Growths: []benchgate.Growth{
+	Ceilings: []benchmark.Ceiling{
+		{Benchmark: "BenchmarkDiagnose", NsPerOp: 5e6},
+	},
+	Growths: []benchmark.Growth{
 		{Small: "BenchmarkTypingPlainBuffer/lines=200", Large: "BenchmarkTypingPlainBuffer/lines=2000", MaxRatio: 10},
+		{Small: "BenchmarkViewWithoutEdit/lines=200", Large: "BenchmarkViewWithoutEdit/lines=2000", MaxRatio: 2},
 	},
 }
 
@@ -45,7 +50,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if err := benchgate.Report(os.Stdout, baseline, current); err != nil {
+	if err := benchmark.Report(os.Stdout, baseline, current); err != nil {
 		return err
 	}
 	violations := budget.Check(baseline, current)
@@ -58,11 +63,11 @@ func run() error {
 	return nil
 }
 
-func readResults(path string) (benchgate.Results, error) {
+func readResults(path string) (benchmark.Results, error) {
 	file, err := os.Open(path) // #nosec G304 -- a path the caller names on the command line
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = file.Close() }() // read-only: a close failure loses nothing
-	return benchgate.Parse(file)
+	return benchmark.Parse(file)
 }

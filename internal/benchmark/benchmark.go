@@ -1,6 +1,6 @@
-// Package benchgate holds benchmark results to a committed baseline and to
+// Package benchmark holds benchmark results to a committed baseline and to
 // budgets of their own, for CI to fail on.
-package benchgate
+package benchmark
 
 import (
 	"bufio"
@@ -23,7 +23,7 @@ type Result struct {
 // runs on machines of different sizes compare.
 type Results map[string]Result
 
-var procsSuffix = regexp.MustCompile(`-\d+$`)
+var cpuSuffix = regexp.MustCompile(`-\d+$`)
 
 // Parse reads `go test -bench -benchmem` output. Lines that are not results
 // are skipped, as the output interleaves them with package headers.
@@ -37,7 +37,7 @@ func Parse(r io.Reader) (Results, error) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("benchgate: read results: %w", err)
+		return nil, fmt.Errorf("benchmark: read results: %w", err)
 	}
 	results := Results{}
 	for name, runs := range samples {
@@ -68,7 +68,7 @@ func parseLine(line string) (string, Result, bool) {
 			result.AllocsPerOp = value
 		}
 	}
-	return procsSuffix.ReplaceAllString(fields[0], ""), result, seen
+	return cpuSuffix.ReplaceAllString(fields[0], ""), result, seen
 }
 
 func median(runs []Result) Result {

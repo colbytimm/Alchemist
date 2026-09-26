@@ -111,8 +111,64 @@ the catalog and queries run against it, or name one in the query itself with
 | `tab` | diff | all/added/removed/modified |
 
 While the editor has the keyboard, plain letters are text; `ctrl+c` always quits.
-Once the editor loses focus it shows the query with keywords, strings, numbers, and
-`--` comments colored.
+
+## Highlighting and diagnostics
+
+The editor colors the query as you type it, focused or not:
+
+| What | Examples | Drawn |
+|---|---|---|
+| Clause keyword | `SELECT`, `FROM`, `WHERE`, `ORDER BY`, `JOIN`, `VALUE` | amethyst, bold |
+| Operator word | `AND`, `OR`, `NOT`, `IN`, `LIKE`, `BETWEEN`, `EXISTS` | amethyst |
+| Literal | `true`, `null`, `undefined` | copper |
+| Function | `STARTSWITH(`, `COUNT(`, `udf.discount(` | gold |
+| Alias | the `c` of `FROM c` and of `c.total` | parchment, bold |
+| Parameter | `@minTotal` | copper, italic |
+| String, number | `'west'`, `1.5e3` | verdigris, copper |
+| Comment | `-- note` | ash, italic |
+| Punctuation | `( ) , . = < + ??` | ash |
+
+Properties stay plain text, since they are most of any query. A batch is colored with
+its own words (`BEGIN BATCH`, `PARTITION`, `UPSERT`, `IF MATCH`, `COMMIT`). Every
+color is one of the theme's, and adapts to a light or a dark terminal as the panes do.
+
+What Alchemist can tell is wrong from the text alone gets a red squiggle, and the hint
+line at the bottom of the editor says why while the cursor is on it:
+
+| Flagged | Example | Hint |
+|---|---|---|
+| An unterminated string | `WHERE c.region = "west` | `unterminated string: close it with "` |
+| A character Cosmos SQL does not use | `c.total # 5` | `"#" is not part of Cosmos SQL` |
+| An unknown function | `CONTAIN(c.name, "A")` | `unknown function CONTAIN: did you mean CONTAINS?` |
+| An alias the query never declares | `SELECT o.id FROM c` | `o is not declared: the query reads c` |
+| A misspelled clause | `SELECT * FORM c` | `FORM is not a clause: did you mean FROM?` |
+| A query that does not start with `SELECT` | `SELEC * FROM c` | `a query starts with SELECT` |
+| An unbalanced bracket | `WHERE (c.a = 1` | `( is never closed` |
+| A batch that does not parse | `BEGIN BATCH sales.orders PARTITION` | the batch parser's message |
+
+"Did you mean" only offers a word within two edits of what you typed. Nothing that
+could be right is flagged: not an unknown field (Cosmos has no schema), not an unknown
+database or container (the catalog may not be listed yet), and not a query shape the
+planner refuses, which `ctrl+r` explains better than a squiggle could. The word you
+are typing, and a string you are typing in, are not judged until the cursor leaves
+them. Strings and stray characters are flagged as you type; everything else once you
+pause. The squiggles are a typing aid, not a validator: a query without one can still
+fail on the service, which stays the judge, and its error shows as before.
+
+The squiggle is a curly underline (`SGR 4:3`) in the theme's red, which kitty,
+WezTerm, iTerm2, Ghostty, foot, GNOME Terminal and Windows Terminal draw. A terminal
+that does not know it draws a plain underline, or none, in the token's own color; the
+hint line always says what is wrong in words. Terminals cannot be asked reliably over
+SSH or through tmux, so the form is a setting: `diagnostics = "underline"` on the
+[profile](#profiles), or `--diagnostics underline` for one session, draws a plain
+underline, and `off` flags nothing and stops looking. Under `NO_COLOR` the editor has
+no color and every squiggle is a plain underline. tmux passes the curly form through
+when told the outer terminal draws it:
+
+```tmux
+set -as terminal-overrides ',*:Smulx=\E[4::%p1%dm'
+set -as terminal-overrides ',*:Setulc=\E[58::2::%p1%{65536}%/%d::%p1%{256}%/%{255}%&%d::%p1%{255}%&%d%;m'
+```
 
 ## Autocomplete
 
@@ -494,6 +550,7 @@ sample_fields = false            # autocomplete never queries a container for it
 read_only = false                # allow writes; unset, only a local endpoint allows them
 writers = 8                      # item writes a clone into this account keeps in flight; 4 when unset
 snapshot_max_items = 10000000    # the largest container a snapshot takes on; 5000000 when unset
+diagnostics = "underline"        # squiggles as curly (default), underline, or off
 
 [profiles.prod]
 adapter = "cosmos"
@@ -610,16 +667,22 @@ make help              # list all targets
 Every tool runs at a version pinned in the `Makefile`, and CI calls the same targets,
 so a green `make all` locally means a green quality job.
 
+Typing speed is gated. `make bench-gate` runs the typing benchmarks five times each and
+holds the median to `testdata/bench-baseline.txt`: allocations and bytes per keystroke
+may grow at most 5%, `query.Diagnose` must check a 2,000-line query within 5 ms, and a
+2,000-line buffer may cost at most 10× a 200-line one. `make bench-baseline` records a
+new baseline, which is committed on its own.
+
 ### CI and releases
 
 | Workflow | Runs on | Does |
 |---|---|---|
-| `pr.yml` | pull requests to `main` | quality, security, and emulator integration gates; `goreleaser check` and `actionlint` |
+| `pr.yml` | pull requests to `main` | quality, benchmark, security, and emulator integration gates; `goreleaser check` and `actionlint` |
 | `main.yml` | pushes to `main` | the same gates, then snapshot archives uploaded as build artifacts |
 | `release.yml` | tags matching `v*` | the same gates, then a GitHub Release with archives, checksums, and changelog |
 
 `main` is expected to be a protected branch that requires the `pr.yml` checks
-(`gates / quality`, `gates / security`, `gates / integration`, `release-check`) to pass
+(`gates / quality`, `gates / benchmarks`, `gates / security`, `gates / integration`, `release-check`) to pass
 before a merge.
 
 Cutting a release is one step:

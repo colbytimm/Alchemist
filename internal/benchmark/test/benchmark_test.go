@@ -1,4 +1,4 @@
-package benchgate_test
+package benchmark_test
 
 import (
 	"strings"
@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/colbytimm/alchemist/internal/benchgate"
+	"github.com/colbytimm/alchemist/internal/benchmark"
 )
 
 const output = `goos: linux
@@ -20,47 +20,47 @@ ok  	github.com/colbytimm/alchemist/internal/tui/test	15.670s
 `
 
 func TestParseTakesTheMedianOfEachMetric(t *testing.T) {
-	got, err := benchgate.Parse(strings.NewReader(output))
+	got, err := benchmark.Parse(strings.NewReader(output))
 
 	require.NoError(t, err)
-	require.Equal(t, benchgate.Results{
+	require.Equal(t, benchmark.Results{
 		"BenchmarkTyping/lines=200": {NsPerOp: 2e6, BytesPerOp: 2000, AllocsPerOp: 200},
 		"BenchmarkView":             {NsPerOp: 5e5},
 	}, got)
 }
 
 func TestParseAveragesTheMiddleTwoOfAnEvenCount(t *testing.T) {
-	got, err := benchgate.Parse(strings.NewReader("BenchmarkX-4 1 10 ns/op\nBenchmarkX-4 1 20 ns/op\n"))
+	got, err := benchmark.Parse(strings.NewReader("BenchmarkX-4 1 10 ns/op\nBenchmarkX-4 1 20 ns/op\n"))
 
 	require.NoError(t, err)
 	require.InDelta(t, 15.0, got["BenchmarkX"].NsPerOp, 0)
 }
 
 func TestCheck(t *testing.T) {
-	budget := benchgate.Budget{
+	budget := benchmark.Budget{
 		Tolerance: 0.05,
-		Ceilings:  []benchgate.Ceiling{{Benchmark: "BenchmarkSmall", NsPerOp: 2e6}},
-		Growths:   []benchgate.Growth{{Small: "BenchmarkSmall", Large: "BenchmarkLarge", MaxRatio: 10}},
+		Ceilings:  []benchmark.Ceiling{{Benchmark: "BenchmarkSmall", NsPerOp: 2e6}},
+		Growths:   []benchmark.Growth{{Small: "BenchmarkSmall", Large: "BenchmarkLarge", MaxRatio: 10}},
 	}
-	baseline := benchgate.Results{
+	baseline := benchmark.Results{
 		"BenchmarkSmall": {NsPerOp: 1e6, BytesPerOp: 1000, AllocsPerOp: 100},
 		"BenchmarkLarge": {NsPerOp: 5e6, BytesPerOp: 1000, AllocsPerOp: 100},
 	}
 	tests := []struct {
 		name    string
-		current benchgate.Results
+		current benchmark.Results
 		want    []string
 	}{
 		{
 			name: "within every budget, however slow the machine against the baseline",
-			current: benchgate.Results{
+			current: benchmark.Results{
 				"BenchmarkSmall": {NsPerOp: 1.9e6, BytesPerOp: 1050, AllocsPerOp: 105},
 				"BenchmarkLarge": {NsPerOp: 19e6, BytesPerOp: 900, AllocsPerOp: 90},
 			},
 		},
 		{
 			name: "more allocations and bytes than the baseline allows",
-			current: benchgate.Results{
+			current: benchmark.Results{
 				"BenchmarkSmall": {NsPerOp: 1e6, BytesPerOp: 1051, AllocsPerOp: 106},
 				"BenchmarkLarge": {NsPerOp: 5e6, BytesPerOp: 1000, AllocsPerOp: 100},
 			},
@@ -71,7 +71,7 @@ func TestCheck(t *testing.T) {
 		},
 		{
 			name: "over a ceiling",
-			current: benchgate.Results{
+			current: benchmark.Results{
 				"BenchmarkSmall": {NsPerOp: 2.5e6, BytesPerOp: 1000, AllocsPerOp: 100},
 				"BenchmarkLarge": {NsPerOp: 5e6, BytesPerOp: 1000, AllocsPerOp: 100},
 			},
@@ -79,7 +79,7 @@ func TestCheck(t *testing.T) {
 		},
 		{
 			name: "growing faster than allowed",
-			current: benchgate.Results{
+			current: benchmark.Results{
 				"BenchmarkSmall": {NsPerOp: 1e6, BytesPerOp: 1000, AllocsPerOp: 100},
 				"BenchmarkLarge": {NsPerOp: 11e6, BytesPerOp: 1000, AllocsPerOp: 100},
 			},
@@ -87,7 +87,7 @@ func TestCheck(t *testing.T) {
 		},
 		{
 			name:    "a benchmark missing from the run",
-			current: benchgate.Results{"BenchmarkSmall": {NsPerOp: 1e6, BytesPerOp: 1000, AllocsPerOp: 100}},
+			current: benchmark.Results{"BenchmarkSmall": {NsPerOp: 1e6, BytesPerOp: 1000, AllocsPerOp: 100}},
 			want: []string{
 				"BenchmarkLarge: in the baseline but not run",
 				"BenchmarkSmall, BenchmarkLarge: bounded against each other but not both run",
@@ -103,10 +103,10 @@ func TestCheck(t *testing.T) {
 
 func TestReportShowsTheTimeAgainstTheBaseline(t *testing.T) {
 	var out strings.Builder
-	baseline := benchgate.Results{"BenchmarkX": {NsPerOp: 2e6, AllocsPerOp: 10}}
-	current := benchgate.Results{"BenchmarkX": {NsPerOp: 1e6, AllocsPerOp: 5}, "BenchmarkNew": {NsPerOp: 1e6}}
+	baseline := benchmark.Results{"BenchmarkX": {NsPerOp: 2e6, AllocsPerOp: 10}}
+	current := benchmark.Results{"BenchmarkX": {NsPerOp: 1e6, AllocsPerOp: 5}, "BenchmarkNew": {NsPerOp: 1e6}}
 
-	require.NoError(t, benchgate.Report(&out, baseline, current))
+	require.NoError(t, benchmark.Report(&out, baseline, current))
 
 	require.Regexp(t, `BenchmarkX\s+2\.000ms\s+1\.000ms\s+-50\.0%\s+10\s+5`, out.String())
 	require.Regexp(t, `BenchmarkNew\s+-\s+1\.000ms`, out.String())

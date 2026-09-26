@@ -20,7 +20,8 @@ and bring the README up to reality.
   corrected; refuses to overwrite unless the name ends in `!` (`results.json!`).
 - Editor syntax highlighting:
   - `bubbles/textarea` cannot style regions of editable text, so: keyword highlighting
-    on a **render-styled preview** — the editor buffer stays plain while focused;
+    on a **render-styled preview** — the editor buffer stays plain while focused
+    ([iteration 23](23-syntax-highlighting.md) highlights the focused buffer too);
     when unfocused, the pane renders a highlighted view (Cosmos SQL keywords in
     Amethyst, strings in Verdigris, numbers in Copper) using a small keyword styler
     (evaluate `alecthomas/chroma` SQL lexer vs a ~40-keyword hand list; pick the
