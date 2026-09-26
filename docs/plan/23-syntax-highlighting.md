@@ -430,7 +430,9 @@ What landed differs from the text above in these ways:
   development container to check the rest), so a name near no known function is left
   alone rather than squiggled.
 - **Non-ASCII names.** The lexer reads a letter, digit or mark of any script as part of
-  a name, and any Unicode space as a space, so a property named in German or Spanish is one name. Other
+  a name, and any Unicode space as a space, so a property named in German or Spanish is
+  one token rather than a name broken by stray bytes. Completion's check for a name
+  before the cursor (`query.EndsName`) reads names the same way. Other
   non-ASCII characters are one token per rune. This changes what the planner sees only
   for text that was split mid-name before.
 - **Classes beyond the table.** `IS` is an operator word, the join modifiers (`LEFT`,
@@ -502,6 +504,21 @@ What landed differs from the text above in these ways:
   declaration, and its `MutationSyntaxError`s reach `Diagnose` through the same
   statement reader. The statement-start message names `DELETE` too. Comments end at
   `\r` as well as `\n` in the one lexer both the parser and the painter use.
+
+- **Subquery sources (review).** The parser reads past a `(subquery) [AS] alias`
+  after `FROM` or `JOIN`, walking the subquery's own FROM clauses as before, and goes
+  on to the joins and list items after it. The alias is a declaration for diagnostics
+  and highlighting, never an entry the planner reads as an alias, and the subquery is
+  no source. Run over every query string in the query, TUI and completion tests
+  against iteration 22's parser, `BuildPlan` and `Context` differ in one case only:
+  `FROM (SELECT * FROM sales.orders) x JOIN sales.customers cu ON …`, whose join the
+  old parser never reached. It used to be sent to `sales.orders` as written, which
+  the service cannot run; it is now refused as a subquery over another container, and
+  completion scopes `cu` to `sales.customers`.
+- **A SELECT-list value named without `AS`** (`SELECT COUNT(1) orders FROM c`) is not
+  taken for a misspelled clause; a word right after `*` still is, so `SELECT * FORM c`
+  is flagged. The emulator was not reachable to confirm the service accepts the bare
+  form, so the rule leaves it alone either way.
 
 ### Benchmarks
 

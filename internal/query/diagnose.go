@@ -170,13 +170,24 @@ func (a Analysis) misspelledClauses() []Diagnostic {
 			continue
 		}
 		clause, ok := closestWord(tok.upper, a.clauseKeywords())
-		if !ok || a.readsThroughName(tok.text) {
+		if !ok || a.readsThroughName(tok.text) || a.namesASelectedValue(i) {
 			continue
 		}
 		found = append(found, Diagnostic{Start: tok.start, End: tok.end,
 			Message: fmt.Sprintf("%s is not a clause: did you mean %s?", tok.text, clause)})
 	}
 	return found
+}
+
+// namesASelectedValue reports whether the word at i follows a value in a
+// SELECT list, where it may be the value's name written without AS, as in
+// SELECT COUNT(1) orders. A * selects no one value to name.
+func (a Analysis) namesASelectedValue(i int) bool {
+	if isSymbol(a.code[i-1], "*") {
+		return false
+	}
+	clause, _ := classifier{toks: a.code[:i]}.clause()
+	return clause == "SELECT"
 }
 
 func (a Analysis) clauseKeywords() []string {
@@ -203,8 +214,15 @@ func (a Analysis) inClausePosition(i int) bool {
 	return next.kind != tokDot && !isSymbol(next, "(") && !isSymbol(next, "[")
 }
 
+// valueWords are the keywords that open a value rather than a clause.
+var valueWords = setOf([]string{"NOT", "EXISTS", "ARRAY", "TRUE", "FALSE", "NULL", "UNDEFINED", "UDF"})
+
+// valueSymbols open a value: brackets, a parameter, and unary operators.
+var valueSymbols = setOf([]string{"(", "[", "{", "@", "-", "+", "~"})
+
 // startsValue reports whether the token at i can open a value: a name, a
-// literal, a parameter, or a bracket.
+// literal, a keyword that opens one, a parameter, a bracket, or a unary
+// operator.
 func (a Analysis) startsValue(i int) bool {
 	if i >= len(a.code) {
 		return false
@@ -212,11 +230,11 @@ func (a Analysis) startsValue(i int) bool {
 	tok := a.code[i]
 	switch tok.kind {
 	case tokIdent:
-		return !isKnownWord(tok.upper) && !mutationKeywords[tok.upper]
+		return valueWords[tok.upper] || !isKnownWord(tok.upper) && !mutationKeywords[tok.upper]
 	case tokString, tokNumber:
 		return true
 	}
-	return isSymbol(tok, "(") || isSymbol(tok, "[") || isSymbol(tok, "{") || isSymbol(tok, "@")
+	return tok.kind == tokOther && valueSymbols[tok.text]
 }
 
 func (a Analysis) readsThroughName(name string) bool {
