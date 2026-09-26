@@ -21,10 +21,6 @@ offers only what the connection supports: a backend that cannot manage its catal
 does not offer the [catalog keys](../data/catalog.md), and they disappear from the
 help overlay.
 
-The design of the adapter layer is in the plan:
-[02-adapter-core](../plan/02-adapter-core.md) and
-[03-cosmos-adapter](../plan/03-cosmos-adapter.md).
-
 ---
 
 [← IV. Configuration](../reference/configuration.md) · [Contents](../README.md) · [15. Building and Testing →](building.md)

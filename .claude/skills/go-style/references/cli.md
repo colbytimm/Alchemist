@@ -106,7 +106,7 @@ cmd.MarkFlagsOneRequired("endpoint", "profile")
 - `MarkHidden` to retire a flag quietly; `MarkDeprecated(name, hint)` when users need
   to be told what replaced it.
 - A flag with a non-trivial type implements `pflag.Value` and registers with `Var`.
-- Config precedence, when profiles land (see `docs/plan/06-config-profiles.md`):
+- Config precedence (see `docs/reference/configuration.md`):
   **flag > environment > config file > default.** Never invert it.
 
 ## Context and cancellation

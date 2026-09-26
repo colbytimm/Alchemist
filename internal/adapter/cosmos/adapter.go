@@ -1,6 +1,6 @@
 // Package cosmos implements the adapter contract for Azure Cosmos DB
 // (NoSQL API) on the azcosmos v1.5.0 SDK. Cross-partition queries are the
-// default; see docs/plan/03-cosmos-adapter.md.
+// default.
 package cosmos
 
 import (

@@ -9,7 +9,7 @@ write SQL, and page through results without leaving the terminal.
 <!-- TODO: record docs/demo.tape with `vhs docs/demo.tape` and embed docs/demo.gif here -->
 
 > **Status: early development.** Everything below works today. Release builds are
-> still to come; the [implementation plan](docs/plan/00-overview.md) tracks them.
+> still to come.
 
 **[Read the documentation →](docs/README.md)**
 

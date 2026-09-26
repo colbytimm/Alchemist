@@ -99,7 +99,5 @@ client, and says so wherever it does.
 
 ### Further information
 
-- The [implementation plan](plan/00-overview.md) records the design of every
-  feature, iteration by iteration, with the reasoning behind each decision.
 - `alchemist --help` and `alchemist <command> --help` describe every command and flag.
 - `?` inside the app lists the key bindings of the pane you are in.

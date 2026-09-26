@@ -30,7 +30,8 @@ holds the median to `testdata/bench-baseline.txt`:
 
 - allocations and bytes per keystroke may grow at most 5%;
 - `query.Diagnose` must check a 2,000-line query within 5 ms;
-- a 2,000-line buffer may cost at most 10× a 200-line one.
+- a keystroke in a 2,000-line buffer may cost at most 10× one in a 200-line buffer;
+- redrawing an unchanged 2,000-line buffer may cost at most 2× a 200-line one.
 
 `make bench-baseline` records a new baseline, which is committed on its own.
 
@@ -51,9 +52,6 @@ Cutting a release is one step:
 ```sh
 git tag v0.1.0 && git push --tags
 ```
-
-Design notes, architecture, and the iteration-by-iteration plan live in
-[docs/plan](../plan/00-overview.md).
 
 ---
 
