@@ -80,11 +80,14 @@ func patchAt(value json.RawMessage, steps []string, entry patchEntry) (json.RawM
 	}
 	var elements []json.RawMessage
 	index, err := strconv.Atoi(steps[0])
-	if json.Unmarshal(value, &elements) != nil || err != nil || index < 0 || index >= len(elements) {
+	if json.Unmarshal(value, &elements) != nil || err != nil || index < 0 {
 		return nil, http.StatusBadRequest
 	}
 	if len(steps) == 1 {
 		return patchElement(elements, index, entry)
+	}
+	if index >= len(elements) {
+		return nil, http.StatusBadRequest
 	}
 	child, status := patchAt(elements[index], steps[1:], entry)
 	elements[index] = child
@@ -93,12 +96,17 @@ func patchAt(value json.RawMessage, steps []string, entry patchEntry) (json.RawM
 }
 
 // patchElement applies entry to one element of an array: set and replace
-// replace it, remove drops it.
+// replace it, remove drops it. Past the end, set appends, as the service's
+// does, so that running it twice appends twice.
 func patchElement(elements []json.RawMessage, index int, entry patchEntry) (json.RawMessage, int) {
-	switch entry.Op {
-	case "set", "replace":
+	switch {
+	case entry.Op == "set" && index >= len(elements):
+		elements = append(elements, entry.Value)
+	case index >= len(elements):
+		return nil, http.StatusBadRequest
+	case entry.Op == "set" || entry.Op == "replace":
 		elements[index] = entry.Value
-	case "remove":
+	case entry.Op == "remove":
 		elements = slices.Delete(elements, index, index+1)
 	default:
 		return nil, http.StatusBadRequest

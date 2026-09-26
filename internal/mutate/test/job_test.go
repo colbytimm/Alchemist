@@ -337,6 +337,6 @@ func TestPreviewMarksASetWithNoParent(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, mutate.NoParent, changes[0].Kind)
-	assert.Equal(t, mutate.Added, changes[1].Kind, "the service takes an index past the end of an array")
+	assert.Equal(t, mutate.NoParent, changes[1].Kind, "past an array's end a set appends, and again on a rerun")
 	assert.Equal(t, mutate.NoParent, changes[2].Kind, "an index needs its array")
 }

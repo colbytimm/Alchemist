@@ -297,16 +297,19 @@ func TestIntegrationANestedSetSkipsAnItemWithoutItsParent(t *testing.T) {
 	f.create(t, "shipments", singleKey("/customerId"),
 		map[string]any{"id": "with", "customerId": "c1", "state": "due", "ship": map[string]any{"city": "x"}, "lines": []any{1, 2}},
 		map[string]any{"id": "without", "customerId": "c1", "state": "due"},
+		map[string]any{"id": "short", "customerId": "c1", "state": "due", "ship": map[string]any{"city": "y"}, "lines": []any{1}},
 	)
 
 	summary := f.update(t, `UPDATE `+mutationDatabase+`.shipments s SET s.ship.region = "west", s.lines[1] = 9 WHERE s.state = "due"`, 1)
 
-	assert.Equal(t, mutate.Counts{Applied: 1, NoParent: 1}, summary.Counts, "nothing is sent where the service would refuse it")
+	assert.Equal(t, mutate.Counts{Applied: 1, NoParent: 2}, summary.Counts,
+		"nothing is sent where the service would refuse it, or append past an array's end")
 	with := f.read(t, "shipments", "with", azcosmos.NewPartitionKeyString("c1"))
 	assert.JSONEq(t, `{"city":"x","region":"west"}`, string(with["ship"]))
 	assert.JSONEq(t, `[1,9]`, string(with["lines"]), "set replaces an element")
 	_, created := f.read(t, "shipments", "without", azcosmos.NewPartitionKeyString("c1"))["ship"]
 	assert.False(t, created)
+	assert.JSONEq(t, `[1]`, string(f.read(t, "shipments", "short", azcosmos.NewPartitionKeyString("c1"))["lines"]))
 }
 
 func TestIntegrationASetUnderAMissingParentIsRefused(t *testing.T) {

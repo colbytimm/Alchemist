@@ -123,10 +123,11 @@ func lexString(s string, i int) (int, bool) {
 	return len(s), false
 }
 
-// lexComment returns the byte offset of the newline ending the comment
-// opening at i, or the end of the input.
+// lexComment returns the byte offset of the line break ending the comment
+// opening at i, or the end of the input. The service ends a comment at a
+// lone \r as well as at \n.
 func lexComment(s string, i int) int {
-	if end := strings.IndexByte(s[i:], '\n'); end >= 0 {
+	if end := strings.IndexAny(s[i:], "\r\n"); end >= 0 {
 		return i + end
 	}
 	return len(s)
