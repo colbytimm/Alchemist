@@ -151,9 +151,9 @@ func TestAShapeThatCannotBeSimulatedIsRefusedBeforeItReachesTheAdapter(t *testin
 	conn := newConnection(t)
 
 	m := runQuery(t, selectContainer(t, newLoadedModel(t, conn)),
-		"SELECT * FROM sales.orders o LEFT JOIN sales.customers cu ON o.pk = cu.pk")
+		"SELECT * FROM sales.orders NATURAL JOIN sales.customers")
 
-	assert.Contains(t, plain(m.View()), "LEFT JOIN: not supported across containers")
+	assert.Contains(t, plain(m.View()), "NATURAL JOIN: not supported across")
 	assert.Empty(t, conn.queries)
 	assert.NotContains(t, m.View(), simulatedBadge, "nothing was simulated")
 }

@@ -137,12 +137,12 @@ func TestFetchingMoreOfAFannedOutJoinServesRowsAlreadyRead(t *testing.T) {
 
 func TestARefusedMultiWayShapeIsShownAndRecorded(t *testing.T) {
 	store := &recordingStore{}
-	refused := mockJoin + " LEFT JOIN sales.products p ON o.pk = p.pk"
+	refused := mockJoin + " CROSS JOIN sales.products p"
 
 	m := runQuery(t, newWideModel(t, newConnection(t), tui.Options{History: store}), refused)
 
-	assert.Contains(t, plain(m.View()), "LEFT JOIN")
+	assert.Contains(t, plain(m.View()), "CROSS JOIN in a chain")
 	require.Len(t, store.entries, 1)
 	assert.False(t, store.entries[0].OK)
-	assert.Contains(t, store.entries[0].Error, "LEFT JOIN")
+	assert.Contains(t, store.entries[0].Error, "CROSS JOIN in a chain")
 }

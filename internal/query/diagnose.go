@@ -20,9 +20,10 @@ type Diagnostic struct {
 const strayCharacters = "#`\\"
 
 // Words a misspelled clause is matched against, in the order a tie is
-// broken: a query's clauses and JOIN, and an UPDATE's own before those.
+// broken: a query's clauses, JOIN and APPLY, and an UPDATE's own before
+// those.
 var (
-	queryClauseKeywords  = append(slices.Clone(clauses), "JOIN")
+	queryClauseKeywords  = append(slices.Clone(clauses), "JOIN", "APPLY")
 	updateClauseKeywords = append([]string{"SET", "UNSET"}, queryClauseKeywords...)
 )
 
@@ -44,6 +45,7 @@ func Diagnose(a Analysis) []Diagnostic {
 		a.misspelledClauses(),
 		a.misspelledBys(),
 		a.statementStart(),
+		a.refusedJoins(),
 		a.unbalancedBrackets(),
 		a.batchSyntax(),
 		a.mutationSyntax(),
@@ -273,7 +275,7 @@ func (a Analysis) readsThroughName(name string) bool {
 
 // statementStart leaves a lone BEGIN alone: it is how a batch is typed.
 func (a Analysis) statementStart() []Diagnostic {
-	if a.batch || a.mutation || len(a.code) == 0 || keywordAt(a.code, 0, "SELECT") {
+	if a.batch || a.mutation || len(a.code) == 0 || keywordAt(a.code, 0, "SELECT") || keywordAt(a.code, 0, "WITH") {
 		return nil
 	}
 	first := a.code[0]
@@ -281,7 +283,29 @@ func (a Analysis) statementStart() []Diagnostic {
 		return nil
 	}
 	start, end := a.wholeRunes(first)
-	return []Diagnostic{{Start: start, End: end, Message: "a statement starts with SELECT, UPDATE, DELETE or BEGIN BATCH"}}
+	return []Diagnostic{{Start: start, End: end, Message: "a statement starts with SELECT, WITH, UPDATE, DELETE or BEGIN BATCH"}}
+}
+
+// refusedJoins flags the join and CTE syntax the planner refuses by name
+// whatever surrounds it: a NATURAL JOIN, which names no condition, and a
+// recursive CTE.
+func (a Analysis) refusedJoins() []Diagnostic {
+	if a.batch {
+		return nil
+	}
+	var found []Diagnostic
+	for i, tok := range a.code {
+		switch {
+		case followsDot(a.code, i):
+		case tok.upper == "NATURAL" && keywordAt(a.code, i+1, "JOIN"):
+			found = append(found, Diagnostic{Start: tok.start, End: tok.end,
+				Message: "NATURAL JOIN is not supported: join ON an equality"})
+		case tok.upper == "RECURSIVE" && i == 1 && keywordAt(a.code, 0, "WITH"):
+			found = append(found, Diagnostic{Start: tok.start, End: tok.end,
+				Message: "a recursive CTE is not supported"})
+		}
+	}
+	return found
 }
 
 var closingBrackets = map[string]string{")": "(", "]": "[", "}": "{"}

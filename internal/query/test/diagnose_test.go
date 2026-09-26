@@ -70,7 +70,7 @@ func TestDiagnoseFlags(t *testing.T) {
 		{
 			name:  "a statement that does not start with a statement keyword",
 			input: "SELEC * FROM c",
-			want:  []flagged{{"SELEC", "a statement starts with SELECT, UPDATE, DELETE or BEGIN BATCH"}},
+			want:  []flagged{{"SELEC", "a statement starts with SELECT, WITH, UPDATE, DELETE or BEGIN BATCH"}},
 		},
 		{
 			name:  "an unclosed bracket",

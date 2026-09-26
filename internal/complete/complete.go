@@ -42,6 +42,7 @@ const (
 	detailContainer    = "container"
 	detailField        = "field"
 	detailAlias        = "alias"
+	detailCTE          = "CTE"
 	detailScope        = "scope"
 	detailPartitionKey = "partition key"
 	detailSeparator    = " · "
@@ -146,9 +147,9 @@ func (x *Index) candidates(c query.Completion) []Suggestion {
 	case query.CompleteKeyword:
 		return keywordSuggestions(c.Keywords, c.Word)
 	case query.CompleteSource:
-		return append(x.databaseSuggestions(), x.scopeSuggestion()...)
+		return slices.Concat(cteSuggestions(c.CTEs), x.databaseSuggestions(), x.scopeSuggestion())
 	case query.CompleteDatabase:
-		return x.databaseSuggestions()
+		return append(cteSuggestions(c.CTEs), x.databaseSuggestions()...)
 	case query.CompleteContainer:
 		return x.containerSuggestions(c.Database)
 	case query.CompleteField:
@@ -192,6 +193,14 @@ func (x *Index) databaseSuggestions() []Suggestion {
 	suggestions := make([]Suggestion, 0, len(x.databases))
 	for _, name := range x.databases {
 		suggestions = append(suggestions, Suggestion{Text: name, Insert: name, Kind: KindDatabase, Detail: detailDatabase})
+	}
+	return suggestions
+}
+
+func cteSuggestions(names []string) []Suggestion {
+	suggestions := make([]Suggestion, 0, len(names))
+	for _, name := range names {
+		suggestions = append(suggestions, Suggestion{Text: name, Insert: name, Kind: KindAlias, Detail: detailCTE})
 	}
 	return suggestions
 }
@@ -264,6 +273,9 @@ func (x *Index) referenceSuggestions(c query.Completion) []Suggestion {
 }
 
 func aliasDetail(alias query.Alias) string {
+	if alias.CTE {
+		return detailCTE
+	}
 	if len(alias.Scopes) == 0 {
 		return detailAlias
 	}
@@ -289,8 +301,12 @@ type namedField struct {
 
 // fieldsUnder merges the children of path across every container the alias
 // is bound to, in the order they were first seen. A field some of several
-// containers lack says which have it.
+// containers lack says which have it. A CTE's fields are the columns its
+// SELECT list names, and have no children.
 func (x *Index) fieldsUnder(alias query.Alias, path []string) []namedField {
+	if alias.CTE {
+		return cteFields(alias, path)
+	}
 	prefix := strings.Join(slices.Concat(alias.Path, path), ".")
 	if prefix != "" {
 		prefix += "."
@@ -320,6 +336,17 @@ func (x *Index) fieldsUnder(alias query.Alias, path []string) []namedField {
 			detail:   field.detail(len(alias.Scopes)),
 			writable: !field.holdsKey && !unwritableRoot(prefix, name),
 		})
+	}
+	return fields
+}
+
+func cteFields(alias query.Alias, path []string) []namedField {
+	if len(path) > 0 {
+		return nil
+	}
+	fields := make([]namedField, 0, len(alias.Fields))
+	for _, name := range alias.Fields {
+		fields = append(fields, namedField{name: name, detail: detailCTE})
 	}
 	return fields
 }

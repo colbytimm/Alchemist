@@ -474,6 +474,15 @@ need; nothing here has to be undone for it.
   accounts. Nothing in either plan has to change for the other.
 - **12, info view.** Unrelated today; the natural source of container sizes if the
   streamed-side rule ever wants more than `Filtered`.
+- **20, CTEs and join types.** Landed after this iteration. `Plan{Merge, Leaves, Join}`
+  became `Plan{Leaves, Root}`, a small operator tree whose `Join` reads `Source`s
+  (a container, a CTE, a materialized CTE) instead of leaves; keys became `FieldRef`s
+  and columns gained an alias, since an input can bind `APPLY` aliases too. The
+  re-rooting, one table per held side, sequential lazy reads, `pendingRows`,
+  `maxMergedPageRows` and the total cap are kept; the cap is now a budget shared by
+  every node of a run. `LEFT`, `RIGHT`, `FULL` and `CROSS` joins are accepted, so the
+  checklist item "a `LEFT JOIN` as the third source is refused" no longer holds, and
+  "joining on an array element" from the out-of-scope list is delivered by `APPLY`.
 
 ## Steps
 

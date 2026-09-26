@@ -369,24 +369,25 @@ func TestAJoinClosedBeforeItsFirstPageOpensNothing(t *testing.T) {
 }
 
 func TestAJoinPlanWhoseStepsDoNotFitItsLeavesIsRefused(t *testing.T) {
-	leaves := plan(t, starQuery).Leaves
-	step := query.JoinStep{LeftKey: []string{"k"}, RightKey: []string{"k"}}
+	star := plan(t, starQuery)
+	inputs := joinOf(t, star).Inputs
+	step := query.JoinStep{LeftKey: ref("o", "k"), RightKey: ref("cu", "k")}
 	forward := step
 	forward.Left = 2
 	tests := []struct {
 		name string
 		join query.Join
 	}{
-		{name: "fewer steps than joined leaves", join: query.Join{Steps: []query.JoinStep{step}}},
-		{name: "a step reading a later leaf", join: query.Join{Steps: []query.JoinStep{forward, step}}},
+		{name: "fewer steps than joined leaves", join: query.Join{Inputs: inputs, Steps: []query.JoinStep{step}}},
+		{name: "a step reading a later leaf", join: query.Join{Inputs: inputs, Steps: []query.JoinStep{forward, step}}},
 		{
 			name: "a column of a leaf that does not exist",
-			join: query.Join{Steps: []query.JoinStep{step, step}, Columns: []query.JoinColumn{{Side: 3, Field: "id"}}},
+			join: query.Join{Inputs: inputs, Steps: []query.JoinStep{step, step}, Columns: []query.JoinColumn{{Side: 3, Field: "id"}}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			malformed := query.Plan{Merge: query.HashJoin, Leaves: leaves, Join: tt.join}
+			malformed := query.Plan{Leaves: star.Leaves, Root: &tt.join}
 
 			_, err := query.Engine{Connection: starContainers(t)}.Execute(context.Background(), malformed)
 

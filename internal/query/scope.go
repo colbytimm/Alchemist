@@ -37,19 +37,19 @@ type token struct {
 
 // keywords are idents that can never be a bare source alias.
 var keywords = map[string]bool{
-	"AND": true, "ARRAY": true, "AS": true, "ASC": true, "BETWEEN": true, "BY": true,
+	"AND": true, "APPLY": true, "ARRAY": true, "AS": true, "ASC": true, "BETWEEN": true, "BY": true,
 	"CASE": true, "DESC": true, "DISTINCT": true, "ELSE": true, "END": true,
 	"ESCAPE": true, "EXISTS": true, "FALSE": true, "FROM": true, "GROUP": true,
 	"IN": true, "INNER": true, "IS": true, "JOIN": true, "LIKE": true, "LIMIT": true, "NOT": true,
 	"NULL": true, "OFFSET": true, "ON": true, "OR": true, "ORDER": true,
 	"SELECT": true, "THEN": true, "TOP": true, "TRUE": true, "UDF": true,
-	"UNDEFINED": true, "VALUE": true, "WHEN": true, "WHERE": true,
+	"UNDEFINED": true, "VALUE": true, "WHEN": true, "WHERE": true, "WITH": true,
 }
 
 // joinModifiers are the idents that may precede JOIN, and so can never be a
 // bare source alias either.
 var joinModifiers = map[string]bool{
-	"CROSS": true, "FULL": true, "INNER": true, "LEFT": true, "OUTER": true, "RIGHT": true,
+	"CROSS": true, "FULL": true, "INNER": true, "LEFT": true, "NATURAL": true, "OUTER": true, "RIGHT": true,
 }
 
 // source is one FROM-clause source: a dotted path plus an optional alias.
@@ -59,11 +59,11 @@ type source struct {
 	start    int // byte offset of the first path token
 	end      int // byte offset just past the last consumed token
 	firstTok int
-	nextTok  int    // index just past the last consumed token
-	clause   int    // 1 for the first FROM clause of the query
-	depth    int    // parentheses open around that FROM clause
-	joined   bool   // introduced by JOIN rather than listed after FROM
-	modifier string // what preceded that JOIN, e.g. "LEFT OUTER"
+	nextTok  int      // index just past the last consumed token
+	clause   int      // 1 for the first FROM clause of the query
+	depth    int      // parentheses open around that FROM clause
+	joined   bool     // introduced by JOIN rather than listed after FROM
+	kind     JoinKind // of that JOIN
 }
 
 // lex splits s into tokens, treating single- and double-quoted regions as
@@ -273,6 +273,9 @@ type element struct {
 	name string
 	base string
 	path []string
+	// applied marks an APPLY, outer an OUTER APPLY.
+	applied bool
+	outer   bool
 }
 
 func parse(text string) *parser {
@@ -341,27 +344,30 @@ func (p *parser) parseFromSource(i int) (int, bool) {
 
 func (p *parser) parseJoins(i int) int {
 	for {
-		modifier, j := p.parseJoinModifier(i)
-		if !p.isKeyword(j, "JOIN") {
+		j := p.skipJoinModifiers(i)
+		switch {
+		case p.isKeyword(j, "JOIN"):
+			kind, _, _ := descent{toks: p.toks}.parseJoinKeywords(i)
+			i = p.parseJoinClause(j+1, kind)
+		case p.isKeyword(j, "APPLY") && j > i:
+			i = p.parseApply(j+1, p.isKeyword(j-1, "OUTER"))
+		default:
 			return i
 		}
-		i = p.parseJoinClause(j+1, modifier)
 	}
 }
 
-func (p *parser) parseJoinModifier(i int) (string, int) {
-	var words []string
+func (p *parser) skipJoinModifiers(i int) int {
 	for i < len(p.toks) && p.toks[i].kind == tokIdent && joinModifiers[p.toks[i].upper] {
-		words = append(words, p.toks[i].upper)
 		i++
 	}
-	return strings.Join(words, " "), i
+	return i
 }
 
 // parseJoinClause binds the alias of `JOIN alias IN collection` and skips its
 // path; a bare `JOIN path` is recorded as a source so cross-container
 // references are detected.
-func (p *parser) parseJoinClause(i int, modifier string) int {
+func (p *parser) parseJoinClause(i int, kind JoinKind) int {
 	src, j, ok := p.parseSource(i)
 	if !ok {
 		next, _ := p.parseSubquerySource(i)
@@ -372,11 +378,30 @@ func (p *parser) parseJoinClause(i int, modifier string) int {
 		return j
 	}
 	if !p.isKeyword(j, "IN") {
-		src.joined, src.modifier = true, modifier
+		src.joined, src.kind = true, kind
 		p.record(src)
 		if p.isKeyword(j, "ON") {
 			return p.skipOn(j + 1)
 		}
+		return j
+	}
+	return p.parseElement(i)
+}
+
+func (p *parser) parseApply(i int, outer bool) int {
+	elements := len(p.elements)
+	next := p.parseElement(i)
+	if len(p.elements) > elements {
+		p.elements[elements].applied, p.elements[elements].outer = true, outer
+	}
+	return next
+}
+
+// parseElement binds the alias of `alias IN collection`, which a JOIN or an
+// APPLY ranges over the elements of an array.
+func (p *parser) parseElement(i int) int {
+	src, j, ok := p.parseSource(i)
+	if !ok || !p.isKeyword(j, "IN") {
 		return j
 	}
 	collection, k, ok := p.parseSource(j + 1)
@@ -528,10 +553,37 @@ func (p *parser) record(src source) {
 	}
 }
 
+// rangesOverArray reports whether s is the alias of `alias IN path`, which
+// binds the elements of an array rather than naming a source.
+func (p *parser) rangesOverArray(s source) bool {
+	return p.isKeyword(s.nextTok, "IN")
+}
+
 func (p *parser) isKeyword(i int, kw string) bool {
 	return keywordAt(p.toks, i, kw)
 }
 
 func (p *parser) isComma(i int) bool {
 	return i < len(p.toks) && p.toks[i].kind == tokComma
+}
+
+// containerSources are the sources of the form db.container; a two-part path
+// rooted at an alias is a property of that alias instead.
+func (p *parser) containerSources() []source {
+	var containers []source
+	for _, s := range p.sources {
+		if len(s.path) == 2 && !p.aliases[s.path[0].text] {
+			containers = append(containers, s)
+		}
+	}
+	return containers
+}
+
+// joinAlias falls back to the container name, so `orders.customerId` works
+// for a join input declared without an alias.
+func joinAlias(s source) string {
+	if s.alias != "" {
+		return s.alias
+	}
+	return s.path[1].text
 }

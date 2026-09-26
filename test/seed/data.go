@@ -16,6 +16,7 @@ const (
 	alertCount      = 25
 	departmentCount = 4
 	employeeCount   = 18
+	teamSize        = 6
 )
 
 var (
@@ -51,18 +52,24 @@ func pick(values []string, i int) string {
 	return values[i%len(values)]
 }
 
+// customers include one no order names, past the ones orders do, so a full
+// join has unmatched rows on both sides.
 func customers() []item {
 	var items []item
 	for i := range customerCount {
-		items = append(items, item{
-			"id":     fmt.Sprintf("c%02d", i),
-			"name":   fmt.Sprintf("Customer %02d", i),
-			"region": pick(regions, i),
-			"tier":   pick([]string{"bronze", "silver", "gold"}, i),
-			"vip":    i%5 == 0,
-		})
+		items = append(items, customer(i))
 	}
-	return items
+	return append(items, customer(customersNamed))
+}
+
+func customer(i int) item {
+	return item{
+		"id":     fmt.Sprintf("c%02d", i),
+		"name":   fmt.Sprintf("Customer %02d", i),
+		"region": pick(regions, i),
+		"tier":   pick([]string{"bronze", "silver", "gold"}, i),
+		"vip":    i%5 == 0,
+	}
 }
 
 func orders(prefix string, count, offset int) []item {
@@ -165,16 +172,22 @@ func departments() []item {
 	return items
 }
 
+// employees report in teams of teamSize to the first of each team, who
+// reports to no one, so a self-join on managerId pads the managers.
 func employees() []item {
 	var items []item
 	for i := range employeeCount {
-		items = append(items, item{
+		employee := item{
 			"id":               fmt.Sprintf("emp-%02d", i),
 			"name":             fmt.Sprintf("Employee %02d", i),
 			"departmentNumber": i%(departmentCount+1) + 1,
 			"site":             pick(cities, i),
-			"manager":          i%6 == 0,
-		})
+			"manager":          i%teamSize == 0,
+		}
+		if i%teamSize != 0 {
+			employee["managerId"] = fmt.Sprintf("emp-%02d", i/teamSize*teamSize)
+		}
+		items = append(items, employee)
 	}
 	return items
 }

@@ -144,8 +144,8 @@ func TestAQueryRefusedBeforeItReachesTheAdapterIsStillRecorded(t *testing.T) {
 		{name: "no scope", query: "SELECT * FROM c", wantError: "no container in scope"},
 		{
 			name:      "unsupported shape",
-			query:     "SELECT * FROM sales.orders o LEFT JOIN sales.customers cu ON o.pk = cu.pk",
-			wantError: "LEFT JOIN",
+			query:     "SELECT * FROM sales.orders NATURAL JOIN sales.customers",
+			wantError: "NATURAL JOIN",
 		},
 	}
 	for _, tt := range tests {

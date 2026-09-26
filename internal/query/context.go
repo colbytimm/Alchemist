@@ -11,8 +11,8 @@ type CompletionKind int
 const (
 	CompleteNothing    CompletionKind = iota
 	CompleteKeyword                   // Keywords only
-	CompleteSource                    // databases, and the catalog's scope container as a bare alias
-	CompleteDatabase                  // databases only
+	CompleteSource                    // CTEs, databases, and the catalog's scope container as a bare alias
+	CompleteDatabase                  // CTEs and databases
 	CompleteContainer                 // the containers of Database
 	CompleteField                     // the fields under the one Alias, at Path
 	CompleteReference                 // every Alias, then its fields
@@ -30,6 +30,8 @@ type Completion struct {
 	End   int
 	// Database names the one whose containers complete.
 	Database string
+	// CTEs are the names a source position may read, declared before it.
+	CTEs []string
 	// Aliases is the alias under the cursor for a field, and every alias the
 	// query declares, in order, for a reference or an expression.
 	Aliases []Alias
@@ -56,6 +58,10 @@ type Alias struct {
 	// the root, and the array's element path ("tags[]") for a `JOIN alias
 	// IN` alias.
 	Path []string
+	// CTE marks an alias of a CTE, whose fields are what its SELECT list
+	// names, and nothing a container holds.
+	CTE    bool
+	Fields []string
 }
 
 // WithDefaultScope binds every alias the query left unbound to scope.
@@ -65,7 +71,7 @@ func (c Completion) WithDefaultScope(scope []string) Completion {
 	}
 	c.Aliases = slices.Clone(c.Aliases)
 	for i := range c.Aliases {
-		if len(c.Aliases[i].Scopes) == 0 {
+		if len(c.Aliases[i].Scopes) == 0 && !c.Aliases[i].CTE {
 			c.Aliases[i].Scopes = [][]string{scope}
 		}
 	}
@@ -74,7 +80,7 @@ func (c Completion) WithDefaultScope(scope []string) Completion {
 
 // clauses are the words that open a query's clauses, in the order a query
 // writes them.
-var clauses = []string{"SELECT", "FROM", "WHERE", "GROUP", "ORDER", "OFFSET", "LIMIT"}
+var clauses = []string{"WITH", "SELECT", "FROM", "WHERE", "GROUP", "ORDER", "OFFSET", "LIMIT"}
 
 func setOf(words []string) map[string]bool {
 	set := make(map[string]bool, len(words))
@@ -91,7 +97,8 @@ var (
 	selectKeywords     = []string{"DISTINCT", "TOP", "VALUE"}
 	negatedOperators   = []string{"IN", "LIKE", "BETWEEN"}
 	clauseWords        = setOf(clauses)
-	sourceBreakers     = map[string]bool{"JOIN": true, "ON": true, "IN": true}
+	sourceBreakers     = map[string]bool{"JOIN": true, "ON": true, "IN": true, "APPLY": true}
+	joinWords          = []string{"JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "OUTER"}
 	valueEndingSymbols = map[string]bool{")": true, "*": true, "]": true}
 )
 
@@ -107,17 +114,19 @@ func (a Analysis) Context(cursor int) Completion {
 		return Completion{Start: cursor, End: cursor}
 	}
 	word, before := splitAtCursor(a.code, cursor)
+	typing := word.end > word.start
 	var completion Completion
 	switch {
 	case a.batch:
 		completion = batchCompletion(before)
 	case keywordAt(a.code, 0, "UPDATE"):
-		completion = updateCompletion(before, word.end > word.start)
+		completion = updateCompletion(before, typing)
 	case keywordAt(a.code, 0, "DELETE"):
-		completion = deleteCompletion(before, word.end > word.start)
+		completion = deleteCompletion(before, typing)
+	case keywordAt(a.code, 0, "WITH"):
+		completion = withCompletion(a.code, before, typing)
 	default:
-		c := classifier{toks: before, parser: a.parser, typing: word.end > word.start}
-		completion = c.classify()
+		completion = classifier{toks: before, parser: a.parser, typing: typing}.classify()
 	}
 	completion.Word = a.text[word.start:cursor]
 	completion.Start, completion.End = word.start, word.end
@@ -160,20 +169,62 @@ func splitAtCursor(toks []token, cursor int) (word token, before []token) {
 	return token{start: cursor, end: cursor}, toks
 }
 
+// withCompletion classifies a cursor in a statement that opens with WITH:
+// in its header, in a CTE's body, or in the main query. A body is read on
+// its own, knowing the CTEs declared before it.
+func withCompletion(toks, before []token, typing bool) Completion {
+	at := len(before)
+	var visible []cteColumns
+	for i := 1; ; {
+		switch {
+		case at <= i:
+			return Completion{}
+		case at == i+1:
+			return keywordsOnly([]string{"AS"})
+		case at == i+2 || !keywordAt(toks, i+1, "AS") || !isSymbolAt(toks, i+2, "("):
+			return Completion{}
+		}
+		closing := closingParen(toks, i+2)
+		if closing < 0 {
+			closing = len(toks)
+		}
+		body := toks[i+3 : closing]
+		if at <= closing {
+			return classifier{toks: before[i+3:], parser: parseTokens(body), typing: typing, ctes: visible, inWith: true}.classify()
+		}
+		fields, _ := projectionFields(body)
+		visible = append(visible, cteColumns{name: toks[i].text, fields: fields})
+		i = closing + 1
+		if i < len(toks) && toks[i].kind == tokComma {
+			i++
+			continue
+		}
+		return classifier{toks: before[i:], parser: parseTokens(toks[i:]), typing: typing, ctes: visible, inWith: true}.classify()
+	}
+}
+
+type cteColumns struct {
+	name   string
+	fields []string
+}
+
 // classifier reads the tokens before the cursor against the parse of the
-// whole query. typing marks a word under the cursor: where that word may be
-// a name the user is inventing, an alias, nothing is offered, since
-// accepting a suggestion would overwrite it.
+// whole query, or of the one body of a WITH statement the cursor is in.
+// typing marks a word under the cursor: where that word may be a name the
+// user is inventing, an alias, nothing is offered, since accepting a
+// suggestion would overwrite it.
 type classifier struct {
 	toks   []token
 	parser *parser
 	typing bool
+	ctes   []cteColumns
+	inWith bool
 }
 
 func (c classifier) classify() Completion {
 	last, ok := c.last()
 	if !ok {
-		return Completion{Kind: CompleteKeyword, Keywords: []string{"SELECT", "UPDATE", "DELETE"}}
+		return c.statementStart()
 	}
 	if last.kind == tokDot {
 		return c.afterDot()
@@ -181,7 +232,7 @@ func (c classifier) classify() Completion {
 	clause, since := c.clause()
 	switch clause {
 	case "":
-		return Completion{Kind: CompleteKeyword, Keywords: []string{"SELECT"}}
+		return c.statementStart()
 	case "SELECT":
 		return c.inSelect(since)
 	case "FROM":
@@ -197,6 +248,15 @@ func (c classifier) classify() Completion {
 		return keywordsOnly([]string{"LIMIT"})
 	}
 	return Completion{}
+}
+
+// statementStart offers what a statement opens with; a body of a WITH
+// statement opens with SELECT alone.
+func (c classifier) statementStart() Completion {
+	if c.inWith {
+		return keywordsOnly([]string{"SELECT"})
+	}
+	return keywordsOnly([]string{"SELECT", "UPDATE", "DELETE", "WITH"})
 }
 
 func (c classifier) last() (token, bool) {
@@ -253,13 +313,18 @@ func (c classifier) inSelect(since []token) Completion {
 // that opened the current source, the comma that listed it, or the ON or IN
 // that followed it.
 func (c classifier) inFrom(since []token) Completion {
-	if last, ok := lastOf(since); ok && last.upper == "INNER" {
-		return c.afterInner()
+	if last, ok := lastOf(since); ok && last.kind == tokIdent && joinModifiers[last.upper] {
+		return afterModifier(since)
 	}
 	breaker, tail := splitFrom(since)
 	switch breaker {
 	case "JOIN":
+		if keywordAt(since, len(since)-len(tail)-2, "CROSS") {
+			return c.afterCrossJoin(tail)
+		}
 		return c.afterJoin(tail)
+	case "APPLY":
+		return c.afterApply(tail)
 	case "ON":
 		return c.inOn(tail)
 	case "IN":
@@ -271,6 +336,59 @@ func (c classifier) inFrom(since []token) Completion {
 		return c.afterSource(tail, CompleteDatabase)
 	}
 	return c.afterSource(tail, CompleteSource)
+}
+
+// afterModifier offers what may follow the words before a JOIN or an APPLY.
+func afterModifier(since []token) Completion {
+	last := since[len(since)-1]
+	switch last.upper {
+	case "LEFT", "RIGHT", "FULL":
+		return keywordsOnly([]string{"OUTER", "JOIN"})
+	case "CROSS":
+		return keywordsOnly([]string{"JOIN", "APPLY"})
+	case "NATURAL":
+		return Completion{}
+	case "OUTER":
+		if len(since) > 1 && outerKinds[since[len(since)-2].upper] != InnerJoin {
+			return keywordsOnly([]string{"JOIN"})
+		}
+		return keywordsOnly([]string{"APPLY"})
+	}
+	return keywordsOnly([]string{"JOIN"})
+}
+
+// afterApply offers IN after the alias an APPLY introduces, which is the
+// user's to invent.
+func (c classifier) afterApply(tail []token) Completion {
+	if len(tail) == 1 && tail[0].kind == tokIdent && !c.typing {
+		return keywordsOnly([]string{"IN"})
+	}
+	return Completion{}
+}
+
+// afterCrossJoin offers what may follow the source of a CROSS JOIN, which
+// has no ON.
+func (c classifier) afterCrossJoin(tail []token) Completion {
+	last, ok := lastOf(tail)
+	switch {
+	case !ok:
+		return c.sourceCompletion(CompleteDatabase)
+	case last.upper == "AS", isPath(tail) && c.typing:
+		return Completion{}
+	case isPath(tail):
+		return keywordsOnly(append([]string{"AS"}, c.afterSources()...))
+	}
+	return keywordsOnly(c.afterSources())
+}
+
+// sourceCompletion completes a source position: the CTEs before it, then
+// what kind names.
+func (c classifier) sourceCompletion(kind CompletionKind) Completion {
+	completion := Completion{Kind: kind}
+	for _, cte := range c.ctes {
+		completion.CTEs = append(completion.CTEs, cte.name)
+	}
+	return completion
 }
 
 // splitFrom names the last structural token of a FROM clause and returns the
@@ -298,10 +416,8 @@ func (c classifier) afterSource(tail []token, empty CompletionKind) Completion {
 	last, ok := lastOf(tail)
 	switch {
 	case !ok:
-		return Completion{Kind: empty}
+		return c.sourceCompletion(empty)
 	case last.upper == "AS":
-		return Completion{}
-	case last.kind == tokIdent && joinModifiers[last.upper]:
 		return Completion{}
 	case isPath(tail) && c.typing:
 		return Completion{}
@@ -311,20 +427,16 @@ func (c classifier) afterSource(tail []token, empty CompletionKind) Completion {
 	return keywordsOnly(c.afterSources())
 }
 
-func (c classifier) afterInner() Completion {
-	return keywordsOnly([]string{"JOIN"})
-}
-
 // afterJoin offers `IN` after a bare alias only where a property join may
 // run: never alongside a cross-container join.
 func (c classifier) afterJoin(tail []token) Completion {
 	last, ok := lastOf(tail)
 	switch {
 	case !ok:
-		return Completion{Kind: CompleteDatabase}
+		return c.sourceCompletion(CompleteDatabase)
 	case last.upper == "AS", isPath(tail) && c.typing:
 		return Completion{}
-	case isPath(tail) && len(tail) == 1 && c.crossJoin():
+	case isPath(tail) && len(tail) == 1 && c.simulated():
 		return Completion{}
 	case isPath(tail) && len(tail) == 1:
 		return keywordsOnly([]string{"IN"})
@@ -379,11 +491,13 @@ func (c classifier) onSides(on int) ([]Alias, bool) {
 	return sides, true
 }
 
+// inWhere offers no alias of an input an outer join pads, nor of an APPLY:
+// the planner takes no condition on either but the absent-side test.
 func (c classifier) inWhere(since []token) Completion {
 	last, ok := lastOf(since)
 	switch {
 	case !ok:
-		return c.expression(literalKeywords)
+		return c.whereExpression()
 	case last.upper == "NOT" && len(since) > 1 && endsValue(since[len(since)-2]):
 		return keywordsOnly(negatedOperators)
 	case endsValue(last) && len(since) > 1 && since[len(since)-2].upper == "LIKE":
@@ -391,7 +505,61 @@ func (c classifier) inWhere(since []token) Completion {
 	case endsValue(last):
 		return keywordsOnly(slices.Concat(operatorKeywords, c.following("WHERE")))
 	}
-	return c.expression(literalKeywords)
+	return c.whereExpression()
+}
+
+func (c classifier) whereExpression() Completion {
+	completion := c.expression(literalKeywords)
+	padded := c.paddedAliases()
+	completion.Aliases = slices.DeleteFunc(completion.Aliases, func(a Alias) bool { return slices.Contains(padded, a.Name) })
+	return completion
+}
+
+// paddedAliases are the aliases of the inputs an outer join can pad, and of
+// the APPLYs.
+func (c classifier) paddedAliases() []string {
+	inputs := c.inputs()
+	var padded []string
+	for k, s := range inputs {
+		switch s.kind {
+		case LeftOuterJoin:
+			padded = append(padded, c.inputName(s))
+		case RightOuterJoin, FullOuterJoin:
+			for _, earlier := range inputs[:k] {
+				padded = append(padded, c.inputName(earlier))
+			}
+			if s.kind == FullOuterJoin {
+				padded = append(padded, c.inputName(s))
+			}
+		}
+	}
+	for _, e := range c.parser.elements {
+		if e.applied {
+			padded = append(padded, e.name)
+		}
+	}
+	return padded
+}
+
+// inputs are the sources of the first FROM clause.
+func (c classifier) inputs() []source {
+	var inputs []source
+	for _, s := range c.parser.sources {
+		if s.clause == 1 && s.depth == 0 {
+			inputs = append(inputs, s)
+		}
+	}
+	return inputs
+}
+
+func (c classifier) inputName(s source) string {
+	switch {
+	case s.alias != "":
+		return s.alias
+	case len(s.path) == 2 && !c.parser.aliases[s.path[0].text]:
+		return joinAlias(s)
+	}
+	return s.path[0].text
 }
 
 func (c classifier) inOrdering(clause string, since []token) Completion {
@@ -430,7 +598,7 @@ func (c classifier) afterDot() Completion {
 	completion := Completion{
 		Kind:     CompleteField,
 		Aliases:  []Alias{c.resolve(chain[0])},
-		TopLevel: clause == "SELECT" && c.crossJoin(),
+		TopLevel: clause == "SELECT" && c.simulated(),
 	}
 	if len(chain) > 1 {
 		completion.Path = chain[1:]
@@ -465,21 +633,21 @@ func (c classifier) sourcePosition(i int) bool {
 }
 
 // afterSources are the words that may follow a complete FROM clause. A join
-// is offered only where the planner would run it: not after a container
-// list.
+// or an APPLY is offered only where the planner would run it: not after a
+// container list.
 func (c classifier) afterSources() []string {
 	words := []string{"WHERE"}
 	if !c.containerList() {
-		words = append(words, "JOIN", "INNER")
+		words = append(words, joinWords...)
 	}
 	return append(words, c.following("FROM")...)
 }
 
-// following names the clauses that may open after clause. A cross-container
-// join is merged client-side, so nothing the merge cannot honor is offered
+// following names the clauses that may open after clause. A simulated
+// query is merged client-side, so nothing the merge cannot honor is offered
 // after it.
 func (c classifier) following(clause string) []string {
-	if c.crossJoin() {
+	if c.simulated() {
 		return nil
 	}
 	switch clause {
@@ -505,9 +673,37 @@ func (c classifier) reference() Completion {
 	return Completion{Kind: CompleteReference, Aliases: c.aliases()}
 }
 
-func (c classifier) crossJoin() bool {
+// simulated reports whether the planner merges the query client-side: a
+// join of containers, or a query that reads a CTE or has an OUTER APPLY.
+func (c classifier) simulated() bool {
 	containers := c.parser.containerSources()
-	return len(containers) > 1 && containers[len(containers)-1].joined
+	joined := len(containers) > 1 && containers[len(containers)-1].joined
+	outerApply := slices.ContainsFunc(c.parser.elements, func(e element) bool { return e.outer })
+	return joined || outerApply || len(c.cteSources()) > 0
+}
+
+func (c classifier) cteSources() []source {
+	if len(c.ctes) == 0 {
+		return nil
+	}
+	var reads []source
+	for _, s := range c.inputs() {
+		if _, ok := c.cte(s); ok {
+			reads = append(reads, s)
+		}
+	}
+	return reads
+}
+
+func (c classifier) cte(s source) (cteColumns, bool) {
+	if len(s.path) != 1 {
+		return cteColumns{}, false
+	}
+	i := slices.IndexFunc(c.ctes, func(cte cteColumns) bool { return cte.name == s.path[0].text })
+	if i < 0 {
+		return cteColumns{}, false
+	}
+	return c.ctes[i], true
 }
 
 func (c classifier) containerList() bool {
@@ -526,6 +722,9 @@ func (c classifier) aliases() []Alias {
 }
 
 func (c classifier) rootAliases() []Alias {
+	if len(c.cteSources()) > 0 {
+		return c.inputAliases()
+	}
 	containers := c.parser.containerSources()
 	switch {
 	case len(containers) == 0:
@@ -548,6 +747,23 @@ func (c classifier) rootAliases() []Alias {
 		scopes = append(scopes, scopeOf(container))
 	}
 	return []Alias{{Name: alias, Scopes: scopes}}
+}
+
+// inputAliases are the aliases of a query reading CTEs, one per input of its
+// first FROM clause.
+func (c classifier) inputAliases() []Alias {
+	var aliases []Alias
+	for _, s := range c.inputs() {
+		alias := Alias{Name: c.inputName(s)}
+		switch cte, isCTE := c.cte(s); {
+		case isCTE:
+			alias.CTE, alias.Fields = true, cte.fields
+		case len(s.path) == 2:
+			alias.Scopes = [][]string{scopeOf(s)}
+		}
+		aliases = append(aliases, alias)
+	}
+	return aliases
 }
 
 // unboundAlias is the name a query with no container reads through, left

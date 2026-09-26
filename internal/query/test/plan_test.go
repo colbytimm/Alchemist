@@ -1,6 +1,8 @@
 package query_test
 
 import (
+	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -83,7 +85,7 @@ func TestASingleContainerQueryPassesThrough(t *testing.T) {
 			plan, err := query.BuildPlan(tt.input)
 
 			require.NoError(t, err)
-			require.Equal(t, query.PassThrough, plan.Merge)
+			require.IsType(t, &query.Scan{}, plan.Root)
 			require.False(t, plan.Simulated())
 			require.Len(t, plan.Leaves, 1)
 			assert.Equal(t, tt.rewritten, plan.Leaves[0].Query.Text)
@@ -164,7 +166,7 @@ func TestAContainerListPlansAUnionAll(t *testing.T) {
 			plan, err := query.BuildPlan(tt.input)
 
 			require.NoError(t, err)
-			require.Equal(t, query.UnionAll, plan.Merge)
+			require.IsType(t, &query.Union{}, plan.Root)
 			require.True(t, plan.Simulated())
 			require.Len(t, plan.Leaves, 2)
 			assert.Equal(t, adapter.Query{Text: tt.text, Scope: []string{"sales", "orders"}}, plan.Leaves[0].Query)
@@ -179,7 +181,7 @@ FROM sales.orders AS o
 JOIN sales.customers AS cu ON o.customerId = cu.id`)
 
 	require.NoError(t, err)
-	require.Equal(t, query.HashJoin, plan.Merge)
+	require.IsType(t, &query.Join{}, plan.Root)
 	require.Len(t, plan.Leaves, 2)
 	assert.Equal(t, query.Leaf{
 		Alias: "o",
@@ -189,14 +191,17 @@ JOIN sales.customers AS cu ON o.customerId = cu.id`)
 		Alias: "cu",
 		Query: adapter.Query{Text: "SELECT * FROM cu", Scope: []string{"sales", "customers"}},
 	}, plan.Leaves[1])
-	assert.Equal(t, query.Join{
-		Steps: []query.JoinStep{{Left: 0, LeftKey: []string{"customerId"}, RightKey: []string{"id"}}},
-		Columns: []query.JoinColumn{
-			{Side: 0, Field: "id"},
-			{Side: 0, Field: "total"},
-			{Side: 1, Field: "name"},
-		},
-	}, plan.Join)
+	join := joinOf(t, plan)
+	assert.Equal(t, []query.Source{
+		{Alias: "o", Rows: &query.Scan{Leaf: 0}},
+		{Alias: "cu", Rows: &query.Scan{Leaf: 1}},
+	}, join.Inputs)
+	assert.Equal(t, []query.JoinStep{{Left: 0, LeftKey: ref("o", "customerId"), RightKey: ref("cu", "id")}}, join.Steps)
+	assert.Equal(t, []query.JoinColumn{
+		{Side: 0, Alias: "o", Field: "id"},
+		{Side: 0, Alias: "o", Field: "total"},
+		{Side: 1, Alias: "cu", Field: "name"},
+	}, join.Columns)
 }
 
 func TestAJoinColumnMayBeRenamed(t *testing.T) {
@@ -205,10 +210,10 @@ func TestAJoinColumnMayBeRenamed(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []query.JoinColumn{
-		{Side: 0, Field: "id"},
-		{Side: 1, Field: "name", As: "newName"},
-		{Side: 1, Field: "id", As: "customer"},
-	}, plan.Join.Columns)
+		{Side: 0, Alias: "o", Field: "id"},
+		{Side: 1, Alias: "cu", Field: "name", As: "newName"},
+		{Side: 1, Alias: "cu", Field: "id", As: "customer"},
+	}, joinOf(t, plan).Columns)
 }
 
 func TestJoinKeysFollowTheirSideHoweverOnIsWritten(t *testing.T) {
@@ -216,9 +221,9 @@ func TestJoinKeysFollowTheirSideHoweverOnIsWritten(t *testing.T) {
 		"SELECT * FROM sales.orders o INNER JOIN sales.customers cu ON cu.profile.id = o.customerId")
 
 	require.NoError(t, err)
-	assert.Equal(t, []query.JoinStep{{Left: 0, LeftKey: []string{"customerId"}, RightKey: []string{"profile", "id"}}},
-		plan.Join.Steps)
-	assert.Empty(t, plan.Join.Columns, "SELECT * projects every column")
+	assert.Equal(t, []query.JoinStep{{Left: 0, LeftKey: ref("o", "customerId"), RightKey: ref("cu", "profile", "id")}},
+		joinOf(t, plan).Steps)
+	assert.Empty(t, joinOf(t, plan).Columns, "SELECT * projects every column")
 }
 
 func TestAJoinSideWithNoAliasIsKnownByItsContainer(t *testing.T) {
@@ -311,7 +316,7 @@ func TestALookupStarAttachesEverySideToTheFirst(t *testing.T) {
 	plan, err := query.BuildPlan(starJoin)
 
 	require.NoError(t, err)
-	require.Equal(t, query.HashJoin, plan.Merge)
+	require.IsType(t, &query.Join{}, plan.Root)
 	assert.Equal(t, []query.Leaf{
 		{Alias: "o", Query: adapter.Query{Text: "SELECT * FROM o", Scope: []string{"sales", "orders"}}},
 		{
@@ -322,16 +327,16 @@ func TestALookupStarAttachesEverySideToTheFirst(t *testing.T) {
 		{Alias: "p", Query: adapter.Query{Text: "SELECT * FROM p", Scope: []string{"sales", "products"}}},
 	}, plan.Leaves)
 	assert.Equal(t, []query.JoinStep{
-		{Left: 0, LeftKey: []string{"customerId"}, RightKey: []string{"id"}},
-		{Left: 0, LeftKey: []string{"sku"}, RightKey: []string{"id"}},
-	}, plan.Join.Steps)
+		{Left: 0, LeftKey: ref("o", "customerId"), RightKey: ref("cu", "id")},
+		{Left: 0, LeftKey: ref("o", "sku"), RightKey: ref("p", "id")},
+	}, joinOf(t, plan).Steps)
 }
 
 func TestAChainAttachesEachSideToTheOneBeforeIt(t *testing.T) {
 	plan, err := query.BuildPlan(chainJoin)
 
 	require.NoError(t, err)
-	assert.Equal(t, query.JoinStep{Left: 1, LeftKey: []string{"deviceId"}, RightKey: []string{"id"}}, plan.Join.Steps[1])
+	assert.Equal(t, query.JoinStep{Left: 1, LeftKey: ref("e", "deviceId"), RightKey: ref("d", "id")}, joinOf(t, plan).Steps[1])
 	assert.Equal(t, []bool{true, true, false}, filtered(plan))
 }
 
@@ -341,7 +346,7 @@ func TestAnOnWrittenNewSideFirstIsTheSameStep(t *testing.T) {
 	earlierFirst, err := query.BuildPlan(starJoin)
 	require.NoError(t, err)
 
-	assert.Equal(t, earlierFirst.Join.Steps, newFirst.Join.Steps)
+	assert.Equal(t, joinOf(t, earlierFirst).Steps, joinOf(t, newFirst).Steps)
 }
 
 func TestFourContainersMixingStarAndChainKeepEachLeftAsWritten(t *testing.T) {
@@ -352,7 +357,7 @@ INNER JOIN a.z z ON z.k = w.k`)
 
 	require.NoError(t, err)
 	var lefts []int
-	for _, step := range plan.Join.Steps {
+	for _, step := range joinOf(t, plan).Steps {
 		lefts = append(lefts, step.Left)
 	}
 	assert.Equal(t, []int{0, 1, 0}, lefts)
@@ -365,7 +370,7 @@ func TestASideWithNoAliasInTheMiddleOfAChainIsKnownByItsContainer(t *testing.T) 
 
 	require.NoError(t, err)
 	assert.Equal(t, "customers", plan.Leaves[1].Alias)
-	assert.Equal(t, 1, plan.Join.Steps[1].Left)
+	assert.Equal(t, 1, joinOf(t, plan).Steps[1].Left)
 }
 
 func TestOneContainerTwiceIsTwoLeavesOfOneScope(t *testing.T) {
@@ -382,10 +387,10 @@ func TestJoinColumnsIndexTheSideTheyRead(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []query.JoinColumn{
-		{Side: 2, Field: "name"},
-		{Side: 0, Field: "id"},
-		{Side: 1, Field: "name"},
-	}, plan.Join.Columns)
+		{Side: 2, Alias: "p", Field: "name"},
+		{Side: 0, Alias: "o", Field: "id"},
+		{Side: 1, Alias: "cu", Field: "name"},
+	}, joinOf(t, plan).Columns)
 }
 
 func TestAConditionReadingNoAliasFiltersEverySide(t *testing.T) {
@@ -393,6 +398,17 @@ func TestAConditionReadingNoAliasFiltersEverySide(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []bool{true, true, true}, filtered(plan))
+}
+
+func joinOf(t *testing.T, plan query.Plan) *query.Join {
+	t.Helper()
+	join, ok := plan.Root.(*query.Join)
+	require.True(t, ok, "root %T is not a join", plan.Root)
+	return join
+}
+
+func ref(alias string, path ...string) query.FieldRef {
+	return query.FieldRef{Alias: alias, Path: path}
 }
 
 func filtered(plan query.Plan) []bool {
@@ -415,7 +431,6 @@ func TestMultiWayShapesThatCannotBeSimulatedAreRefusedByName(t *testing.T) {
 		{name: "ON reading the new side twice", input: pair + " JOIN sales.products p ON p.sku = p.id", shape: "ON clause"},
 		{name: "compound ON in the second step", input: pair + " JOIN sales.products p ON o.sku = p.id AND o.x = p.x", shape: "ON clause"},
 		{name: "compound ON before a third side", input: pair + " AND o.x = cu.x JOIN sales.products p ON o.sku = p.id", shape: "ON clause"},
-		{name: "left join as the third source", input: pair + " LEFT JOIN sales.products p ON o.sku = p.id", shape: "LEFT JOIN"},
 		{name: "property join before the container joins", input: "SELECT * FROM sales.orders o JOIN l IN o.lines JOIN sales.customers cu ON o.customerId = cu.id", shape: "JOIN ... IN"},
 		{name: "property join between the container joins", input: pair + " JOIN l IN o.lines JOIN sales.products p ON o.sku = p.id", shape: "JOIN ... IN"},
 		{name: "property join after the container joins", input: pair + " JOIN l IN o.lines", shape: "JOIN ... IN"},
@@ -448,9 +463,6 @@ func TestShapesThatCannotBeSimulatedAreRefused(t *testing.T) {
 		{name: "ON over one side", input: "SELECT * FROM a.b x JOIN c.d y ON x.k = x.j"},
 		{name: "ON against a literal", input: "SELECT * FROM a.b x JOIN c.d y ON x.k = 5"},
 		{name: "join without ON", input: "SELECT * FROM a.b x JOIN c.d y"},
-		{name: "left join", input: "SELECT * FROM a.b x LEFT JOIN c.d y ON x.k = y.k"},
-		{name: "left outer join with no alias", input: "SELECT * FROM a.b LEFT OUTER JOIN c.d ON b.k = d.k"},
-		{name: "cross join", input: "SELECT * FROM a.b x CROSS JOIN c.d y"},
 		{name: "cross-container subquery", input: "SELECT * FROM a.b x WHERE EXISTS (SELECT VALUE y FROM c.d y)"},
 		{name: "condition over both sides", input: join + " WHERE o.total > cu.limit"},
 		{name: "empty condition", input: join + " WHERE o.open AND"},
@@ -504,6 +516,32 @@ var plannerSeeds = []string{
 	starJoin,
 	chainJoin,
 	"..,,..''\"\"[[]]",
+	leftJoin + ` WHERE NOT IS_DEFINED(cu) AND o.status = "open"`,
+	rightJoin,
+	fullJoin + " AND cu.vip",
+	crossQuery,
+	"SELECT o.id, l.sku, t FROM sales.orders o OUTER APPLY l IN o.lines CROSS APPLY t IN o.tags",
+	"SELECT o.id FROM sales.orders o CROSS APPLY l IN o.lines",
+	westAndBig,
+	staff,
+	composed,
+	"WITH recent AS (SELECT TOP 50 * FROM sales.orders o ORDER BY o._ts DESC) SELECT * FROM recent",
+	"WITH c AS (SELECT * FROM c WHERE c.open) SELECT * FROM c",
+	"WITH RECURSIVE r AS (",
+	"WITH x AS (SELECT",
+	"SELECT * FROM a.b x CROSS APPLY (SELECT",
+	"FROM A.CROSS APPLY",
+	"SELECT * FROM a.b AS CROSS APPLY l IN CROSS.lines",
+	"WITH x AS (SELECT * FROM a.b AS CROSS APPLY l IN CROSS.lines) SELECT * FROM x",
+	"WITH x AS (SELECT * FROM a.b o) SELECT t.sku FROM t IN x.lines",
+	"WITH t AS (SELECT * FROM a.b o) SELECT t.sku FROM t IN t.lines",
+	"WITH x AS (SELECT * FROM a.b o), y AS (SELECT * FROM t IN x.lines) SELECT * FROM y",
+	"WITH x AS (SELECT o.id FROM a.b o WHERE EXISTS(SELECT VALUE 1 FROM t IN o.tags)), t AS (SELECT * FROM c.d) SELECT * FROM x",
+	"WITH t AS (SELECT * FROM c.d) SELECT * FROM a.b o WHERE EXISTS(SELECT VALUE 1 FROM t IN o.tags)",
+	"SELECT * FROM a.b x NATURAL JOIN c.d y",
+	"WITH x AS (SELECT 1), y AS (SELECT",
+	"WITH 西 AS (SELECT o.id FROM sales.orders o WHERE o.名 = 1) SELECT 西.id, çu.name FROM 西 JOIN sales.customers çu ON 西.id = çu.id",
+	"SELECT ö.id FROM\u00a0sales.orders ö CROSS APPLY ł IN ö.lines",
 }
 
 func FuzzBuildPlan(f *testing.F) {
@@ -516,10 +554,105 @@ func FuzzBuildPlan(f *testing.F) {
 			return
 		}
 		require.NotEmpty(t, plan.Leaves)
-		if !plan.Simulated() && len(plan.Scope()) == 0 {
+		untouched := len(plan.Leaves) == 1 && plan.Leaves[0].Name == "" && !strings.Contains(strings.ToUpper(input), "APPLY")
+		if !plan.Simulated() && len(plan.Scope()) == 0 && untouched {
 			assert.Equal(t, input, plan.Leaves[0].Query.Text)
 		}
 	})
+}
+
+func FuzzLowering(f *testing.F) {
+	for _, seed := range plannerSeeds {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, input string) {
+		plan, err := query.BuildPlan(input)
+		if err != nil {
+			return
+		}
+		readers := map[*query.Materialize]int{}
+		checkNode(t, plan, plan.Root, readers)
+		for shared, count := range readers {
+			assert.GreaterOrEqual(t, count, 2, "the Materialize of %s", shared.Name)
+		}
+		runToTheEnd(t, plan.WithDefaultScope([]string{"db", "c"}))
+	})
+}
+
+// runToTheEnd executes plan against a connection serving the same items for
+// every container, and asserts it closes every leaf it opened.
+func runToTheEnd(t *testing.T, plan query.Plan) {
+	t.Helper()
+	conn := &everyContainer{containers: newContainers(nil)}
+	cursor, err := query.Engine{Connection: conn, MaxJoinRows: 50}.Execute(context.Background(), plan)
+	require.NoError(t, err)
+	for first := true; first || cursor.HasMore(); first = false {
+		if _, err := cursor.NextPage(context.Background()); err != nil {
+			break
+		}
+	}
+	require.NoError(t, cursor.Close())
+	assert.Equal(t, conn.opened, conn.closed)
+}
+
+// everyContainer answers every query with the same two pages.
+type everyContainer struct {
+	*containers
+}
+
+func (c *everyContainer) Query(ctx context.Context, q adapter.Query) (adapter.Cursor, error) {
+	label := strings.Join(q.Scope, ".")
+	c.pages = map[string][]adapter.Page{label: {
+		{Columns: []string{"id", "k"}, Raw: rawItems(`{"id":"a","k":1,"lines":[{"sku":"s"},2],"tags":["x"]}`, `{"id":"b","k":null}`)},
+		{Columns: []string{"id"}, Raw: rawItems(`{"id":"c","k":1}`)},
+	}}
+	return c.containers.Query(ctx, q)
+}
+
+// checkNode asserts that node indexes only what exists, and counts the
+// sources reading each Materialize.
+func checkNode(t *testing.T, plan query.Plan, node query.Node, readers map[*query.Materialize]int) {
+	t.Helper()
+	switch n := node.(type) {
+	case *query.Scan:
+		assert.Less(t, n.Leaf, len(plan.Leaves))
+	case *query.Union:
+		for _, leaf := range n.Leaves {
+			assert.Less(t, leaf, len(plan.Leaves))
+		}
+	case *query.Flatten:
+		checkNode(t, plan, n.Input, readers)
+	case *query.Materialize:
+		checkNode(t, plan, n.Input, readers)
+	case *query.Join:
+		checkJoin(t, plan, n, readers)
+	default:
+		t.Fatalf("unexpected node %T", node)
+	}
+}
+
+func checkJoin(t *testing.T, plan query.Plan, join *query.Join, readers map[*query.Materialize]int) {
+	t.Helper()
+	for _, input := range join.Inputs {
+		if shared, ok := input.Rows.(*query.Materialize); ok {
+			readers[shared]++
+			if readers[shared] > 1 {
+				continue
+			}
+		}
+		checkNode(t, plan, input.Rows, readers)
+	}
+	for i, step := range join.Steps {
+		assert.LessOrEqual(t, step.Left, i)
+	}
+	for _, column := range join.Columns {
+		assert.Less(t, column.Side, len(join.Inputs))
+	}
+	for _, alias := range join.Absent {
+		assert.True(t, slices.ContainsFunc(join.Inputs, func(s query.Source) bool {
+			return s.Alias == alias || slices.ContainsFunc(s.Applies, func(a query.Apply) bool { return a.Alias == alias })
+		}), "absent alias %s", alias)
+	}
 }
 
 // A subquery's alias is a name the statement reads through, never an alias
@@ -528,7 +661,7 @@ func TestASubqueryAliasedLikeADatabaseLeavesTheScopeAlone(t *testing.T) {
 	plan, err := query.BuildPlan("SELECT * FROM sales.orders o WHERE EXISTS(SELECT VALUE 1 FROM (SELECT * FROM c) sales)")
 
 	require.NoError(t, err)
-	require.Equal(t, query.PassThrough, plan.Merge)
+	require.IsType(t, &query.Scan{}, plan.Root)
 	require.Equal(t, []string{"sales", "orders"}, plan.Scope())
 }
 
@@ -537,7 +670,7 @@ func TestASubqueryAliasedLikeADatabaseLeavesAJoinPlanned(t *testing.T) {
 		"WHERE EXISTS(SELECT VALUE 1 FROM (SELECT * FROM c) sales)")
 
 	require.NoError(t, err)
-	require.Equal(t, query.HashJoin, plan.Merge)
+	require.IsType(t, &query.Join{}, plan.Root)
 	require.Len(t, plan.Leaves, 2)
 }
 
@@ -553,7 +686,7 @@ func TestAPropertyJoinAfterASubqueryPassesThrough(t *testing.T) {
 	plan, err := query.BuildPlan(text)
 
 	require.NoError(t, err)
-	require.Equal(t, query.PassThrough, plan.Merge)
+	require.IsType(t, &query.Scan{}, plan.Root)
 	require.Equal(t, text, plan.Leaves[0].Query.Text)
 }
 
@@ -590,7 +723,7 @@ func TestAJoinUnderASubqueryAliasIsNoContainer(t *testing.T) {
 			plan, err := query.BuildPlan(tt.query)
 
 			require.NoError(t, err)
-			require.Equal(t, query.PassThrough, plan.Merge)
+			require.IsType(t, &query.Scan{}, plan.Root)
 			want := tt.text
 			if want == "" {
 				want = tt.query

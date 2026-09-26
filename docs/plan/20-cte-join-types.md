@@ -879,3 +879,89 @@ fixtures computed by hand in the test, as `wantJoined` is.
 - Everything outside the grammar is `query.ErrUnsupported` with its shape named.
 - `internal/query` imports no concrete adapter; `internal/tui` changes no command and
   binds no key; no new dependency, config key or goroutine.
+
+## Implementation notes
+
+Landed as one change on top of 16, 18 and 19. Where the code settled differently from
+the text above:
+
+- **Files.** `parse.go` holds the statement and body parsers and the conjunct helpers;
+  `lower.go` lowers a statement, its CTEs, opaque bodies and unions; `simulate.go`
+  lowers a simulated body; `malformed.go` refuses a malformed tree. The executor is
+  `exec.go` (engine, budget, meter), `union.go`, `relation.go` (reading an input into
+  rows and rendering combinations, shared by the hash and the cross join),
+  `apply.go`, the hash join and its pipeline, `cross.go`, `materialize.go` and
+  `flatten.go`. The join planner's file is gone, as planned.
+- **One change, not twelve commits.** The steps were built in order but land together,
+  so "step 1 changes nothing" is shown by the iteration 10 and 16 executor tests
+  passing with only their malformed-plan fixtures respelled, and the planner tables
+  passing with `Merge`/`Join` respelled and the `LEFT JOIN`/`CROSS JOIN` rows moved to
+  accepted tables. Three TUI tests used `LEFT JOIN` as their refused shape; they now
+  use `NATURAL JOIN` and a `CROSS JOIN` in a chain.
+- **`Join.Absent` holds aliases**, not indexes: `NOT IS_DEFINED(l)` after an
+  `OUTER APPLY` names an alias that is no input. The malformed-tree check requires every one bound.
+- **`Flatten` has a `Name`**, the CTE's, which labels its rows in the budget.
+  `JoinKind` has a `String` method for the refusals.
+- **Every leaf planned for a CTE carries its name**, a simulated body's leaves too, so
+  `named (sales.customers)` files the charge of a composed CTE. `Leaf.Fields` is set
+  for a CTE's opaque leaf only; the main query's leaves keep it nil.
+- **A CTE body whose only new syntax is `CROSS APPLY` is opaque too**, rewritten to
+  `JOIN … IN` exactly as the main query is, rather than simulated: same answer, run on
+  the service.
+- **A body reading its own name reads the container in scope.** The name-resolution
+  rules and the test list say `WITH c AS (… FROM c …)` reads the container inside,
+  which a "recursive CTE" refusal of the same shape would contradict; the rules win,
+  and `WITH RECURSIVE` is the one recursion refused by name. A body naming a CTE
+  declared after it is refused as `y is neither a container nor a CTE declared before
+  it`, and so is a one-part name that is no CTE anywhere but the first `FROM` source of
+  a simulated body: joined, it is a mistyped CTE or a container missing its database,
+  never the container in scope. `FROM t IN x.lines` over a CTE `x` is refused with the
+  hint to use `CROSS APPLY`, since the service would range over the scoped container;
+  a `FROM t IN o.tags` whose root is an alias the body binds is a binding, not a read.
+  An `AS` alias that is a keyword or a join modifier is refused in a simulated body.
+- **The cross join's product is checked on its own** against `max_join_rows`, before
+  the first page, while its two sides draw on the shared budget like any held rows.
+  The product is served from the two sides and never held, so adding it to the total
+  would refuse a 100 × 100 product under the default cap for rows that are not in
+  memory. A cross join whose first side is empty does not read the second.
+- **A run with a dead stream skips it.** When a hop's table is empty and the hop keeps
+  nothing unmatched from the streamed side, every streamed row would be dropped there:
+  the run ends at once when no hop from there on flushes, as planned, and otherwise
+  holds the rest and goes straight to the flush without querying the streamed input.
+  `A JOIN B(empty) RIGHT JOIN C` returns every row of `C` and never reads `A`.
+- **A Materialize's items count once, their APPLY rows too.** A join table or a cross
+  join side over a shared CTE adds to the budget only the rows its `APPLY`s expanded
+  the items by, beyond one per item.
+- **Key-less rows, in general.** A row is dropped as it is read when it lacks the key
+  of a hop that does not keep its side unmatched: a held row of a hop that does not
+  flush, or a from-row of a hop that does not pad. That is 16's rule where nothing is
+  preserved, and keeps every row an outer step can still emit.
+- **Refusals the text left open.** A `WHERE` condition reading no alias is refused
+  beside a CTE input, which has no leaf of this body to take it. An extra `ON`
+  condition of an inner join that reads an earlier source is refused with 16's `ON`
+  wording. A
+  `USING` is refused as `JOIN ... USING`, and `NATURAL` is a join modifier to the
+  scanner, so `FROM a.b x NATURAL JOIN c.d y` is refused as `NATURAL JOIN` rather
+  than sent to the service as one container. On a `RIGHT` or `FULL` join the hint for a
+  condition on a padded side is to filter it in a CTE, since `ON` cannot take it.
+- **`Plan.ObservedFields`** replaces the TUI's reading of `Merge` and `Join.Columns`:
+  it files a join half only for an input that is a container of the query, never for
+  a CTE, and leaves out renamed columns, as 13's "as built" rule does.
+- **Autocomplete (13 landed first).** The moves listed under "Relationship to other
+  iterations" are made in `query.Context` and `internal/complete`: the join words and
+  `OUTER`/`APPLY` after a source and after each modifier, `IN` after an `APPLY` alias,
+  no `ON` after a `CROSS JOIN` source, `WITH` at a statement's start and `AS`, then
+  `SELECT` in its header, the visible CTEs first in every source position
+  (`Completion.CTEs`), `cte.` completing the columns its select list names
+  (`Alias.CTE`, `Alias.Fields`, never sampled nor bound to the scope), and a `WHERE`
+  of an outer join offering only the aliases no step pads. `NOT IS_DEFINED(` is not
+  offered as a unit; `IS_DEFINED` is already a function suggestion.
+- **Seed.** Customer `c15` is named by no order; employees report in teams of six to
+  the first of each team, who has no `managerId`.
+- **Integration fixtures** live in their own `e20_joins` database, computed by hand, so
+  the emulator's seeded databases are only read. The `vnext-preview` emulator charges
+  a page the same whatever it holds, so "strictly lower charge on the projected
+  leaves" is asserted as "not higher"; the materialized CTE's charge equals one scan.
+- **`FuzzBuildPlan`'s pass-through invariant** (text untouched when no container is
+  named) now excludes statements with a `WITH` or an `APPLY`, which the planner
+  rewrites by design; `FuzzLowering` checks the tree.

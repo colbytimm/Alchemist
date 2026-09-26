@@ -413,7 +413,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		return m.resize(msg.Width, msg.Height), nil
 	case tea.KeyMsg:
-		return m.handleKey(msg)
+		return m.handleKey(typedText(msg))
 	case CatalogLoadedMsg:
 		return m.applyCatalog(msg)
 	case FieldsSampledMsg:
@@ -629,6 +629,19 @@ func (m Model) handleErr(msg ErrMsg) (Model, tea.Cmd) {
 		return m.failSnapshots(msg), nil
 	}
 	return m, nil
+}
+
+// typedText marks a burst of several runes as text, the way bubbletea marks
+// a bracketed paste. Key bindings match on a key's name, and a word such as
+// "left" or "home" that arrives in one burst, from a paste the terminal did
+// not bracket or from input faster than it reports keys, has that name: it
+// would move the cursor instead of being typed. A pasted key's name is
+// bracketed, so no binding matches it and every text input inserts it.
+func typedText(msg tea.KeyMsg) tea.KeyMsg {
+	if msg.Type == tea.KeyRunes && len(msg.Runes) > 1 {
+		msg.Paste = true
+	}
+	return msg
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {

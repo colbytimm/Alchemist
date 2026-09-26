@@ -27,6 +27,7 @@ func Analyze(text string) Analysis {
 		parser: parseTokens(statement),
 		batch:  keywordAt(statement, 0, "BEGIN") && keywordAt(statement, 1, "BATCH"),
 	}
+	a.parser.declarations = append(a.parser.declarations, cteNameTokens(statement)...)
 	kind, mutation := mutationKind(statement)
 	if mutation {
 		a.mutation, a.mutationKind = true, kind

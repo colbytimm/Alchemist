@@ -44,6 +44,11 @@ func TestSourcePaths(t *testing.T) {
 		},
 		{name: "path inside a string literal", input: `SELECT * FROM c WHERE c.note = "FROM a.b.c"`, want: [][]string{{"c"}}},
 		{name: "no source", input: "SELECT 1"},
+		{
+			name:  "a source inside a CTE, and a CTE read by name",
+			input: "WITH x AS (SELECT * FROM prod.sales.orders o) SELECT * FROM x JOIN sales.customers c ON x.id = c.id",
+			want:  [][]string{{"prod", "sales", "orders"}, {"sales", "customers"}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
