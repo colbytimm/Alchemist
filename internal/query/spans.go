@@ -1,5 +1,10 @@
 package query
 
+import (
+	"maps"
+	"slices"
+)
+
 type SpanKind int
 
 const (
@@ -25,12 +30,24 @@ var batchKeywords = map[string]bool{
 	"WHERE": true, "IF": true, "MATCH": true, "TRUE": true, "FALSE": true, "NULL": true,
 }
 
+// mutationKeywords are the words an UPDATE adds to a query's, kept apart
+// for batchKeywords' reason: SET can be an alias.
+var mutationKeywords = map[string]bool{"UPDATE": true, "SET": true, "UNSET": true}
+
+// mutationSpanWords are what an update highlights: its condition is a
+// query's.
+var mutationSpanWords = withKeys(keywords, slices.Collect(maps.Keys(mutationKeywords))...)
+
 // Spans lists the keywords, string literals, numbers, and comments of text in
-// the order they appear. A batch statement's keywords are its own.
+// the order they appear. A batch statement's keywords are its own, and an
+// update's are a query's and its own.
 func Spans(text string) []Span {
 	words := keywords
-	if IsBatch(text) {
+	switch {
+	case IsBatch(text):
 		words = batchKeywords
+	case IsMutation(text):
+		words = mutationSpanWords
 	}
 	var spans []Span
 	previous := tokOther
