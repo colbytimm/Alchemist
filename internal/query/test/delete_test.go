@@ -95,6 +95,15 @@ func TestParseDeleteRefusals(t *testing.T) {
 		{name: "LIMIT", input: "DELETE FROM a.b o WHERE true LIMIT 1", line: 1, column: 30, message: "LIMIT in a DELETE", unsupported: true},
 		{name: "RETURNING", input: "DELETE FROM a.b o WHERE true RETURNING o", line: 1, column: 30, message: "RETURNING in a DELETE", unsupported: true},
 		{name: "text after the semicolon", input: "DELETE FROM a.b o WHERE true;\nSELECT * FROM c", line: 2, column: 1, message: "a buffer holds one statement"},
+		{
+			name: "a WHERE that closes its own parenthesis", input: `DELETE FROM sales.orders o WHERE o.status = "cancelled") OR (true`,
+			line: 1, column: 56, message: "unbalanced parentheses in the WHERE",
+		},
+		{
+			name: "ORDER BY after a closing parenthesis", input: "DELETE FROM a.b o WHERE o.x = 1) ORDER BY o.x",
+			line: 1, column: 34, message: "ORDER in a DELETE", unsupported: true,
+		},
+		{name: "an unclosed parenthesis", input: "DELETE FROM a.b o WHERE (o.x = 1", line: 1, column: 32, message: "unbalanced parentheses in the WHERE"},
 		{name: "SET", input: "DELETE FROM a.b o SET o.x = 1 WHERE true", line: 1, column: 19, message: "expected WHERE"},
 	}
 	for _, tt := range tests {
@@ -125,6 +134,9 @@ func TestIsMutationSeesADelete(t *testing.T) {
 		{name: "DELETE in a comment", input: "-- DELETE FROM a.b\nSELECT * FROM c"},
 		{name: "a field called delete", input: "SELECT c.delete FROM c"},
 		{name: "TRUNCATE", input: "TRUNCATE a.b"},
+		{name: "a field called delete after a CTE", input: "WITH x AS (SELECT c.id FROM c) SELECT c.delete FROM c"},
+		{name: "a field called delete inside a CTE", input: "WITH x AS (SELECT c.delete FROM c) SELECT * FROM x"},
+		{name: "a CTE then a delete", input: "WITH x AS (SELECT c.id FROM c) DELETE FROM a.b o WHERE true", want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

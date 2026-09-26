@@ -279,14 +279,16 @@ func (r MutationReview) consequence() string {
 	return updateConsequence
 }
 
+// prompt spells out a confirmation that holds a count, since the count the
+// review shows has thousands separators and the one to type has none.
 func (r MutationReview) prompt() string {
 	d := r.draft
 	count := FormatCount(int64(len(d.Targets.Items)))
 	switch {
 	case d.Mutation.Kind == query.MutationDelete:
-		return "Type the container name and the item count to delete:"
+		return fmt.Sprintf("Type %s to delete:", d.Confirmation())
 	case d.Mutation.EveryItem:
-		return fmt.Sprintf("Every item in %s. Type the container name and the item count:", strings.Join(d.Mutation.Target, "."))
+		return fmt.Sprintf("Every item in %s. Type %s to update:", strings.Join(d.Mutation.Target, "."), d.Confirmation())
 	}
 	return fmt.Sprintf("Type the container name to %s %s items:", d.Mutation.Kind, count)
 }

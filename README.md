@@ -439,7 +439,7 @@ wrongly deleted one costs a restore. An item already gone is `skipped: gone`, co
 apart from `deleted`, and never makes a run a failure.
 
 **The confirmation is the container name and the item count, always**, one space
-apart, the count in plain digits: `orders 20`. The name proves you know where; the
+apart, the count in plain digits: `orders 20`, which the review's prompt spells out. The name proves you know where; the
 count is the one number that differs between the delete you meant and the one a loose
 `WHERE` selected. The review shows the first items that would go on one line each, a
 rough cost (7 RU per 1 KB item), the warnings an update shows, whether a snapshot of the

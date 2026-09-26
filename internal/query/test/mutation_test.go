@@ -227,6 +227,8 @@ var mutationSeeds = []string{
 	"DELETE o.tmp FROM a.b o WHERE true",
 	"DELETE FROM a.b o USING x.y z WHERE true",
 	"DELETE FROM",
+	`DELETE FROM a.b o WHERE o.status = "cancelled") OR (true`,
+	"DELETE FROM a.b o WHERE o.x = 1) ORDER BY o.x",
 }
 
 func FuzzParseMutation(f *testing.F) {

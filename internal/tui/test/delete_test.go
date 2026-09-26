@@ -53,7 +53,7 @@ func TestCtrlROnADeleteReadsAndOpensTheReviewDeletingNothing(t *testing.T) {
 		deleteReviewTitle + "mock", "sales.orders", "key /customerId", shippedWhere, "4 matched at",
 		`- o1  "c01"  {"status":"shipped","total":2}`, "… 1 more", "roughly 28 RU (7 RU per 1 KB item",
 		"Items are deleted one by one. An item changed since", "There is no undo.",
-		"Type the container name and the item count to delete:",
+		"Type orders 4 to delete:",
 	} {
 		assert.Contains(t, view, want)
 	}
@@ -277,7 +277,25 @@ func TestTheDeleteReviewFitsTheSmallestTerminal(t *testing.T) {
 	m = dryRun(t, m, deleteShipped)
 
 	view := plain(m.View())
-	assert.Contains(t, view, "Type the container name and the item count to delete:")
+	assert.Contains(t, view, "Type orders 4 to delete:")
 	assert.Contains(t, view, "> ", "the confirmation stays in view")
 	assert.Contains(t, view, "enter start")
+}
+
+func TestAThousandsCountIsTypedInPlainDigits(t *testing.T) {
+	items := make([]json.RawMessage, 1204)
+	for i := range items {
+		items[i] = shippedOrder(fmt.Sprintf("o%04d", i), fmt.Sprintf("c%02d", i%7), "shipped")
+	}
+	conn := newConnection(t, mock.WithPredicate("true", func(json.RawMessage) bool { return true }), mock.WithItems(ordersPath, items...))
+	m := dryRun(t, newUpdateModel(t, conn, &recordingStore{}), `DELETE FROM sales.orders o WHERE true`)
+	require.Contains(t, plain(m.View()), "1,204 matched at")
+	require.Contains(t, plain(m.View()), "Type orders 1204 to delete:")
+
+	m = confirmUpdate(t, m, "orders 1,204")
+	assert.Contains(t, plain(m.View()), deleteReviewTitle, "the count as the review shows it does not confirm")
+	assert.Zero(t, conn.edits.Load())
+
+	m = pressAll(t, m, keyMsg(tea.KeyCtrlU))
+	heldDelete(t, m, "orders 1204")
 }

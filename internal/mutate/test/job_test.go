@@ -112,6 +112,7 @@ func TestTheFirstWriteIsAProbe(t *testing.T) {
 				assert.Len(t, a.EditedIDs(), tt.calls)
 				if tt.ended {
 					require.ErrorIs(t, err, mutate.ErrProbeRefused)
+					assert.Contains(t, err.Error(), "BEGIN BATCH with IF MATCH", "an update's refusal keeps its advice")
 					assert.Equal(t, 119, progress.Counts.NotAttempted)
 					return
 				}
