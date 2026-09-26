@@ -286,9 +286,13 @@ func TestDeleteContext(t *testing.T) {
 
 func TestDeleteIsAKeywordOnlyInADelete(t *testing.T) {
 	require.Equal(t, []spanText{
-		{query.SpanKeyword, "DELETE"}, {query.SpanKeyword, "FROM"}, {query.SpanKeyword, "WHERE"},
-		{query.SpanString, `"cancelled"`},
-	}, spanTexts(goalDelete))
-	require.Equal(t, []spanText{{query.SpanKeyword, "SELECT"}, {query.SpanKeyword, "FROM"}},
-		spanTexts("SELECT delete FROM c"), "DELETE is a name outside a delete")
+		keyword("DELETE"), keyword("FROM"), alias("o"), keyword("WHERE"), alias("o"), str(`"cancelled"`),
+	}, wordTexts(goalDelete))
+	require.Equal(t, []spanText{keyword("SELECT"), keyword("FROM"), alias("c")},
+		wordTexts("SELECT delete FROM c"), "DELETE is a name outside a delete")
+}
+
+func TestADeleteWithoutAnAliasReadsThroughTheDefault(t *testing.T) {
+	require.Equal(t, []spanText{keyword("DELETE"), keyword("FROM"), keyword("WHERE"), alias("c"), number("0"), operator("AND"), function("IS_NULL"), alias("c")},
+		wordTexts("DELETE FROM sales.orders WHERE c.n = 0 AND IS_NULL(c.x)"))
 }

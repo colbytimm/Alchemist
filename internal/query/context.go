@@ -72,13 +72,25 @@ func (c Completion) WithDefaultScope(scope []string) Completion {
 	return c
 }
 
+// clauses are the words that open a query's clauses, in the order a query
+// writes them.
+var clauses = []string{"SELECT", "FROM", "WHERE", "GROUP", "ORDER", "OFFSET", "LIMIT"}
+
+func setOf(words []string) map[string]bool {
+	set := make(map[string]bool, len(words))
+	for _, word := range words {
+		set[word] = true
+	}
+	return set
+}
+
 // Keyword groups, in the order they are offered.
 var (
 	literalKeywords    = []string{"NOT", "EXISTS", "ARRAY", "TRUE", "FALSE", "NULL", "UNDEFINED"}
 	operatorKeywords   = []string{"AND", "OR", "NOT", "IN", "LIKE", "BETWEEN"}
 	selectKeywords     = []string{"DISTINCT", "TOP", "VALUE"}
 	negatedOperators   = []string{"IN", "LIKE", "BETWEEN"}
-	clauseWords        = map[string]bool{"SELECT": true, "FROM": true, "WHERE": true, "GROUP": true, "ORDER": true, "OFFSET": true, "LIMIT": true}
+	clauseWords        = setOf(clauses)
 	sourceBreakers     = map[string]bool{"JOIN": true, "ON": true, "IN": true}
 	valueEndingSymbols = map[string]bool{")": true, "*": true, "]": true}
 )
@@ -86,26 +98,28 @@ var (
 // Context reports what can be typed at cursor, a byte offset into text. The
 // range it names lies inside text, on rune boundaries, for any cursor.
 func Context(text string, cursor int) Completion {
-	cursor = snapToRune(text, cursor)
-	toks := lex(text)
-	if insideLiteral(toks, cursor) {
+	return Analyze(text).Context(cursor)
+}
+
+func (a Analysis) Context(cursor int) Completion {
+	cursor = snapToRune(a.text, cursor)
+	if insideLiteral(a.tokens, cursor) {
 		return Completion{Start: cursor, End: cursor}
 	}
-	toks = code(toks)
-	word, before := splitAtCursor(toks, cursor)
+	word, before := splitAtCursor(a.code, cursor)
 	var completion Completion
 	switch {
-	case keywordAt(toks, 0, "BEGIN") && keywordAt(toks, 1, "BATCH"):
+	case a.batch:
 		completion = batchCompletion(before)
-	case keywordAt(toks, 0, "UPDATE"):
+	case keywordAt(a.code, 0, "UPDATE"):
 		completion = updateCompletion(before, word.end > word.start)
-	case keywordAt(toks, 0, "DELETE"):
+	case keywordAt(a.code, 0, "DELETE"):
 		completion = deleteCompletion(before, word.end > word.start)
 	default:
-		c := classifier{toks: before, parser: parseTokens(toks), typing: word.end > word.start}
+		c := classifier{toks: before, parser: a.parser, typing: word.end > word.start}
 		completion = c.classify()
 	}
-	completion.Word = text[word.start:cursor]
+	completion.Word = a.text[word.start:cursor]
 	completion.Start, completion.End = word.start, word.end
 	return completion
 }

@@ -6,6 +6,9 @@ dist/
 coverage.out
 coverage.html
 
+# Benchmark runs
+bench.txt
+
 # Editor/OS
 .DS_Store
 .idea/

@@ -63,25 +63,7 @@ func (m Model) editorEdit(msg tea.KeyMsg) (Model, tea.Cmd) {
 // after one would glue a keyword to it.
 func (m Model) cursorEndsName() bool {
 	text, offset := m.editor.Cursor()
-	if offset == 0 {
-		return false
-	}
-	if text[offset-1] == '.' {
-		return true
-	}
-	start := offset
-	for start > 0 && isIdentifierPart(text[start-1]) {
-		start--
-	}
-	return start < offset && isIdentifierStart(text[start])
-}
-
-func isIdentifierStart(c byte) bool {
-	return c == '_' || c == '$' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
-}
-
-func isIdentifierPart(c byte) bool {
-	return isIdentifierStart(c) || c >= '0' && c <= '9'
+	return query.EndsName(text[:offset])
 }
 
 // handleSuggestionKey answers the keys the open list owns, and reports
@@ -133,8 +115,7 @@ func (m Model) settleSuggestions(show func(panes.Editor, []complete.Suggestion, 
 	if !m.completing || m.focus != focusEditor || !ok {
 		return m, nil
 	}
-	text, offset := m.editor.Cursor()
-	c := query.Context(text, offset).WithDefaultScope(entry.scope)
+	c := m.editor.Context().WithDefaultScope(entry.scope)
 	if m.dismissed.covers(c) {
 		return m.closeSuggestions(), nil
 	}

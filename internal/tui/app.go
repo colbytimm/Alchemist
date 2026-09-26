@@ -136,6 +136,9 @@ type Options struct {
 	// Snapshots is the directory snapshots are kept under; empty turns
 	// them off.
 	Snapshots string
+	// Diagnostics is how the editor underlines what it flags; NoUnderline
+	// also stops it looking.
+	Diagnostics theme.DiagnosticUnderline
 }
 
 // Management is what a session may do with the catalog beyond browsing it:
@@ -261,6 +264,10 @@ type Model struct {
 	completing bool
 	completion query.Completion
 	dismissed  dismissal
+	// diagnostics is the session's underline setting, and diagnosis the
+	// newest check scheduled: an older one arriving has been typed over.
+	diagnostics theme.DiagnosticUnderline
+	diagnosis   int
 	// historyEntry is the record of the current run, appended to the log
 	// once the run has settled one way or the other.
 	historyEntry history.Entry
@@ -320,7 +327,7 @@ func New(opts Options) Model {
 		connectPane:   panes.NewConnect(opts.Icons, opts.Form),
 		accountsPane:  panes.NewAccounts(opts.Icons, append([]key.Binding{keys.Filter}, keys.AccountsKeys()...)),
 		noAccountPane: panes.NewCatalog(opts.Icons).SetError(nil, errNoAccount, 0),
-		editor:        panes.NewEditor(keys.Accept),
+		editor:        panes.NewEditor(keys.Accept).SetDiagnosticUnderline(opts.Diagnostics),
 		results:       panes.NewResults(),
 		detail:        panes.NewDetail(),
 		historyPane:   panes.NewHistory(opts.Icons, append(keys.HistoryKeys(), keys.SaveQuery)),
@@ -352,6 +359,7 @@ func New(opts Options) Model {
 		formAttempts:   map[string]int{},
 		sampleFields:   opts.SampleFields,
 		readOnly:       opts.ReadOnly,
+		diagnostics:    opts.Diagnostics,
 	}
 	m.accounts = newAccountSet(m.sessionAccounts(opts.Accounts), m.blankEntry)
 	m = m.withJobKeys()
@@ -400,6 +408,8 @@ func (m Model) withJobKeys() Model {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case diagnoseMsg:
+		return m.diagnose(msg), nil
 	case tea.WindowSizeMsg:
 		return m.resize(msg.Width, msg.Height), nil
 	case tea.KeyMsg:
@@ -847,10 +857,18 @@ func (m Model) handleResultsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// editorUpdate checks the buffer once typing pauses after a key that edited
+// it. Model is too large to pass around more than it already is on every
+// key, so the check is scheduled here rather than by a helper returning one.
 func (m Model) editorUpdate(msg tea.KeyMsg) (Model, tea.Cmd) {
+	buffer := m.editor.Value()
 	var cmd tea.Cmd
 	m.editor, cmd = m.editor.Update(msg)
-	return m, cmd
+	if m.editor.Value() == buffer || m.diagnostics == theme.NoUnderline {
+		return m, cmd
+	}
+	m.diagnosis++
+	return m, tea.Batch(cmd, diagnoseAfterPause(m.diagnosis))
 }
 
 func (m Model) moveDown() (Model, tea.Cmd) {

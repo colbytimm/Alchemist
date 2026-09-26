@@ -521,3 +521,98 @@ func FuzzBuildPlan(f *testing.F) {
 		}
 	})
 }
+
+// A subquery's alias is a name the statement reads through, never an alias
+// that makes a db.container path a property instead.
+func TestASubqueryAliasedLikeADatabaseLeavesTheScopeAlone(t *testing.T) {
+	plan, err := query.BuildPlan("SELECT * FROM sales.orders o WHERE EXISTS(SELECT VALUE 1 FROM (SELECT * FROM c) sales)")
+
+	require.NoError(t, err)
+	require.Equal(t, query.PassThrough, plan.Merge)
+	require.Equal(t, []string{"sales", "orders"}, plan.Scope())
+}
+
+func TestASubqueryAliasedLikeADatabaseLeavesAJoinPlanned(t *testing.T) {
+	plan, err := query.BuildPlan("SELECT o.id, cu.name FROM sales.orders o JOIN sales.customers cu ON o.cid = cu.id " +
+		"WHERE EXISTS(SELECT VALUE 1 FROM (SELECT * FROM c) sales)")
+
+	require.NoError(t, err)
+	require.Equal(t, query.HashJoin, plan.Merge)
+	require.Len(t, plan.Leaves, 2)
+}
+
+func TestSourcesAfterASubqueryAreStillParsed(t *testing.T) {
+	_, err := query.BuildPlan("SELECT * FROM (SELECT * FROM sales.orders) x JOIN sales.customers cu ON x.cid = cu.id")
+
+	require.ErrorIs(t, err, query.ErrUnsupported, "the join after the subquery is seen, and refused")
+}
+
+func TestAPropertyJoinAfterASubqueryPassesThrough(t *testing.T) {
+	text := "SELECT * FROM (SELECT * FROM c) x JOIN t IN x.tags WHERE t.a = 1"
+
+	plan, err := query.BuildPlan(text)
+
+	require.NoError(t, err)
+	require.Equal(t, query.PassThrough, plan.Merge)
+	require.Equal(t, text, plan.Leaves[0].Query.Text)
+}
+
+func TestASubqueryJoinAliasedLikeADatabaseLeavesTheScopeAlone(t *testing.T) {
+	plan, err := query.BuildPlan("SELECT * FROM sales.orders o JOIN (SELECT VALUE t FROM t IN o.tags) AS sales")
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"sales", "orders"}, plan.Scope())
+}
+
+// A path rooted at a subquery's alias reads the subquery's items: it is no
+// db.container, and the query passes through as written.
+func TestAJoinUnderASubqueryAliasIsNoContainer(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		scope []string
+		text  string
+	}{
+		{name: "a FROM subquery", query: "SELECT * FROM (SELECT * FROM c) x JOIN x.items i"},
+		{name: "a JOIN subquery", query: "SELECT * FROM c JOIN (SELECT VALUE t FROM t IN c.tags) x JOIN x.parts p"},
+		{name: "a subquery declared inside another", query: "SELECT * FROM (SELECT * FROM (SELECT * FROM c) y) x JOIN y.items i"},
+		{name: "a subquery named like a database", query: "SELECT * FROM (SELECT * FROM c) sales JOIN sales.orders s"},
+		{name: "a join under a join under a subquery", query: "SELECT * FROM (SELECT * FROM c) x JOIN x.items i JOIN i.parts p"},
+		{
+			name:  "a subquery beside a container",
+			query: "SELECT * FROM sales.orders o JOIN (SELECT VALUE t FROM t IN o.tags) x JOIN x.parts p",
+			scope: []string{"sales", "orders"},
+			text:  "SELECT * FROM o JOIN (SELECT VALUE t FROM t IN o.tags) x JOIN x.parts p",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan, err := query.BuildPlan(tt.query)
+
+			require.NoError(t, err)
+			require.Equal(t, query.PassThrough, plan.Merge)
+			want := tt.text
+			if want == "" {
+				want = tt.query
+			}
+			require.Equal(t, want, plan.Leaves[0].Query.Text)
+			require.Equal(t, tt.scope, plan.Scope())
+		})
+	}
+}
+
+func TestASubqueryIsNoSecondStatement(t *testing.T) {
+	_, err := query.BuildPlan("SELECT * FROM sales.orders o JOIN (SELECT VALUE t FROM t IN o.tags) x " +
+		"JOIN sales.customers cu ON o.cid = cu.id")
+
+	require.ErrorIs(t, err, query.ErrUnsupported)
+	require.NotContains(t, err.Error(), "more than one statement")
+}
+
+func TestClausesStillFollowAQueryWithASubquery(t *testing.T) {
+	text := "SELECT * FROM sales.orders o JOIN (SELECT VALUE t FROM t IN o.tags) x WHERE 1=1 "
+
+	got := query.Context(text, len(text))
+
+	require.Subset(t, got.Keywords, []string{"GROUP BY", "ORDER BY", "OFFSET"})
+}

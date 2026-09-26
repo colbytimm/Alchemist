@@ -505,6 +505,37 @@ func (p *mutationParser) parseTarget() ([]string, error) {
 	return target, nil
 }
 
+// declareMutationTarget records the target path of `UPDATE db.container
+// [[AS] alias]` or `DELETE FROM db.container [[AS] alias]` as a source root
+// and its alias as a declaration, the way a FROM source is recorded, and
+// returns the name the items go by.
+func (p *parser) declareMutationTarget(kind MutationKind) string {
+	i := 1
+	switch {
+	case keywordAt(p.toks, 0, "WITH"):
+		return defaultAlias
+	case kind == MutationDelete:
+		i = 2
+	}
+	if i >= len(p.toks) || p.toks[i].kind != tokIdent {
+		return defaultAlias
+	}
+	p.roots = append(p.roots, i)
+	i++
+	for i+1 < len(p.toks) && p.toks[i].kind == tokDot && p.toks[i+1].kind == tokIdent {
+		i += 2
+	}
+	if p.isKeyword(i, "AS") {
+		i++
+	}
+	if i >= len(p.toks) || p.toks[i].kind != tokIdent || !isAliasWord(p.toks[i].upper) {
+		return defaultAlias
+	}
+	p.declarations = append(p.declarations, i)
+	p.aliases[p.toks[i].text] = true
+	return p.toks[i].text
+}
+
 // parseAlias reads AS <alias> or a bare alias, neither of which a clause
 // word can be. A comma after it would name a second target.
 func (p *mutationParser) parseAlias() (string, error) {

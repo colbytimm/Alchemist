@@ -5,7 +5,12 @@
 // locally. It also marks the spans of a query worth highlighting.
 package query
 
-import "strings"
+import (
+	"slices"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
 
 // Token kinds produced by the lexer.
 const (
@@ -79,13 +84,18 @@ func lex(s string) []token {
 			end := lexComment(s, i)
 			toks = append(toks, token{kind: tokComment, start: i, end: end, open: true})
 			i = end
-		case isIdentStart(c):
+		case c >= utf8.RuneSelf && isSpaceRune(s[i:]):
+			_, size := utf8.DecodeRuneInString(s[i:])
+			i += size
+		case isIdentStart(c) || identRuneSize(s[i:]) > 0:
 			start := i
-			for i < len(s) && isIdentPart(s[i]) {
-				i++
-			}
+			i = lexIdent(s, i)
 			t := s[start:i]
 			toks = append(toks, token{kind: tokIdent, text: t, upper: strings.ToUpper(t), start: start, end: i})
+		case c >= utf8.RuneSelf:
+			_, size := utf8.DecodeRuneInString(s[i:])
+			toks = append(toks, token{kind: tokOther, text: s[i : i+size], start: i, end: i + size})
+			i += size
 		case isDigit(c):
 			end := lexNumber(s, i)
 			toks = append(toks, token{kind: tokNumber, start: i, end: end})
@@ -102,6 +112,54 @@ func lex(s string) []token {
 		}
 	}
 	return toks
+}
+
+// lexIdent returns the byte offset just past the identifier starting at i.
+// A non-ASCII letter, digit or mark continues it as an ASCII one does.
+func lexIdent(s string, i int) int {
+	for i < len(s) {
+		switch {
+		case isIdentPart(s[i]):
+			i++
+		case identRuneSize(s[i:]) > 0:
+			i += identRuneSize(s[i:])
+		default:
+			return i
+		}
+	}
+	return i
+}
+
+// EndsName reports whether text ends with a dot or with a name as lex reads
+// one; a number is no name.
+func EndsName(text string) bool {
+	if strings.HasSuffix(text, ".") {
+		return true
+	}
+	start := len(text)
+	for start > 0 {
+		r, size := utf8.DecodeLastRuneInString(text[:start])
+		if r < utf8.RuneSelf && !isIdentPart(byte(r)) || r >= utf8.RuneSelf && identRuneSize(text[start-size:]) == 0 {
+			break
+		}
+		start -= size
+	}
+	return start < len(text) && !isDigit(text[start])
+}
+
+// identRuneSize is the byte length of the non-ASCII letter, digit or mark
+// s starts with, or 0.
+func identRuneSize(s string) int {
+	r, size := utf8.DecodeRuneInString(s)
+	if r < utf8.RuneSelf || !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.IsMark(r) {
+		return 0
+	}
+	return size
+}
+
+func isSpaceRune(s string) bool {
+	r, _ := utf8.DecodeRuneInString(s)
+	return unicode.IsSpace(r)
 }
 
 // lexString returns the byte offset just past the string literal opening at
@@ -133,9 +191,13 @@ func lexComment(s string, i int) int {
 	return len(s)
 }
 
-// code drops the comments, which take no part in a query's structure.
+// code drops the comments, which take no part in a query's structure. Text
+// without one, the common case, keeps its tokens rather than a copy of them.
 func code(toks []token) []token {
-	var kept []token
+	if !slices.ContainsFunc(toks, func(tok token) bool { return tok.kind == tokComment }) {
+		return toks
+	}
+	kept := make([]token, 0, len(toks))
 	for _, tok := range toks {
 		if tok.kind != tokComment {
 			kept = append(kept, tok)
@@ -193,8 +255,16 @@ type parser struct {
 	aliases map[string]bool
 	// elements are the aliases a `JOIN alias IN path` declared, in order.
 	elements []element
-	clauses  int
-	depth    int
+	// declarations index the tokens that declare an alias; roots index
+	// the first token of every source path, which names a database or a
+	// container rather than reading an alias.
+	declarations []int
+	roots        []int
+	// subqueryAliases name the (subquery) sources declared so far: a path
+	// rooted at one reads the subquery's items, and is no container.
+	subqueryAliases map[string]bool
+	clauses         int
+	depth           int
 }
 
 // element is an alias ranging over an array: the alias the array was
@@ -210,13 +280,19 @@ func parse(text string) *parser {
 }
 
 func parseTokens(toks []token) *parser {
-	p := &parser{toks: toks, aliases: map[string]bool{}}
+	p := &parser{toks: toks, aliases: map[string]bool{}, subqueryAliases: map[string]bool{}}
 	p.run()
 	return p
 }
 
 func (p *parser) run() {
-	for i := 0; i < len(p.toks); {
+	p.walk(0, len(p.toks))
+}
+
+// walk parses the FROM clauses among the tokens from index from up to to,
+// tracking the parentheses around them.
+func (p *parser) walk(from, to int) {
+	for i := from; i < to; {
 		switch {
 		case p.isKeyword(i, "FROM"):
 			i = p.parseFromClause(i + 1)
@@ -233,17 +309,34 @@ func (p *parser) run() {
 func (p *parser) parseFromClause(i int) int {
 	p.clauses++
 	for {
-		src, j, ok := p.parseSource(i)
+		j, ok := p.parseFromSource(i)
 		if !ok {
 			return j
 		}
-		p.record(src)
 		i = p.parseJoins(j)
 		if !p.isComma(i) {
 			return i
 		}
 		i++
 	}
+}
+
+// parseFromSource consumes one source of a FROM list: a path with its alias
+// and any IN collection, or a subquery with its alias.
+func (p *parser) parseFromSource(i int) (int, bool) {
+	src, j, ok := p.parseSource(i)
+	if !ok {
+		return p.parseSubquerySource(i)
+	}
+	if p.readsSubquery(src) {
+		p.declareAliasOf(src)
+		return j, true
+	}
+	p.record(src)
+	if p.isKeyword(j, "IN") {
+		j = p.skipCollection(j + 1)
+	}
+	return j, true
 }
 
 func (p *parser) parseJoins(i int) int {
@@ -271,6 +364,11 @@ func (p *parser) parseJoinModifier(i int) (string, int) {
 func (p *parser) parseJoinClause(i int, modifier string) int {
 	src, j, ok := p.parseSource(i)
 	if !ok {
+		next, _ := p.parseSubquerySource(i)
+		return next
+	}
+	if !p.isKeyword(j, "IN") && p.readsSubquery(src) {
+		p.declareAliasOf(src)
 		return j
 	}
 	if !p.isKeyword(j, "IN") {
@@ -284,6 +382,7 @@ func (p *parser) parseJoinClause(i int, modifier string) int {
 	collection, k, ok := p.parseSource(j + 1)
 	if len(src.path) == 1 && src.alias == "" {
 		p.aliases[src.path[0].text] = true
+		p.declarations = append(p.declarations, src.firstTok)
 		if ok && len(collection.path) > 1 {
 			p.elements = append(p.elements, element{
 				name: src.path[0].text,
@@ -296,6 +395,65 @@ func (p *parser) parseJoinClause(i int, modifier string) int {
 		return k
 	}
 	return j + 1
+}
+
+// parseSubquerySource consumes `(subquery) [AS] alias` at i and reports
+// whether one is there. The subquery's own FROM clauses are parsed as any
+// nested one is; the subquery is no source of the statement around it, and
+// its alias is a declaration, not an alias the planner reads.
+func (p *parser) parseSubquerySource(i int) (int, bool) {
+	if !isSymbolAt(p.toks, i, "(") {
+		return i, false
+	}
+	closing := matchingParen(p.toks, i)
+	depth, clauses := p.depth, p.clauses
+	p.walk(i, closing+1)
+	p.depth, p.clauses = depth, clauses
+	next := closing + 1
+	if p.isKeyword(next, "AS") {
+		next++
+	}
+	if p.isBareAlias(next) {
+		p.declarations = append(p.declarations, next)
+		p.subqueryAliases[p.toks[next].text] = true
+		next++
+	}
+	return next, true
+}
+
+// readsSubquery reports whether src is a path under a subquery declared
+// before it, as in JOIN x.items after (subquery) x.
+func (p *parser) readsSubquery(src source) bool {
+	return len(src.path) > 1 && p.subqueryAliases[src.path[0].text]
+}
+
+// declareAliasOf declares the alias of src, a path under a subquery, as a
+// subquery's own alias is declared: a path under it reads the subquery's
+// items too.
+func (p *parser) declareAliasOf(src source) {
+	if src.alias != "" {
+		p.declarations = append(p.declarations, src.nextTok-1)
+		p.subqueryAliases[src.alias] = true
+	}
+}
+
+// skipCollection passes over the path of `FROM alias IN path`, whose root
+// names the container, or, in a subquery, an alias of the query around it.
+func (p *parser) skipCollection(i int) int {
+	collection, j, ok := p.parseSource(i)
+	if !ok {
+		return i
+	}
+	if !p.declares(collection.path[0].text) {
+		p.roots = append(p.roots, collection.firstTok)
+	}
+	return j
+}
+
+// declares reports whether name is an alias declared so far, as an outer
+// query's is to the subqueries inside it.
+func (p *parser) declares(name string) bool {
+	return slices.ContainsFunc(p.declarations, func(i int) bool { return p.toks[i].text == name })
 }
 
 // skipOn passes over an ON condition to whatever may follow it: another
@@ -360,8 +518,13 @@ func (p *parser) isBareAlias(i int) bool {
 func (p *parser) record(src source) {
 	src.clause, src.depth = p.clauses, p.depth
 	p.sources = append(p.sources, src)
-	if src.alias != "" {
+	p.roots = append(p.roots, src.firstTok)
+	switch {
+	case src.alias != "":
 		p.aliases[src.alias] = true
+		p.declarations = append(p.declarations, src.nextTok-1)
+	case len(src.path) == 1:
+		p.declarations = append(p.declarations, src.firstTok)
 	}
 }
 

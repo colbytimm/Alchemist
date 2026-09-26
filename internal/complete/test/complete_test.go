@@ -262,7 +262,7 @@ func TestNothingIsOfferedWhereNothingBelongs(t *testing.T) {
 
 func TestEveryFunctionOpensItsParenthesis(t *testing.T) {
 	names := map[string]bool{}
-	for _, f := range complete.Functions() {
+	for _, f := range query.Functions() {
 		assert.False(t, names[f.Name], "%s is listed twice", f.Name)
 		names[f.Name] = true
 		assert.True(t, len(f.Signature) > len(f.Name) && f.Signature[:len(f.Name)+1] == f.Name+"(", "%s", f.Signature)

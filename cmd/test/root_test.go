@@ -23,6 +23,7 @@ import (
 	"github.com/colbytimm/alchemist/internal/history"
 	"github.com/colbytimm/alchemist/internal/logging"
 	"github.com/colbytimm/alchemist/internal/saved"
+	"github.com/colbytimm/alchemist/internal/theme"
 )
 
 // fakeKeyring is an in-memory config.Keyring.
@@ -141,10 +142,11 @@ func TestSessionFlags(t *testing.T) {
 	flags := cmd.NewRootCmd(newFakeKeyring()).Flags()
 
 	defaults := map[string]string{
-		"adapter": "",
-		"ascii":   "false",
-		"verbose": "false",
-		"history": "true",
+		"adapter":     "",
+		"ascii":       "false",
+		"verbose":     "false",
+		"history":     "true",
+		"diagnostics": "",
 	}
 	for name, want := range defaults {
 		flag := flags.Lookup(name)
@@ -154,6 +156,18 @@ func TestSessionFlags(t *testing.T) {
 	for _, retired := range []string{"endpoint", "key", "connection-string", "insecure-skip-verify"} {
 		assert.Nil(t, flags.Lookup(retired), "--%s belongs to profiles now", retired)
 	}
+}
+
+func TestAnUnknownDiagnosticsSettingFails(t *testing.T) {
+	_, err := newHarness(t).run("", "--adapter", mock.Name, "--diagnostics", "wavy")
+
+	require.ErrorIs(t, err, theme.ErrUnknownDiagnosticUnderline)
+}
+
+func TestTheDiagnosticsFlagLaunches(t *testing.T) {
+	err := newHarness(t).launch("--adapter", mock.Name, "--diagnostics", "underline")
+
+	require.ErrorIs(t, err, tea.ErrProgramKilled)
 }
 
 func TestUnknownAdapterFails(t *testing.T) {

@@ -72,27 +72,74 @@ func colored(color lipgloss.AdaptiveColor, text string) string {
 	return lipgloss.NewStyle().Foreground(color).Render(text)
 }
 
-func TestABlurredEditorColorsKeywordsStringsAndNumbers(t *testing.T) {
+func TestABlurredEditorLooksAsItDidBeforeFocusedHighlighting(t *testing.T) {
 	view := panes.NewEditor(accept).SetSize(editorWidth, paneHeight).SetValue(highlightedQuery).Blur().View()
 
-	assert.Contains(t, view, colored(theme.Amethyst(), "SELECT"))
 	assert.Contains(t, view, colored(theme.Verdigris(), "'two"), "a string is colored on every line it covers")
 	assert.Contains(t, view, colored(theme.Verdigris(), "lines'"))
 	assert.Contains(t, view, colored(theme.Copper(), "1.5"))
+	assert.Contains(t, view, colored(theme.Amethyst(), "AND"))
+	assert.Contains(t, view, theme.SyntaxKeyword().Render("SELECT"), "only bolder")
 }
 
 func TestABlurredEditorDimsCommentsAndTheQuotesInsideThem(t *testing.T) {
 	view := panes.NewEditor(accept).SetSize(editorWidth, paneHeight).
 		SetValue("SELECT * -- the customer's\nFROM c").Blur().View()
 
-	assert.Contains(t, view, colored(theme.Ash(), "-- the customer's"))
-	assert.Contains(t, view, colored(theme.Amethyst(), "FROM"), "the apostrophe opened no string")
+	assert.Contains(t, view, theme.SyntaxComment().Render("-- the customer's"))
+	assert.Contains(t, view, theme.SyntaxKeyword().Render("FROM"), "the apostrophe opened no string")
 }
 
-func TestAFocusedEditorStaysPlain(t *testing.T) {
-	view := panes.NewEditor(accept).SetSize(editorWidth, paneHeight).SetValue(highlightedQuery).Focus().View()
+// everyClass holds one token of every class the editor tells apart.
+const everyClass = "SELECT COUNT(1) FROM c WHERE NOT c.ok AND c.t = @t -- n\n" +
+	"OR c.s = 'x' OR c.n = 2 OR udf.f(c.a) = true"
 
-	assert.NotContains(t, view, colored(theme.Amethyst(), "SELECT"))
+func TestAFocusedEditorHighlightsEveryClass(t *testing.T) {
+	view := panes.NewEditor(accept).SetSize(60, paneHeight).Focus().SetValue(everyClass).View()
+
+	for _, want := range []struct {
+		style lipgloss.Style
+		text  string
+	}{
+		{theme.SyntaxKeyword(), "SELECT"},
+		{theme.SyntaxFunction(), "COUNT"},
+		{theme.SyntaxPunctuation(), "("},
+		{theme.SyntaxAlias(), "c"},
+		{theme.SyntaxOperator(), "NOT"},
+		{theme.SyntaxParameter(), "@t"},
+		{theme.SyntaxComment(), "-- n"},
+		{theme.SyntaxString(), "'x'"},
+		{theme.SyntaxNumber(), "2"},
+		{theme.SyntaxFunction(), "f"},
+		{theme.SyntaxLiteral(), "true"},
+	} {
+		assert.Contains(t, view, want.style.Render(want.text), want.text)
+	}
+	assert.Contains(t, view, theme.TextStyle().Render("ok "), "a property stays plain text")
+}
+
+func TestAFocusedEditorKeepsItsCursorCell(t *testing.T) {
+	editor := panes.NewEditor(accept).SetSize(editorWidth, paneHeight).Focus().SetValue("SELECT 1")
+	editor, _ = editor.Update(tea.KeyMsg{Type: tea.KeyHome})
+
+	view := editor.View()
+
+	assert.Contains(t, view, lipgloss.NewStyle().Reverse(true).Render("S"), "the cursor is drawn over the keyword")
+	assert.Contains(t, view, theme.SyntaxKeyword().Render("ELECT"), "and the rest of it is highlighted")
+}
+
+func TestAFrameWithNoEditAnalysesNothing(t *testing.T) {
+	editor := panes.NewEditor(accept).SetSize(editorWidth, paneHeight).Focus().SetValue(highlightedQuery)
+	editor.View()
+	before := editor.Analyses()
+
+	editor.View()
+	editor.Blur().View()
+	require.Equal(t, before, editor.Analyses(), "a redraw, even blurred, reuses the analysis")
+
+	editor, _ = editor.Update(typed(" "))
+	editor.View()
+	require.Equal(t, before+1, editor.Analyses(), "an edit analyses once")
 }
 
 func TestHighlightingMovesNoText(t *testing.T) {
@@ -131,5 +178,5 @@ func TestAScrolledEditorStillColorsWhatItShows(t *testing.T) {
 func TestASpaceTheTextareaRedrawsStillColors(t *testing.T) {
 	view := panes.NewEditor(accept).SetSize(editorWidth, paneHeight).SetValue("SELECT * FROM c").Blur().View()
 
-	assert.Contains(t, view, colored(theme.Amethyst(), "SELECT"))
+	assert.Contains(t, view, theme.SyntaxKeyword().Render("SELECT"))
 }

@@ -372,3 +372,198 @@ runner, and that figure is the budget's reference point.
 - A frame with no edit recomputes nothing.
 - `Diagnose` never runs on every rune.
 - No goroutine, no new dependency, and no new key binding.
+
+## Implementation notes
+
+What landed differs from the text above in these ways:
+
+- **Keywords are bold.** The role table has `SyntaxOperator` as "amethyst, not bold",
+  and the two classes share a hue, so `SyntaxKeyword` is bold amethyst: without it a
+  clause keyword and an operator word look the same. Comments are italic ash, as the
+  table says, where the blurred editor drew them plain ash. Every other color of the
+  blurred editor is unchanged; the golden render is the panes tests asserting each
+  class against its `theme` role, including the colors iteration 8 used.
+- **The underline API.** `theme.DiagnosticUnderline` (`CurlyUnderline`,
+  `PlainUnderline`, `NoUnderline`) has `Render(text, color)`, in place of a
+  `CurlyUnderline(text, color)` function that would have had to find the setting in
+  package state. `ParseDiagnosticUnderline` reads the setting for `config` and `cmd`.
+  `theme.SequencesOf(style)` splits a style's rendering into the escape codes before
+  and after its text, so the painter writes a run without a lipgloss render per run.
+  Under a 256- or 16-color profile the underline color is `58:5:n`; `58:2::r:g:b` is
+  written only under true color.
+- **`Diagnose(query.Analysis)`**, the signature the Scope section gives, not
+  `Diagnose(text)`. `Analysis.LexicalDiagnostics` is the part that needs no pause.
+  `Analysis.Context(cursor)` is completion over the same parse; `query.Context` and
+  `query.Spans` remain as wrappers.
+- **The token being typed is exempted by the editor, not by `Diagnose`**, which stays
+  pure over the text. The editor remembers the offset of the last edit while the
+  cursor stays there, and hides any diagnostic whose range contains it; moving the
+  cursor clears it, so the word and an unterminated string are flagged the moment the
+  cursor leaves them, without another check.
+- **Unbalanced brackets and batch syntax wait for the pause.** An open parenthesis is
+  the normal state while a call is being typed, so flagging it on every key would be
+  the false positive the plan rules out. Only unterminated strings and stray
+  characters are immediate.
+- **Text put in whole is checked at once.** A history recall, a saved query, a batch
+  draft and an accepted suggestion replace text rather than type it, so
+  `Editor.SetValue` and `Editor.Replace` run `Diagnose` directly. Keystrokes are
+  debounced in `editorUpdate`: `tui.Model` is 156 KB, over the size Go keeps on the
+  stack, so a wrapper around `Update` comparing buffers cost a heap copy of the model
+  per message, which the benchmarks caught.
+- **What is flagged, precisely.** Stray characters are `#`, `` ` `` and `\` outside
+  strings and comments; non-ASCII is not flagged. An undeclared alias is only judged
+  once the query has a `FROM`, so a query typed from the top is not flagged on its way
+  there, and the names it may read through are BuildPlan's (the default `c` of an
+  unaliased container, a join side's container name) plus every declared alias and
+  every one-word source, including the alias of a `(subquery)` after `FROM` or
+  `JOIN`. The name after `@` is a parameter, never an alias. A misspelled clause is a
+  word within two edits of `SELECT`, `FROM`, `WHERE`, `GROUP`, `ORDER`, `OFFSET`,
+  `LIMIT` or `JOIN` (and `SET`, `UNSET` in an `UPDATE`), of three letters or more,
+  after a complete value; `FROM c WERE` parses `WERE` as a bare alias, so a bare alias
+  counts only when a value or `BY` follows it, and until something reads through it:
+  `FROM orders ord` is not flagged. A statement start is checked against `SELECT`
+  only; a lone `BEGIN` is how a batch is typed. Messages quote the batch parser's
+  text.
+- **An unknown function is flagged only with a "did you mean".** The function list is
+  Alchemist's copy of the service's reference, which grows (`StringJoin` and
+  `StringSplit` were added in review; the reference could not be reached from the
+  development container to check the rest), so a name near no known function is left
+  alone rather than squiggled.
+- **Non-ASCII names.** The lexer reads a letter, digit or mark of any script as part of
+  a name, and any Unicode space as a space, so a property named in German or Spanish is
+  one token rather than a name broken by stray bytes. This is about not squiggling
+  such text, not a claim about the service: the SDK's grammar takes ASCII names only,
+  so the service likely wants a bracketed `c["…"]`, the spelling completion already writes.
+  Completion's check for a name before the cursor (`query.EndsName`) reads names the
+  same way as the lexer. Other
+  non-ASCII characters are one token per rune. This changes what the planner sees only
+  for text that was split mid-name before.
+- **Classes beyond the table.** `IS` is an operator word, the join modifiers (`LEFT`,
+  `INNER`, …) are keywords except as a call (`LEFT(`), and in a batch `TRUE`, `FALSE`
+  and `NULL` are literals.
+- **The hint line** is the editor's last row, taken while the focused cursor is on a
+  diagnostic and no list is open, and given back after; a blurred editor shows none.
+- **The function list** moved from `complete` to `query` (`query.Functions()`), since
+  `complete` imports `query`.
+- **Painting.** The textarea's text and prompt styles are now empty: every row is
+  repainted anyway, and an empty style makes the textarea's own per-line renders
+  cheaper. Matching tries the start that matched last frame, the line starts within
+  a screen of the cursor's line, every rune of those lines (a first row that starts
+  partway through a wrapped line), and only then every line start. The cursor cell is
+  found as the one cell the textarea drew in reverse video.
+- **More than the plan asked, for the budget.** The editor keeps the buffer's value
+  instead of rebuilding it from the textarea's lines on every call, and reuses a whole
+  frame drawn for an unchanged editor (a stamp every change takes anew), which is what
+  makes `BenchmarkViewWithoutEdit` independent of the buffer's length: the textarea
+  renders every line of the buffer on each `View`, before its viewport crops.
+  `ClearSuggestions` with no list open no longer relays out the pane, and the pane
+  scrolls to the cursor only after a key that moves it to another row. `query.code`
+  returns a text's tokens as they are when it has no comment.
+- **The 2 ms ceiling for `BenchmarkTypingPlainBuffer` at 200 lines is not met, and not
+  gated.** Its baseline, measured in step 1 before any change, was 7.4 ms: a keystroke
+  re-renders the textarea's whole buffer and the frame redraws every pane, costs this
+  iteration keeps out of scope by not replacing `bubbles/textarea`. This iteration
+  takes it to about 6 ms. The 10× growth bound from 200 to 2,000 lines is met and gated.
+- **`BenchmarkViewWithoutEdit`** allocates nothing for the editor on a frame with no
+  edit; the allocations it still reports (about 1,600 at either length) are the other
+  panes and the border.
+- **The benchmark gate.** CI runners and the machine that measured the baseline differ
+  in speed by more than 5%, and consecutive runs on a shared runner differ by more
+  than that too, so a gate on nanoseconds against the committed baseline would flake.
+  The gate holds what does not depend on the machine: allocations and bytes per
+  operation, each within 5% of `testdata/bench-baseline.txt`, the median of five runs.
+  Time is held only where it is robust: `BenchmarkDiagnose` under its 5 ms ceiling
+  (it measures about 2 ms, leaving room for a slow runner), and ratios within one run
+  (2,000 lines at most 10× 200 for typing, at most 2× for a frame with no edit). Time
+  against the baseline is printed, not judged. It runs as its own `benchmarks` job
+  rather than in the quality job, so no other step competes for the runner. The 5% time
+  budget for `BenchmarkTypingWithTheListOpen` was checked by an interleaved A/B run of
+  the baseline and final builds on one machine, below. The gate's logic is
+  `internal/benchmark`, tested; `cmd/benchmark-gate` only reads files. `make bench`,
+  `make bench-gate` and `make bench-baseline` wrap the commands.
+- **Tests.** The TUI harness's sessions flag nothing by default, since each check
+  waits on a timer the harness would otherwise wait out after every typed key;
+  `newDiagnosingModel` is a session that checks, and the typing benchmarks use it. The
+  "Diagnose runs once" test delivers the ten held timers' messages and shows the
+  first nine change nothing and the tenth flags, rather than reading a counter;
+  `Editor.Diagnoses` and `Editor.Analyses` count for the pane tests.
+- `--diagnostics` is also a flag of `profile add`.
+
+- **Iteration 21 merged in.** An `UPDATE` (`Analysis` marks it the way `IsMutation`
+  does) is highlighted with a query's classes plus `UPDATE`, `SET` and `UNSET` as
+  keywords; its target path is a source root and its alias a declaration, the default
+  `c` when it names none. `Diagnose` places a `MutationSyntaxError` the way it does a
+  `BatchSyntaxError`: 21 moved both parsers onto a shared `statementReader` that builds
+  errors from a line and column, so `Diagnose` gives the reader its own error type and
+  turns the line and column back into a byte offset. Unsupported shapes (`TOP` in an
+  update, a join in its `WHERE`) are flagged with the parser's message too. An update
+  checks its aliases without waiting for a `FROM`, and `SET`/`UNSET` join the words a
+  misspelled clause is matched against. The statement-start message became `a statement
+  starts with SELECT, UPDATE or BEGIN BATCH` (with `DELETE` after iteration 22).
+
+- **Iteration 22 merged in.** A `DELETE FROM` is analyzed as 22's `mutationKind`
+  reads it, CTE list included, and highlighted and checked as an update is: `DELETE`
+  joins the mutation keywords, its target after `FROM` is a source root and its alias a
+  declaration, and its `MutationSyntaxError`s reach `Diagnose` through the same
+  statement reader. The statement-start message names `DELETE` too. Comments end at
+  `\r` as well as `\n` in the one lexer both the parser and the painter use.
+
+- **Subquery sources (review).** The parser reads past a `(subquery) [AS] alias`
+  after `FROM` or `JOIN`, walking the subquery's own FROM clauses as before, with the
+  paren depth and clause count restored after, and goes on to the joins and list items
+  after it. The alias is a declaration for diagnostics and highlighting, never an entry
+  the planner reads as an alias, and the subquery is no source. A path rooted at a
+  subquery's alias declared before it, or at the alias of such a path
+  (`JOIN x.items i JOIN i.parts p`), reads the subquery's items: it is declared, never
+  recorded as a container.
+- **What the planner sees differently.** Iteration 22's parser stopped at the first
+  subquery source, and at `FROM x IN path`. Run over the review's corpus of 5,054
+  strings from the query and TUI test packages, `BuildPlan`, `SourcePaths`,
+  `IsMutation`, `ParseMutation` and `Context` differ from iteration 22 in 51 inputs,
+  all invalid for the service or improvements:
+  - a join or list item after a subquery, or after `FROM t IN path`, is now planned as
+    the same query without the subquery is (`FROM (SELECT …) x, sales.orders`, `FROM c
+    JOIN t IN c.tags JOIN (SELECT VALUE 1) x JOIN sales.customers cu ON …`,
+    `FROM t IN sales.orders JOIN sales.customers cu ON …`), and a cross-container join
+    after a subquery join is refused as a join the planner does not run;
+  - `FROM (SELECT * FROM sales.orders) x JOIN sales.customers cu ON …` is refused as a
+    subquery over another container, where it used to be sent to `sales.orders`;
+  - `SourcePaths` lists the single-name source of a `JOIN t` after a subquery;
+  - non-ASCII names lex as one token, which changes completion's word and one source
+    list.
+
+  The five queries the review found mis-routed (`JOIN x.items i` after a subquery `x`,
+  among them one named `sales` beside `sales.orders`) plan as iteration 22 planned
+  them, and plan tests pin them.
+- **From the screenshot pass.** Once a one-word source has an alias, only the alias is
+  declared (`SELECT orders.id FROM orders o` is flagged, as the service rejects it),
+  unless the alias looks like a misspelled clause, as `WERE` in `FROM c WERE c.x`. A
+  word near `BY` after `ORDER` or `GROUP` is flagged (`ORDER BYY`). Inside a subquery,
+  the root of `FROM t IN c.tags` is the outer alias `c` when one is declared, and is
+  highlighted as one. A bare alias outside a path, as `t` in `SELECT VALUE t`, stays
+  plain, as the table at the top says, and a misspelled literal (`TRUE` with two
+  letters swapped) is left alone.
+- **A SELECT-list value named without `AS`** (`SELECT COUNT(1) orders FROM c`) is not
+  taken for a misspelled clause; the emulator confirmed the service accepts the bare
+  form. A word right after `*`, or followed by a value, still is, so `SELECT * FORM c`
+  and `SELECT c.id FORM c` are flagged.
+
+### Benchmarks
+
+Medians of five runs of 50 iterations each, in the development container: before is
+step 1's baseline, after is `testdata/bench-baseline.txt` as this iteration leaves it.
+Sessions check what they type in the after runs, as sessions do by default.
+
+| Benchmark | Before | After | Before allocs | After allocs | Before B/op | After B/op |
+|---|---|---|---|---|---|---|
+| `TypingWithTheListOpen` | 13.78 ms | 12.74 ms | 47,560 | 28,199 | 8.56 MB | 7.34 MB |
+| `TypingPlainBuffer/lines=200` | 7.56 ms | 6.12 ms | 22,248 | 9,709 | 2.46 MB | 2.16 MB |
+| `TypingPlainBuffer/lines=2000` | 41.09 ms | 25.10 ms | 200,509 | 74,554 | 10.05 MB | 8.55 MB |
+| `ViewWithoutEdit/lines=200` | 3.76 ms | 1.37 ms | 11,843 | 1,615 | 0.90 MB | 0.49 MB |
+| `ViewWithoutEdit/lines=2000` | 20.61 ms | 1.48 ms | 98,273 | 1,615 | 4.59 MB | 0.49 MB |
+| `Diagnose` (2,000 lines) | — | 1.94 ms | — | 9 | — | 480 B |
+
+Separate runs on a shared machine differ by more than the 5% budget, so the
+`TypingWithTheListOpen` time was also compared by running the step 1 build and the
+final build alternately, eight times each: medians 15.09 ms before and 12.96 ms after
+(−14%), and −22% in a run under load from other work on the machine.
