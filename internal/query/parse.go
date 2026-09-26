@@ -103,7 +103,7 @@ func parseCTE(whole fragment, i int) (cteText, int, error) {
 	if keywords[name.upper] || joinModifiers[name.upper] {
 		return cteText{}, i, unsupported("a CTE named " + name.text + ", which is a keyword")
 	}
-	closing := matchingParen(toks, i+2)
+	closing := closingParen(toks, i+2)
 	if closing < 0 {
 		return cteText{}, i, unsupported("a CTE whose parenthesis is never closed")
 	}
@@ -114,9 +114,27 @@ func parseCTE(whole fragment, i int) (cteText, int, error) {
 	return cteText{name: name.text, body: whole.sub(body)}, closing + 1, nil
 }
 
-// matchingParen is the index of the parenthesis closing the one at open, or
+// cteNameTokens indexes the name of each CTE a WITH clause declares, as far as
+// the clause reads `name AS ( … )` separated by commas.
+func cteNameTokens(toks []token) []int {
+	if !keywordAt(toks, 0, "WITH") {
+		return nil
+	}
+	var names []int
+	for i := 1; i+2 < len(toks) && toks[i].kind == tokIdent && keywordAt(toks, i+1, "AS") && isSymbol(toks[i+2], "("); {
+		names = append(names, i)
+		closing := closingParen(toks, i+2)
+		if closing < 0 || closing+1 >= len(toks) || toks[closing+1].kind != tokComma {
+			break
+		}
+		i = closing + 2
+	}
+	return names
+}
+
+// closingParen is the index of the parenthesis closing the one at open, or
 // -1 when there is none.
-func matchingParen(toks []token, open int) int {
+func closingParen(toks []token, open int) int {
 	depth := 0
 	for i := open; i < len(toks); i++ {
 		switch {

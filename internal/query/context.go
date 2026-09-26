@@ -42,6 +42,9 @@ type Completion struct {
 	// TopLevel marks a field position that only top-level fields fit: the
 	// SELECT list of a cross-container join.
 	TopLevel bool
+	// Writable marks a field position an update writes, where the id, a
+	// partition key path and a field the service owns are refused.
+	Writable bool
 }
 
 // Alias is a name a query reads items through.
@@ -90,24 +93,30 @@ var (
 // Context reports what can be typed at cursor, a byte offset into text. The
 // range it names lies inside text, on rune boundaries, for any cursor.
 func Context(text string, cursor int) Completion {
-	cursor = snapToRune(text, cursor)
-	toks := lex(text)
-	if insideLiteral(toks, cursor) {
+	return Analyze(text).Context(cursor)
+}
+
+func (a Analysis) Context(cursor int) Completion {
+	cursor = snapToRune(a.text, cursor)
+	if insideLiteral(a.tokens, cursor) {
 		return Completion{Start: cursor, End: cursor}
 	}
-	toks = code(toks)
-	word, before := splitAtCursor(toks, cursor)
+	word, before := splitAtCursor(a.code, cursor)
 	typing := word.end > word.start
 	var completion Completion
 	switch {
-	case keywordAt(toks, 0, "BEGIN") && keywordAt(toks, 1, "BATCH"):
+	case a.batch:
 		completion = batchCompletion(before)
-	case keywordAt(toks, 0, "WITH"):
-		completion = withCompletion(toks, before, typing)
+	case keywordAt(a.code, 0, "UPDATE"):
+		completion = updateCompletion(before, typing)
+	case keywordAt(a.code, 0, "DELETE"):
+		completion = deleteCompletion(before, typing)
+	case keywordAt(a.code, 0, "WITH"):
+		completion = withCompletion(a.code, before, typing)
 	default:
-		completion = classifier{toks: before, parser: parseTokens(toks), typing: typing}.classify()
+		completion = classifier{toks: before, parser: a.parser, typing: typing}.classify()
 	}
-	completion.Word = text[word.start:cursor]
+	completion.Word = a.text[word.start:cursor]
 	completion.Start, completion.End = word.start, word.end
 	return completion
 }
@@ -163,7 +172,7 @@ func withCompletion(toks, before []token, typing bool) Completion {
 		case at == i+2 || !keywordAt(toks, i+1, "AS") || !isSymbolAt(toks, i+2, "("):
 			return Completion{}
 		}
-		closing := matchingParen(toks, i+2)
+		closing := closingParen(toks, i+2)
 		if closing < 0 {
 			closing = len(toks)
 		}
@@ -235,7 +244,7 @@ func (c classifier) statementStart() Completion {
 	if c.inWith {
 		return keywordsOnly([]string{"SELECT"})
 	}
-	return keywordsOnly([]string{"SELECT", "WITH"})
+	return keywordsOnly([]string{"SELECT", "UPDATE", "DELETE", "WITH"})
 }
 
 func (c classifier) last() (token, bool) {
@@ -662,6 +671,9 @@ func (c classifier) simulated() bool {
 }
 
 func (c classifier) cteSources() []source {
+	if len(c.ctes) == 0 {
+		return nil
+	}
 	var reads []source
 	for _, s := range c.inputs() {
 		if _, ok := c.cte(s); ok {

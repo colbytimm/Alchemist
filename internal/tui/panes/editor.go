@@ -3,6 +3,7 @@ package panes
 import (
 	"slices"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/cursor"
@@ -12,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/colbytimm/alchemist/internal/complete"
+	"github.com/colbytimm/alchemist/internal/query"
 	"github.com/colbytimm/alchemist/internal/theme"
 )
 
@@ -22,6 +24,11 @@ const (
 	editorPrompt = "┃ "
 )
 
+var (
+	focusedPromptStyle = lipgloss.NewStyle().Foreground(theme.Gold())
+	blurredPromptStyle = theme.HintStyle()
+)
+
 // Editor is the query buffer with the completion list docked under it. Like
 // the textarea it wraps, its value receiver hides shared pointers, so a
 // caller must keep every Editor it is handed.
@@ -29,6 +36,23 @@ type Editor struct {
 	frame       frame
 	area        textarea.Model
 	suggestions Suggestions
+	// value is the textarea's, read once per change rather than rebuilt
+	// from its lines on every call.
+	value     string
+	highlight *highlighter
+	marks     marks
+	// stamp names what the editor shows: every change that can alter a
+	// frame takes a new one, and a frame drawn for a stamp is reused.
+	stamp uint64
+}
+
+// stamps are unique across every editor, so two copies of one that changed
+// apart can never share a stamp and so a frame.
+var stamps atomic.Uint64
+
+func (e Editor) restamp() Editor {
+	e.stamp = stamps.Add(1)
+	return e
 }
 
 // NewEditor builds the buffer; accept is the binding the list's hint line
@@ -45,23 +69,37 @@ func NewEditor(accept key.Binding) Editor {
 	// A static cursor stays visible without a blink timer waking the program
 	// twice a second; only the blinking mode returns a command to drive.
 	area.Cursor.SetMode(cursor.CursorStatic)
-	return Editor{frame: frame{title: editorTitle}, area: area, suggestions: newSuggestions(accept)}
+	return Editor{
+		frame:       frame{title: editorTitle},
+		area:        area,
+		suggestions: newSuggestions(accept),
+		highlight:   &highlighter{},
+		marks:       marks{typingAt: notTyping},
+	}.restamp()
 }
 
-// editorStyles replaces the bubble's fixed greys with the palette, and drops
-// the cursor-line highlight the frame border already delimits.
+// editorStyles leave the buffer's text and prompt unstyled: the highlighter
+// paints every row the textarea renders, and an empty style costs the
+// textarea nothing per line where a colored one costs a render. Only the
+// placeholder, which the highlighter leaves alone, keeps a color.
 func editorStyles() (focused, blurred textarea.Style) {
 	blurred = textarea.Style{
 		Base:        lipgloss.NewStyle(),
 		CursorLine:  lipgloss.NewStyle(),
 		EndOfBuffer: lipgloss.NewStyle(),
 		Placeholder: theme.HintStyle(),
-		Prompt:      theme.HintStyle(),
-		Text:        theme.TextStyle(),
+		Prompt:      lipgloss.NewStyle(),
+		Text:        lipgloss.NewStyle(),
 	}
-	focused = blurred
-	focused.Prompt = lipgloss.NewStyle().Foreground(theme.Gold())
-	return focused, blurred
+	return blurred, blurred
+}
+
+// SetDiagnosticUnderline chooses how flagged ranges are drawn; NoUnderline
+// also stops them being looked for.
+func (e Editor) SetDiagnosticUnderline(underline theme.DiagnosticUnderline) Editor {
+	e.marks.underline = underline
+	e.marks.checked = nil
+	return e.settleHint().restamp()
 }
 
 func (e Editor) SetSize(width, height int) Editor {
@@ -81,7 +119,7 @@ func (e Editor) SetSize(width, height int) Editor {
 func (e Editor) layout() Editor {
 	e.area.SetHeight(max(e.bufferRows(), 1))
 	_, offset := e.Cursor()
-	return e.Replace(offset, offset, "").scrollToCursor()
+	return e.Replace(offset, offset, "").scrollToCursor().restamp()
 }
 
 // scrollToCursor brings a cursor below the window back on screen. The
@@ -103,7 +141,14 @@ func (e Editor) scrollToCursor() Editor {
 
 func (e Editor) bufferRows() int {
 	_, inner := e.frame.inner()
-	return inner - e.suggestions.rows(inner)
+	return inner - e.suggestions.rows(inner) - e.hintRows(inner)
+}
+
+func (e Editor) hintRows(inner int) int {
+	if !e.marks.hinting || e.suggestions.Open() || inner < 2 {
+		return 0
+	}
+	return 1
 }
 
 // Focus gives the buffer the keyboard. The textarea's own focus command only
@@ -111,7 +156,7 @@ func (e Editor) bufferRows() int {
 func (e Editor) Focus() Editor {
 	e.frame = e.frame.focus()
 	e.area.Focus()
-	return e
+	return e.settleHint().restamp()
 }
 
 // Blur takes the keyboard away and the list with it: a list can only be
@@ -119,72 +164,158 @@ func (e Editor) Focus() Editor {
 func (e Editor) Blur() Editor {
 	e.frame = e.frame.blur()
 	e.area.Blur()
-	return e.ClearSuggestions()
+	e.suggestions = e.suggestions.Clear()
+	return e.settleHint().layout()
 }
 
+// Update scrolls after a key that takes the cursor to another row, which may
+// lie past the rows the textarea's viewport last saw and could scroll to.
 func (e Editor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 	var cmd tea.Cmd
+	row := e.cursorRow()
 	e.area, cmd = e.area.Update(msg)
-	return e, cmd
+	if e.cursorRow() != row {
+		e = e.scrollToCursor()
+	}
+	return e.settle(), cmd
+}
+
+// cursorRow places the cursor among the rows the buffer wraps into.
+type cursorRow struct {
+	line, wrapped, lines int
+}
+
+func (e Editor) cursorRow() cursorRow {
+	return cursorRow{line: e.area.Line(), wrapped: e.area.LineInfo().RowOffset, lines: e.area.LineCount()}
+}
+
+// settle catches up with a textarea that may have been edited, or had its
+// cursor moved, since the editor last looked.
+func (e Editor) settle() Editor {
+	value := e.area.Value()
+	cursor := e.cursorIn(value)
+	switch {
+	case value != e.value:
+		e.marks = e.marks.edited(e.value, value, cursor)
+		e.value = value
+	case cursor != e.marks.typingAt:
+		e.marks.typingAt = notTyping
+	}
+	return e.settleHint().restamp()
 }
 
 func (e Editor) Value() string {
-	return e.area.Value()
+	return e.value
 }
 
-// View shows the buffer itself while it has the keyboard, since a textarea
-// cannot style a region of editable text, and the same rows colored once it
-// does not. The list, when open, takes the bottom rows of the pane.
+// View paints the rows the textarea rendered. The list, when open, takes the
+// bottom rows of the pane; otherwise the diagnostic under the cursor may
+// take the last.
 func (e Editor) View() string {
-	view := e.area.View()
-	if !e.frame.focused {
-		view = highlightRows(e.area.Value(), view)
+	if frame, ok := e.highlight.frameFor(e.stamp); ok {
+		return frame
 	}
-	if !e.suggestions.Open() {
-		return e.frame.render(view)
-	}
-	width, inner := e.frame.inner()
-	buffer := strings.Split(view, "\n")
-	buffer = buffer[:min(len(buffer), e.bufferRows())]
-	lines := slices.Concat(buffer, e.suggestions.lines(width, inner-len(buffer)))
-	return e.frame.render(strings.Join(lines, "\n"))
+	frame := e.draw()
+	e.highlight.keepFrame(e.stamp, frame)
+	return frame
 }
 
-// SetValue replaces the buffer, leaving the cursor at its end.
+func (e Editor) draw() string {
+	view := e.paint(e.area.View())
+	width, inner := e.frame.inner()
+	switch {
+	case e.suggestions.Open():
+		buffer := e.bufferLines(view)
+		lines := slices.Concat(buffer, e.suggestions.lines(width, inner-len(buffer)))
+		return e.frame.render(strings.Join(lines, "\n"))
+	case e.hintRows(inner) > 0:
+		lines := append(e.bufferLines(view), e.hintLine(width))
+		return e.frame.render(strings.Join(lines, "\n"))
+	}
+	return e.frame.render(view)
+}
+
+func (e Editor) bufferLines(view string) []string {
+	buffer := strings.Split(view, "\n")
+	return buffer[:min(len(buffer), e.bufferRows())]
+}
+
+func (e Editor) paint(view string) string {
+	e.highlight.analyze(e.value)
+	prompt := blurredPromptStyle
+	if e.frame.focused {
+		prompt = focusedPromptStyle
+	}
+	return e.highlight.paint(paintRequest{
+		view:        view,
+		cursorLine:  e.area.Line(),
+		prompt:      prompt,
+		cursor:      e.area.Cursor.Style,
+		diagnostics: e.shownDiagnostics(),
+		underline:   e.marks.underline,
+	})
+}
+
+// SetValue replaces the buffer, leaving the cursor at its end, and checks it
+// at once: text put there whole is not being typed.
 func (e Editor) SetValue(text string) Editor {
 	e.area.SetValue(text)
-	return e
+	e = e.settle()
+	e.marks.typingAt = notTyping
+	return e.Diagnose()
+}
+
+// Context is what can be typed at the cursor, read from the same analysis
+// of the buffer that paints it.
+func (e Editor) Context() query.Completion {
+	e.highlight.analyze(e.value)
+	return e.highlight.analysis.Context(e.cursorIn(e.value))
 }
 
 // Cursor is the buffer and the byte offset of the cursor within it.
 func (e Editor) Cursor() (string, int) {
-	text := e.area.Value()
+	return e.value, e.cursorIn(e.value)
+}
+
+func (e Editor) cursorIn(text string) int {
 	info := e.area.LineInfo()
-	return text, byteOffset(text, e.area.Line(), info.StartColumn+info.ColumnOffset)
+	return byteOffset(text, e.area.Line(), info.StartColumn+info.ColumnOffset)
 }
 
 // byteOffset locates the col'th rune of line row in text.
 func byteOffset(text string, row, col int) int {
 	offset := 0
-	for i, line := range strings.Split(text, "\n") {
-		if i == row {
-			runes := []rune(line)
-			return offset + len(string(runes[:min(col, len(runes))]))
+	for range row {
+		next := strings.IndexByte(text[offset:], '\n')
+		if next < 0 {
+			return len(text)
 		}
-		offset += len(line) + 1
+		offset += next + 1
 	}
-	return len(text)
+	for range col {
+		if offset == len(text) || text[offset] == '\n' {
+			break
+		}
+		_, size := utf8.DecodeRuneInString(text[offset:])
+		offset += size
+	}
+	return offset
 }
 
 // Replace puts with in place of the bytes from start to end and leaves the
-// cursor after it. The textarea has no way to delete a range, so the buffer
-// is rebuilt and the cursor walked back up to where the text now ends.
+// cursor after it, checking the buffer at once as SetValue does. The
+// textarea has no way to delete a range, so the buffer is rebuilt and the
+// cursor walked back up to where the text now ends.
 func (e Editor) Replace(start, end int, with string) Editor {
-	text := e.area.Value()
+	text := e.value
 	start = min(max(start, 0), len(text))
 	end = min(max(end, start), len(text))
 	e.area.SetValue(text[:start] + with + text[end:])
-	return e.moveCursorTo(start + len(with))
+	e = e.moveCursorTo(start + len(with)).settle()
+	if e.value == text {
+		return e
+	}
+	return e.Diagnose()
 }
 
 func (e Editor) moveCursorTo(offset int) Editor {
@@ -212,7 +343,12 @@ func (e Editor) RefreshSuggestions(items []complete.Suggestion, note string) Edi
 	return e.layout()
 }
 
+// ClearSuggestions closes the list. Closing a list that is not open leaves
+// the layout alone, which spares every keystroke that opens none a new layout.
 func (e Editor) ClearSuggestions() Editor {
+	if !e.suggestions.Open() {
+		return e
+	}
 	e.suggestions = e.suggestions.Clear()
 	return e.layout()
 }
@@ -225,12 +361,12 @@ func (e Editor) Suggesting() bool {
 
 func (e Editor) NextSuggestion() Editor {
 	e.suggestions = e.suggestions.CursorDown()
-	return e
+	return e.restamp()
 }
 
 func (e Editor) PrevSuggestion() Editor {
 	e.suggestions = e.suggestions.CursorUp()
-	return e
+	return e.restamp()
 }
 
 func (e Editor) Selected() (complete.Suggestion, bool) {

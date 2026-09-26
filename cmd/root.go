@@ -84,6 +84,7 @@ type sessionFlags struct {
 	history      bool
 	sampleFields bool
 	readOnly     bool
+	diagnostics  string
 }
 
 func (s *sessionFlags) bind(flags *pflag.FlagSet) {
@@ -97,12 +98,18 @@ func (s *sessionFlags) bind(flags *pflag.FlagSet) {
 		"let autocomplete read a few items of a container for its fields (spends request units)")
 	flags.BoolVar(&s.readOnly, "read-only", false,
 		"refuse every write this session could make, on every account, whatever its profile allows")
+	flags.StringVar(&s.diagnostics, "diagnostics", "",
+		"underline what the editor flags: curly, underline, or off (default: the profile's diagnostics, else curly)")
 }
 
 // run resolves what to connect to before touching the filesystem, so an
 // invocation that never reaches the TUI leaves no log directory behind.
 func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyring) error {
 	launch, err := s.resolveLaunch(cmd.Context(), args, keyring)
+	if err != nil {
+		return err
+	}
+	diagnostics, err := s.diagnosticUnderline(launch)
 	if err != nil {
 		return err
 	}
@@ -141,6 +148,7 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 			Saved:        savedStore(logger),
 			ReadOnly:     s.readOnly,
 			Snapshots:    snapshots,
+			Diagnostics:  diagnostics,
 		}),
 		tea.WithAltScreen(),
 		tea.WithContext(cmd.Context()),
@@ -170,6 +178,7 @@ func management(conn adapter.Connection) tui.Management {
 	definitions, _ := conn.(adapter.DefinitionReader)
 	scanner, _ := conn.(adapter.ItemScanner)
 	writer, _ := conn.(adapter.ItemWriter)
+	editor, _ := conn.(adapter.ItemEditor)
 	return tui.Management{
 		Admin:       admin,
 		Throughput:  throughput,
@@ -180,6 +189,7 @@ func management(conn adapter.Connection) tui.Management {
 		Definitions: definitions,
 		Scanner:     scanner,
 		Writer:      writer,
+		Editor:      editor,
 	}
 }
 
@@ -193,6 +203,8 @@ type launch struct {
 	open     tui.Opener
 	connect  tui.Connector
 	form     panes.ConnectForm
+	// diagnostics is the launch profile's setting, empty without one.
+	diagnostics string
 }
 
 // resolveLaunch picks the account: --adapter names an adapter to run with no
@@ -284,11 +296,12 @@ func profileLaunch(name string, profiles Profiles) (launch, error) {
 		return launch{}, err
 	}
 	return launch{
-		accounts: accounts(cfg),
-		list:     profiles.Accounts,
-		name:     profile.Name,
-		open:     profiles.Open,
-		connect:  profiles.Connect,
+		accounts:    accounts(cfg),
+		list:        profiles.Accounts,
+		name:        profile.Name,
+		open:        profiles.Open,
+		connect:     profiles.Connect,
+		diagnostics: profile.Diagnostics,
 	}, nil
 }
 
@@ -341,6 +354,14 @@ func savedStore(logger *log.Logger) saved.Store {
 		return saved.Unavailable{Err: err}
 	}
 	return saved.Open(filepath.Join(dir, saved.DirName))
+}
+
+// diagnosticUnderline is --diagnostics, or else the launch profile's setting.
+func (s sessionFlags) diagnosticUnderline(l launch) (theme.DiagnosticUnderline, error) {
+	if s.diagnostics != "" {
+		return theme.ParseDiagnosticUnderline(s.diagnostics)
+	}
+	return theme.ParseDiagnosticUnderline(l.diagnostics)
 }
 
 func (s sessionFlags) icons() theme.IconSet {

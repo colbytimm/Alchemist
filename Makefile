@@ -19,7 +19,7 @@ CSPELL_FLAGS := lint --no-progress --dot --gitignore "**"
 COVER_PKGS := ./app/...,./cmd/...,./internal/...
 EMULATOR_URL ?= http://localhost:8081
 
-.PHONY: all build test test-coverage emulator-up emulator-wait emulator-seed emulator-down test-integration coverage-html fmt fmt-check vet lint spell security gosec govulncheck gitleaks actionlint release-check release-snapshot release clean help
+.PHONY: all build test bench bench-gate bench-baseline test-coverage emulator-up emulator-wait emulator-seed emulator-down test-integration coverage-html fmt fmt-check vet lint spell security gosec govulncheck gitleaks actionlint release-check release-snapshot release clean help
 
 ## all: fmt-check, lint, spell, test, build
 all: fmt-check lint spell test build
@@ -31,6 +31,24 @@ build:
 ## test: run unit tests
 test:
 	go test ./...
+
+# The typing benchmarks of docs/plan/23-syntax-highlighting.md. Five runs
+# each, of which the gate takes the median.
+BENCH_FLAGS := -run XXX -bench 'Typing|ViewWithoutEdit|Diagnose' -benchtime 50x -benchmem -count 5
+BENCH_PKGS := ./internal/tui/test/ ./internal/query/test/
+
+## bench: run the typing benchmarks into bench.txt
+bench:
+	go test $(BENCH_FLAGS) $(BENCH_PKGS) > bench.txt
+	@cat bench.txt
+
+## bench-gate: fail when bench.txt breaks the budget or the baseline
+bench-gate: bench
+	go run ./cmd/benchmark-gate -baseline testdata/bench-baseline.txt bench.txt
+
+## bench-baseline: refresh testdata/bench-baseline.txt, to commit on its own
+bench-baseline:
+	go test $(BENCH_FLAGS) $(BENCH_PKGS) > testdata/bench-baseline.txt
 
 ## emulator-up: start the Cosmos DB emulator container
 emulator-up:
@@ -123,7 +141,7 @@ release:
 
 ## clean: remove build and coverage artifacts
 clean:
-	rm -rf bin/ coverage.out coverage.html
+	rm -rf bin/ coverage.out coverage.html bench.txt
 
 ## help: list targets
 help:

@@ -84,7 +84,7 @@ func TestTypingAKeywordListsItAndTabAcceptsIt(t *testing.T) {
 	view := plain(m.View())
 	assert.Contains(t, view, "┃ SELECT", "the word is replaced in the buffer")
 	assert.False(t, listed(view, "SELECT"), "and the list closes")
-	assert.Contains(t, pressAll(t, m, keyText(" *")).View(), "SELECT *", "the cursor sits after the inserted text")
+	assert.Contains(t, plain(pressAll(t, m, keyText(" *")).View()), "SELECT *", "the cursor sits after the inserted text")
 }
 
 func TestTypingAfterFromListsDatabases(t *testing.T) {
@@ -500,14 +500,15 @@ func TestARecreatedContainerIsSampledAgain(t *testing.T) {
 }
 
 // BenchmarkTypingWithTheListOpen is the checklist's "typing at speed in a
-// 200-line buffer": one keystroke narrowing an open list, buffer included.
+// 200-line buffer": one keystroke narrowing an open list, buffer included,
+// in a session that flags what it recognizes as wrong, as sessions do.
 func BenchmarkTypingWithTheListOpen(b *testing.B) {
 	t := &testing.T{}
 	lines := make([]string, 0, 200)
 	for i := range 200 {
 		lines = append(lines, fmt.Sprintf("  OR c.n = %d", i))
 	}
-	m := typeQuery(t, selectContainer(t, newTallModel(t, newConnection(t))), "SELECT * FROM c WHERE c.a = 1\n"+strings.Join(lines, "\n")+"\nAND c.")
+	m := typeQuery(t, selectContainer(t, newDiagnosingModel(t)), "SELECT * FROM c WHERE c.a = 1\n"+strings.Join(lines, "\n")+"\nAND c.")
 	if !listed(m.View(), "customerId") {
 		b.Fatal("the list should be open")
 	}
@@ -518,4 +519,15 @@ func BenchmarkTypingWithTheListOpen(b *testing.B) {
 		_ = typed.View()
 		m, _ = typed.Update(keyMsg(tea.KeyBackspace))
 	}
+}
+
+func TestAnUpdateCompletesOnlyTheFieldsItMayWrite(t *testing.T) {
+	m := typeQuery(t, newTallModel(t, newConnection(t)), "UPDATE sales.orders o SET o.")
+
+	assert.True(t, listed(m.View(), "amount"), "the target's sampled fields")
+	assert.False(t, listed(m.View(), "id"), "never the id")
+	assert.False(t, listed(m.View(), "customerId"), "never the partition key")
+
+	m = pressAll(t, m, keyMsg(tea.KeyCtrlU), keyText("UPDATE sales.orders o SET o.amount = 1 WHERE o."))
+	assert.True(t, listed(m.View(), "id"), "the condition reads any field")
 }

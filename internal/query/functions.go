@@ -1,4 +1,6 @@
-package complete
+package query
+
+import "strings"
 
 // Function is one Cosmos DB system function, with its signature as the
 // suggestion's detail.
@@ -142,10 +144,14 @@ func Functions() []Function {
 	return append([]Function(nil), functions...)
 }
 
-func functionSuggestions() []Suggestion {
-	suggestions := make([]Suggestion, 0, len(functions))
+// builtinFunctions spells each function the way the reference does, by its
+// upper-cased name: the service matches function names in any case.
+var builtinFunctions = functionsByName()
+
+func functionsByName() map[string]string {
+	names := make(map[string]string, len(functions))
 	for _, f := range functions {
-		suggestions = append(suggestions, Suggestion{Text: f.Name, Insert: f.Name + "(", Kind: KindFunction, Detail: f.Signature})
+		names[strings.ToUpper(f.Name)] = f.Name
 	}
-	return suggestions
+	return names
 }

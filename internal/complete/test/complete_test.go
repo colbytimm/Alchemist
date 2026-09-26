@@ -262,7 +262,7 @@ func TestNothingIsOfferedWhereNothingBelongs(t *testing.T) {
 
 func TestEveryFunctionOpensItsParenthesis(t *testing.T) {
 	names := map[string]bool{}
-	for _, f := range complete.Functions() {
+	for _, f := range query.Functions() {
 		assert.False(t, names[f.Name], "%s is listed twice", f.Name)
 		names[f.Name] = true
 		assert.True(t, len(f.Signature) > len(f.Name) && f.Signature[:len(f.Name)+1] == f.Name+"(", "%s", f.Signature)
@@ -283,4 +283,21 @@ func TestACTEsFieldsAreTheColumnsItsSelectListNames(t *testing.T) {
 	assert.Equal(t, []string{"id", "name"}, texts(index.Suggest(field(west, nil, ""))))
 	assert.Empty(t, index.Suggest(field(west, []string{"name"}, "")), "a column has no fields of its own")
 	assert.Equal(t, []string{"w", "w.id", "w.name"}, texts(index.Suggest(query.Completion{Kind: query.CompleteReference, Aliases: []query.Alias{west}})))
+}
+
+func TestAFieldAnUpdateWritesIsNeverTheIDAKeyOrASystemField(t *testing.T) {
+	index := loadedIndex()
+	index.SetContainers("sales", []adapter.Node{container("sales", "orders", "/customerId,/customer/tier")})
+	index.AddFields(orders, []adapter.Field{{Path: "_etag", Kind: "string"}})
+	alias := query.Alias{Name: "o", Scopes: [][]string{orders}}
+
+	top := index.Suggest(query.Completion{Kind: query.CompleteField, Aliases: []query.Alias{alias}, Writable: true})
+	nested := index.Suggest(query.Completion{Kind: query.CompleteField, Aliases: []query.Alias{alias}, Path: []string{"customer"}, Writable: true})
+	references := index.Suggest(query.Completion{Kind: query.CompleteReference, Aliases: []query.Alias{alias}, Writable: true})
+
+	assert.Equal(t, []string{"currency", "lines", "order-id"}, texts(top), "customer holds a key path")
+	assert.Equal(t, []string{"name"}, texts(nested))
+	assert.Equal(t, []string{"o", "o.currency", "o.lines", `o["order-id"]`}, texts(references))
+	read := index.Suggest(query.Completion{Kind: query.CompleteField, Aliases: []query.Alias{alias}})
+	assert.Contains(t, texts(read), "id", "a condition reads any field")
 }

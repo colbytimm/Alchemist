@@ -100,7 +100,7 @@ func TestTheEditorKeepsPlainKeysAsText(t *testing.T) {
 		editor = typed
 	}
 
-	assert.Contains(t, editor.View(), "qr?e ", "and every one of them was typed")
+	assert.Contains(t, plain(editor.View()), "qr?e ", "and every one of them was typed")
 }
 
 func TestEscapeReturnsTheEditorToThePreviousPane(t *testing.T) {

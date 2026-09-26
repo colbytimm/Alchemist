@@ -538,6 +538,8 @@ var plannerSeeds = []string{
 	"WITH x AS (SELECT * FROM a.b o), y AS (SELECT * FROM t IN x.lines) SELECT * FROM y",
 	"WITH x AS (SELECT o.id FROM a.b o WHERE EXISTS(SELECT VALUE 1 FROM t IN o.tags)), t AS (SELECT * FROM c.d) SELECT * FROM x",
 	"WITH t AS (SELECT * FROM c.d) SELECT * FROM a.b o WHERE EXISTS(SELECT VALUE 1 FROM t IN o.tags)",
+	"SELECT * FROM a.b x NATURAL JOIN c.d y",
+	"WITH x AS (SELECT 1), y AS (SELECT",
 }
 
 func FuzzBuildPlan(f *testing.F) {

@@ -146,10 +146,16 @@ type Adapter struct {
 	batchFailure batchFailure
 	unknownSize  bool
 	clock        func() time.Time
-	upserts      upsertGauge
+	upserts      callGauge
+	edits        callGauge
+	// predicates are what WithPredicate registered; read-only once New
+	// returns.
+	predicates map[string]func(json.RawMessage) bool
 
 	mu        sync.Mutex
 	faults    writeFaults
+	edit      editFaults
+	edited    []string
 	databases []database
 	// items holds each container's documents under its path; etags counts
 	// the versions the store has handed out.
@@ -166,6 +172,11 @@ func New(opts ...Option) *Adapter {
 		databases: newFixture(),
 		items:     map[string][]storedItem{},
 		faults:    writeFaults{throttles: map[string]throttle{}, failures: map[string]bool{}},
+		edit: editFaults{
+			throttles: map[string]throttle{}, conflicts: map[string]bool{},
+			refusals: map[string]bool{}, unknowns: map[string]bool{},
+		},
+		predicates: map[string]func(json.RawMessage) bool{},
 	}
 	for _, opt := range opts {
 		opt(a)

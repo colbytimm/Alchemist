@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -57,6 +58,8 @@ func plain(view string) string {
 // were asked about. Batches pass through to the mock's item store, which
 // store is, and are kept in the order they arrived; so do a clone's
 // definition reads, scans and upserts, and deletes keep what they deleted.
+// Item edits pass through too, counted in edits, and scans counts every
+// scan opened.
 type recordingConnection struct {
 	inner        adapter.Connection
 	store        *mock.Adapter
@@ -70,6 +73,9 @@ type recordingConnection struct {
 	definitions  adapter.DefinitionReader
 	scanner      adapter.ItemScanner
 	writer       adapter.ItemWriter
+	itemEditor   adapter.ItemEditor
+	edits        atomic.Int32
+	scans        int
 	deleted      [][]string
 	calls        map[string]int
 	queries      []adapter.Query
@@ -109,7 +115,13 @@ func newConnection(t *testing.T, opts ...mock.Option) *recordingConnection {
 	conn.definitions, _ = inner.(adapter.DefinitionReader)
 	conn.scanner, _ = inner.(adapter.ItemScanner)
 	conn.writer, _ = inner.(adapter.ItemWriter)
+	conn.itemEditor, _ = inner.(adapter.ItemEditor)
 	return conn
+}
+
+func (c *recordingConnection) EditItem(ctx context.Context, container []string, key adapter.PartitionKey, op adapter.Operation) (adapter.OperationResult, error) {
+	c.edits.Add(1)
+	return c.itemEditor.EditItem(ctx, container, key, op)
 }
 
 func (c *recordingConnection) Inspect(ctx context.Context, n adapter.Node) (adapter.Details, error) {
@@ -155,6 +167,7 @@ func (c *recordingConnection) ContainerDefinition(ctx context.Context, path []st
 }
 
 func (c *recordingConnection) ScanItems(ctx context.Context, request adapter.ScanRequest) (adapter.ItemScan, error) {
+	c.scans++
 	scan, err := c.scanner.ScanItems(ctx, request)
 	if err != nil {
 		return nil, err
@@ -269,6 +282,7 @@ func managed(conn adapter.Connection) tui.Management {
 	definitions, _ := conn.(adapter.DefinitionReader)
 	scanner, _ := conn.(adapter.ItemScanner)
 	writer, _ := conn.(adapter.ItemWriter)
+	editor, _ := conn.(adapter.ItemEditor)
 	return tui.Management{
 		Admin:       admin,
 		Throughput:  throughput,
@@ -279,6 +293,7 @@ func managed(conn adapter.Connection) tui.Management {
 		Definitions: definitions,
 		Scanner:     scanner,
 		Writer:      writer,
+		Editor:      editor,
 	}
 }
 
@@ -292,8 +307,16 @@ func newModel(t *testing.T, connection adapter.Connection) tea.Model {
 
 // newModelWith builds a model from opts, sized to the minimum supported
 // terminal, whose session starts on one account served by connection: the
-// first of opts.Accounts, or one called mock when opts lists none.
+// first of opts.Accounts, or one called mock when opts lists none. Its
+// editor flags nothing: a check waits on a timer, which every key typed
+// would otherwise leave the harness waiting out. newDiagnosingModel checks.
 func newModelWith(t *testing.T, connection adapter.Connection, opts tui.Options) tea.Model {
+	t.Helper()
+	opts.Diagnostics = theme.NoUnderline
+	return newSession(t, connection, opts)
+}
+
+func newSession(t *testing.T, connection adapter.Connection, opts tui.Options) tea.Model {
 	t.Helper()
 	opts.Icons = theme.Icons()
 	if len(opts.Accounts) == 0 {
@@ -436,8 +459,13 @@ func press(t *testing.T, m tea.Model, key tea.KeyMsg) (tea.Model, []tea.Msg) {
 // turn, such as a notice retiring itself, settles as press settles it.
 func pressWriting(t *testing.T, m tea.Model, key tea.KeyMsg) tea.Model {
 	t.Helper()
-	model, cmd := m.Update(key)
-	m = model
+	return settleWriting(m.Update(key))
+}
+
+// settleWriting is settle for a command that writes to disk: it is waited
+// on however long the write takes, and what its answers start is settled
+// as settle settles it.
+func settleWriting(m tea.Model, cmd tea.Cmd) tea.Model {
 	for _, msg := range answers(cmd) {
 		m, _ = settle(m.Update(msg))
 	}

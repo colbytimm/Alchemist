@@ -132,8 +132,7 @@ func (m Model) settleSuggestions(show func(panes.Editor, []complete.Suggestion, 
 	if !m.completing || m.focus != focusEditor || !ok {
 		return m, nil
 	}
-	text, offset := m.editor.Cursor()
-	c := query.Context(text, offset).WithDefaultScope(entry.scope)
+	c := m.editor.Context().WithDefaultScope(entry.scope)
 	if m.dismissed.covers(c) {
 		return m.closeSuggestions(), nil
 	}
