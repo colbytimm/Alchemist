@@ -132,12 +132,13 @@ func (p MutationProgress) counterLines(width int) []string {
 	if s.Progress.Throttles > 0 {
 		throttled = "throttled " + times(s.Progress.Throttles)
 	}
+	spent, projected := p.charges()
 	rows := [][3]string{
 		{"Items", FormatCount(done) + " of " + FormatCount(int64(s.Progress.Total)), ""},
 		{capitalized(s.Kind.Applied()), FormatCount(int64(c.Applied)), skippedText(c)},
 		{"Failed", FormatCount(int64(c.Failed)), "unknown " + FormatCount(int64(c.Unknown))},
 		{"Rate", rate, left},
-		{"RU", p.chargeText(), ""},
+		{"RU", spent, projected},
 		{"Writers", fmt.Sprintf("%d of %d", s.Progress.Writers, s.MaxWriters), throttled},
 	}
 	lines := make([]string, 0, len(rows))
@@ -165,18 +166,19 @@ func skippedText(c mutate.Counts) string {
 	return text
 }
 
-func (p MutationProgress) chargeText() string {
+// charges are what the writes have spent, and what the whole job is
+// expected to spend once anything has been written.
+func (p MutationProgress) charges() (spent, projected string) {
 	s := p.status
-	text := FormatCharge(s.Progress.WriteCharge) + " so far"
 	switch {
 	case s.End != MutationRunning:
-		return FormatCharge(s.Progress.WriteCharge) + " spent on writes"
+		return FormatCharge(s.Progress.WriteCharge) + " spent on writes", ""
 	case s.Projected > 0:
-		text += " · about " + FormatCount(int64(s.Projected+0.5)) + " in total"
+		projected = "about " + FormatCount(int64(s.Projected+0.5)) + " in total"
 	case s.Progress.Counts.Attempted() > 0:
-		text += " · " + noCharges
+		projected = noCharges
 	}
-	return text
+	return FormatCharge(s.Progress.WriteCharge) + " so far", projected
 }
 
 func (p MutationProgress) timeLeft() string {
@@ -216,13 +218,17 @@ func (p MutationProgress) endLines(width int) []string {
 func (p MutationProgress) outcomeText() string {
 	s := p.status
 	c := s.Progress.Counts
+	outcomes := fmt.Sprintf("%s %s, %s skipped, %s failed, %s unknown", count(c.Applied), s.Kind.Applied(),
+		count(c.Skipped()), count(c.Failed), count(c.Unknown))
 	if c.NotAttempted == 0 {
-		return fmt.Sprintf("Every item has an outcome: %d %s, %d skipped, %d failed, %d unknown.",
-			c.Applied, s.Kind.Applied(), c.Skipped(), c.Failed, c.Unknown)
+		return "Every item has an outcome: " + outcomes + "."
 	}
-	return fmt.Sprintf("%d of %d items were attempted: %d %s, %d skipped, %d failed, %d unknown. "+
-		"%d were not attempted and are unchanged.",
-		c.Attempted(), s.Progress.Total, c.Applied, s.Kind.Applied(), c.Skipped(), c.Failed, c.Unknown, c.NotAttempted)
+	return fmt.Sprintf("%s of %s items were attempted: %s. %s were not attempted and are unchanged.",
+		count(c.Attempted()), count(s.Progress.Total), outcomes, count(c.NotAttempted))
+}
+
+func count(n int) string {
+	return FormatCount(int64(n))
 }
 
 func (p MutationProgress) hintKeys() []key.Binding {
