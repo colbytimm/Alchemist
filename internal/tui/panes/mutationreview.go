@@ -268,7 +268,7 @@ func changeLine(change mutate.FieldChange, width int) string {
 
 func (r MutationReview) footerLines(width int) []string {
 	lines := wrapText(r.consequence(), width)
-	lines = append(lines, r.prompt())
+	lines = append(lines, wrapText(r.prompt(), width)...)
 	return append(styleAll(theme.TextStyle(), lines), r.name.view())
 }
 
