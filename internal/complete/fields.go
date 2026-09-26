@@ -62,7 +62,20 @@ func (s *fieldSet) children(prefix string) []childField {
 			continue
 		}
 		kind, observed := s.kinds[path]
-		children = append(children, childField{name: name, kind: kind, observed: observed, partitionKey: s.partitionKeys[path]})
+		children = append(children, childField{
+			name: name, kind: kind, observed: observed,
+			partitionKey: s.partitionKeys[path], holdsKey: s.holdsKey(path),
+		})
 	}
 	return children
+}
+
+// holdsKey reports whether path is a partition key path or holds one.
+func (s *fieldSet) holdsKey(path string) bool {
+	for key := range s.partitionKeys {
+		if key == path || strings.HasPrefix(key, path+".") {
+			return true
+		}
+	}
+	return false
 }

@@ -517,3 +517,14 @@ func BenchmarkTypingWithTheListOpen(b *testing.B) {
 		m, _ = typed.Update(keyMsg(tea.KeyBackspace))
 	}
 }
+
+func TestAnUpdateCompletesOnlyTheFieldsItMayWrite(t *testing.T) {
+	m := typeQuery(t, newTallModel(t, newConnection(t)), "UPDATE sales.orders o SET o.")
+
+	assert.True(t, listed(m.View(), "amount"), "the target's sampled fields")
+	assert.False(t, listed(m.View(), "id"), "never the id")
+	assert.False(t, listed(m.View(), "customerId"), "never the partition key")
+
+	m = pressAll(t, m, keyMsg(tea.KeyCtrlU), keyText("UPDATE sales.orders o SET o.amount = 1 WHERE o."))
+	assert.True(t, listed(m.View(), "id"), "the condition reads any field")
+}
