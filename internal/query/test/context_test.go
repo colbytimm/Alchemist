@@ -39,8 +39,8 @@ func TestContextKeywords(t *testing.T) {
 		query string
 		want  []string
 	}{
-		{name: "empty buffer", query: "|", want: []string{"SELECT", "UPDATE"}},
-		{name: "start of a word", query: "SEL|", want: []string{"SELECT", "UPDATE"}},
+		{name: "empty buffer", query: "|", want: []string{"SELECT", "UPDATE", "DELETE"}},
+		{name: "start of a word", query: "SEL|", want: []string{"SELECT", "UPDATE", "DELETE"}},
 		{name: "after a source", query: "SELECT * FROM c |", want: []string{"AS", "WHERE", "JOIN", "INNER", "GROUP BY", "ORDER BY", "OFFSET"}},
 		{name: "after an aliased source", query: "SELECT * FROM sales.orders o |", want: []string{"WHERE", "JOIN", "INNER", "GROUP BY", "ORDER BY", "OFFSET"}},
 		{name: "after a container list", query: "SELECT * FROM sales.orders, sales.archive AS c |", want: []string{"WHERE", "GROUP BY", "ORDER BY", "OFFSET"}},
@@ -391,6 +391,7 @@ func TestAnApostropheInACommentDoesNotOpenAString(t *testing.T) {
 func FuzzContextRangeStaysInsideTheText(f *testing.F) {
 	for _, seed := range []string{
 		"SELECT * FROM c", "SELECT c.| FROM c WHERE c.a = 'é'", "-- x\nSELECT", `'\`, "FROM sales.", "ORDER BY c.ts DESC",
+		"DELETE FROM sales.orders o WHERE o.",
 	} {
 		for cursor := -1; cursor <= len(seed)+1; cursor++ {
 			f.Add(seed, cursor)

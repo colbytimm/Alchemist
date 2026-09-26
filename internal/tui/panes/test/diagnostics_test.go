@@ -130,3 +130,10 @@ func TestAnUpdateIsHighlightedAndItsSyntaxErrorFlagged(t *testing.T) {
 	assert.Contains(t, view, theme.SyntaxKeyword().Render("SET"))
 	assert.Contains(t, view, squiggled(`"shipped"`), "an UPDATE needs a WHERE")
 }
+
+func TestADeleteIsHighlightedAndItsSyntaxErrorFlagged(t *testing.T) {
+	view := focusedEditor(`DELETE FROM sales.orders o`).View()
+
+	assert.Contains(t, view, theme.SyntaxKeyword().Render("DELETE"))
+	assert.Contains(t, view, squiggled("o"), "a DELETE needs a WHERE")
+}

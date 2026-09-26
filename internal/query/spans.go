@@ -76,9 +76,9 @@ var batchKeywords = map[string]bool{
 	"WHERE": true, "IF": true, "MATCH": true,
 }
 
-// mutationKeywords are the words an UPDATE adds to a query's, kept apart
-// for batchKeywords' reason: SET can be an alias.
-var mutationKeywords = map[string]bool{"UPDATE": true, "SET": true, "UNSET": true}
+// mutationKeywords are the words an UPDATE or a DELETE adds to a query's,
+// kept apart for batchKeywords' reason: SET can be an alias.
+var mutationKeywords = map[string]bool{"UPDATE": true, "SET": true, "UNSET": true, "DELETE": true}
 
 // punctuation are the symbols Cosmos SQL is written with, the batch
 // grammar's included.

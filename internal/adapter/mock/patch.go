@@ -25,30 +25,94 @@ type field struct {
 	value json.RawMessage
 }
 
-// patchItem applies entries to item's top-level fields, which is all the
-// tests need. It answers with the status the service would give a patch it
-// cannot apply, and with an error for one the mock cannot express.
+// patchItem applies entries to item at the JSON Pointers they name, as the
+// service does: set and add create the last step of a path, never a parent.
+// It answers with the status the service would give a patch it cannot
+// apply, and with an error for one the mock cannot express.
 func patchItem(item, entries json.RawMessage) (json.RawMessage, int, error) {
 	var patch []patchEntry
 	if err := json.Unmarshal(entries, &patch); err != nil {
 		return nil, http.StatusBadRequest, nil
 	}
-	fields, err := topLevelFields(item)
-	if err != nil {
+	if _, err := topLevelFields(item); err != nil {
 		return nil, 0, err
 	}
 	for _, entry := range patch {
-		name, ok := strings.CutPrefix(entry.Path, "/")
-		if !ok || strings.Contains(name, "/") {
-			return nil, 0, fmt.Errorf("mock: patch path %q: only top-level paths are supported", entry.Path)
+		steps, ok := pointerSteps(entry.Path)
+		if !ok {
+			return nil, 0, fmt.Errorf("mock: patch path %q is not a JSON Pointer", entry.Path)
 		}
 		var status int
-		fields, status = applyPatch(fields, name, entry)
+		item, status = patchAt(item, steps, entry)
 		if status != http.StatusOK {
 			return nil, status, nil
 		}
 	}
-	return joinFields(fields), http.StatusOK, nil
+	return item, http.StatusOK, nil
+}
+
+func pointerSteps(pointer string) ([]string, bool) {
+	rest, ok := strings.CutPrefix(pointer, "/")
+	if !ok || rest == "" {
+		return nil, false
+	}
+	steps := strings.Split(rest, "/")
+	for i, step := range steps {
+		steps[i] = strings.NewReplacer("~1", "/", "~0", "~").Replace(step)
+	}
+	return steps, true
+}
+
+// patchAt applies entry at steps under value, an object or an array.
+func patchAt(value json.RawMessage, steps []string, entry patchEntry) (json.RawMessage, int) {
+	if fields, err := topLevelFields(value); err == nil {
+		i := slices.IndexFunc(fields, func(f field) bool { return f.name == steps[0] })
+		if len(steps) == 1 {
+			fields, status := applyPatch(fields, steps[0], entry)
+			return joinFields(fields), status
+		}
+		if i < 0 {
+			return nil, http.StatusBadRequest
+		}
+		child, status := patchAt(fields[i].value, steps[1:], entry)
+		fields[i].value = child
+		return joinFields(fields), status
+	}
+	var elements []json.RawMessage
+	index, err := strconv.Atoi(steps[0])
+	if json.Unmarshal(value, &elements) != nil || err != nil || index < 0 {
+		return nil, http.StatusBadRequest
+	}
+	if len(steps) == 1 {
+		return patchElement(elements, index, entry)
+	}
+	if index >= len(elements) {
+		return nil, http.StatusBadRequest
+	}
+	child, status := patchAt(elements[index], steps[1:], entry)
+	elements[index] = child
+	joined, _ := json.Marshal(elements) // raw elements always marshal
+	return joined, status
+}
+
+// patchElement applies entry to one element of an array: set and replace
+// replace it, remove drops it. Past the end, set appends, as the service's
+// does, so that running it twice appends twice.
+func patchElement(elements []json.RawMessage, index int, entry patchEntry) (json.RawMessage, int) {
+	switch {
+	case entry.Op == "set" && index >= len(elements):
+		elements = append(elements, entry.Value)
+	case index >= len(elements):
+		return nil, http.StatusBadRequest
+	case entry.Op == "set" || entry.Op == "replace":
+		elements[index] = entry.Value
+	case entry.Op == "remove":
+		elements = slices.Delete(elements, index, index+1)
+	default:
+		return nil, http.StatusBadRequest
+	}
+	joined, _ := json.Marshal(elements) // raw elements always marshal
+	return joined, http.StatusOK
 }
 
 func applyPatch(fields []field, name string, entry patchEntry) ([]field, int) {

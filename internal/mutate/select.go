@@ -42,6 +42,9 @@ type Target struct {
 	Version string
 	// Absent has bit i set when the item lacks UNSET path i.
 	Absent uint16
+	// NoParent marks an item lacking the parent of a path the statement
+	// sets, which a patch does not create: it is never written.
+	NoParent bool
 }
 
 func (t Target) lacks(removal int) bool {
@@ -58,10 +61,23 @@ type Targets struct {
 	// statement would unset, so no operation is left for them.
 	Unaffected int
 	// WholeItems marks a selection that read whole items, as one with an
-	// UNSET must, to see which paths each item has.
+	// UNSET or a nested SET must, to see which paths each item has.
 	WholeItems bool
 	// Preview holds a few matched items whole, for a before and after.
 	Preview []json.RawMessage
+}
+
+// Unplaced counts the targets lacking the parent of a path the statement
+// sets; one with no partition key is counted by Keyless alone, as the job
+// skips it for that.
+func (t Targets) Unplaced() int {
+	n := 0
+	for _, target := range t.Items {
+		if target.Key != nil && target.NoParent {
+			n++
+		}
+	}
+	return n
 }
 
 // Keyless counts the targets that cannot be addressed.
@@ -108,7 +124,7 @@ func Select(ctx context.Context, scanner adapter.ItemScanner, m query.Mutation, 
 	}
 	s := &Selection{
 		scanner: scanner, mutation: m, keyPaths: keyPaths, limit: limit,
-		targets:  Targets{WholeItems: len(m.Removals) > 0},
+		targets:  Targets{WholeItems: len(m.Removals) > 0 || nestedSet(m)},
 		selected: map[string]bool{},
 	}
 	projection := adapter.ScanIdentity
@@ -199,7 +215,7 @@ func (s *Selection) keep(item json.RawMessage) {
 			target.Absent |= 1 << i
 		}
 	}
-	if len(s.mutation.Assignments) == 0 && int(target.Absent) == 1<<len(s.mutation.Removals)-1 {
+	if s.leavesNothingToDo(target) {
 		s.targets.Unaffected++
 		return
 	}
@@ -209,11 +225,19 @@ func (s *Selection) keep(item json.RawMessage) {
 	if meta, err := adapter.ReadItemMeta(item); err == nil {
 		target.Version = meta.Version
 	}
+	target.NoParent = !placesEverySet(item, s.mutation)
 	s.targets.Items = append(s.targets.Items, target)
 	s.selected[identity(target.ID, target.Key)] = true
 	if s.targets.WholeItems && len(s.targets.Preview) < previewSize {
 		s.targets.Preview = append(s.targets.Preview, item)
 	}
+}
+
+// leavesNothingToDo reports an update with only UNSET paths, of an item that
+// lacks every path it would unset.
+func (s *Selection) leavesNothingToDo(target Target) bool {
+	m := s.mutation
+	return len(m.Removals) > 0 && len(m.Assignments) == 0 && int(target.Absent) == 1<<len(m.Removals)-1
 }
 
 // readPreview reads a few matched items whole. One that is not a target

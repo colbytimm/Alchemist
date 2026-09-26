@@ -68,7 +68,7 @@ func TestDiagnoseFlags(t *testing.T) {
 		{
 			name:  "a statement that does not start with a statement keyword",
 			input: "SELEC * FROM c",
-			want:  []flagged{{"SELEC", "a statement starts with SELECT, UPDATE or BEGIN BATCH"}},
+			want:  []flagged{{"SELEC", "a statement starts with SELECT, UPDATE, DELETE or BEGIN BATCH"}},
 		},
 		{
 			name:  "an unclosed bracket",
@@ -112,6 +112,21 @@ func TestDiagnoseFlags(t *testing.T) {
 			want:  []flagged{{"SETT", "SETT is not a clause: did you mean SET?"}},
 		},
 		{
+			name:  "a delete the mutation parser refuses, at the token it stopped on",
+			input: `DELETE FROM sales.orders o`,
+			want:  []flagged{{"o", "DELETE needs a WHERE. To delete every item, write WHERE true"}},
+		},
+		{
+			name:  "a delete naming a second target after its alias",
+			input: `DELETE FROM sales.orders o, sales.archive a WHERE true`,
+			want:  []flagged{{",", "a DELETE has one target container"}},
+		},
+		{
+			name:  "a delete reading an alias it never declares",
+			input: `DELETE FROM sales.orders o WHERE x.status = "cancelled"`,
+			want:  []flagged{{"x", "x is not declared: the query reads o"}},
+		},
+		{
 			name:  "several problems, in the order they appear",
 			input: "SELECT * FORM c WHERE CONTAIN(c.name, 'A')",
 			want: []flagged{
@@ -146,6 +161,8 @@ func TestDiagnoseLeavesAlone(t *testing.T) {
 		{name: "a batch being typed", input: "BEGIN"},
 		{name: "a complete update", input: `UPDATE sales.orders o SET o.status = "shipped" UNSET o.note WHERE STARTSWITH(o.id, "a")`},
 		{name: "an update read through its default alias", input: "UPDATE sales.orders SET c.n = 1 WHERE c.n = 0"},
+		{name: "a complete delete", input: `DELETE FROM sales.orders o WHERE o.status = "cancelled" -- old\r AND o.total < 5`},
+		{name: "a delete read through its default alias", input: "DELETE FROM sales.orders WHERE c.n = 0"},
 		{name: "a complete batch", input: `BEGIN BATCH sales.orders PARTITION 'k'; UPSERT {"id": "a"}; COMMIT`},
 		{name: "a word that is near no clause", input: "SELECT * FROM c WHERE c.a = 1 banana"},
 		{name: "strings and comments hide what is in them", input: "SELECT * FROM c -- FORM # CONTAIN(\nWHERE c.a = 'FORM # ('"},
@@ -197,7 +214,7 @@ func TestLexicalDiagnosticsAreTheOnesALexDecides(t *testing.T) {
 }
 
 func FuzzDiagnose(f *testing.F) {
-	for _, seed := range append(plannerSeeds, "SELECT * FORM c", "BEGIN BATCH a.b PARTITION", "UPDATE a.b o SET o.x = 1", "UPDATE a.b SET", "é(é", "#`\\", "((]]}") {
+	for _, seed := range append(plannerSeeds, "SELECT * FORM c", "BEGIN BATCH a.b PARTITION", "UPDATE a.b o SET o.x = 1", "UPDATE a.b SET", "DELETE FROM a.b WHERE", "WITH x AS (SELECT 1) DELETE FROM a.b", "é(é", "#`\\", "((]]}") {
 		f.Add(seed)
 	}
 

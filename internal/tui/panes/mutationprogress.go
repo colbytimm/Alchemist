@@ -71,7 +71,7 @@ func (p MutationProgress) SetSize(width, height int) MutationProgress {
 
 func (p MutationProgress) SetStatus(status MutationStatus) MutationProgress {
 	p.status = status
-	p.frame.title = fmt.Sprintf("%s · %s / %s", capitalized(status.Kind.String()), status.Account, strings.Join(status.Container, "."))
+	p.frame.title = fmt.Sprintf("%s · %s / %s", Capitalized(status.Kind.String()), status.Account, strings.Join(status.Container, "."))
 	return p
 }
 
@@ -103,7 +103,7 @@ func (p MutationProgress) phase() string {
 	case s.Stopping:
 		return "Stopping after the writes in flight…"
 	}
-	return capitalized(s.Kind.Ongoing()) + " items"
+	return Capitalized(s.Kind.Ongoing()) + " items"
 }
 
 func (p MutationProgress) bar(width int) string {
@@ -135,7 +135,7 @@ func (p MutationProgress) counterLines(width int) []string {
 	spent, projected := p.charges()
 	rows := [][3]string{
 		{"Items", FormatCount(done) + " of " + FormatCount(int64(s.Progress.Total)), ""},
-		{capitalized(s.Kind.Applied()), FormatCount(int64(c.Applied)), skippedText(c)},
+		{Capitalized(s.Kind.Applied()), FormatCount(int64(c.Applied)), skippedText(c)},
 		{"Failed", FormatCount(int64(c.Failed)), "unknown " + FormatCount(int64(c.Unknown))},
 		{"Rate", rate, left},
 		{"RU", spent, projected},
@@ -155,7 +155,7 @@ func skippedText(c mutate.Counts) string {
 	for _, reason := range []struct {
 		n    int
 		name string
-	}{{c.Changed, "changed"}, {c.Gone, "gone"}, {c.NoKey, "no key"}} {
+	}{{c.Changed, "changed"}, {c.Gone, "gone"}, {c.NoKey, "no key"}, {c.NoParent, "no parent"}} {
 		if reason.n > 0 {
 			reasons = append(reasons, fmt.Sprintf("%d %s", reason.n, reason.name))
 		}
@@ -241,7 +241,7 @@ func (p MutationProgress) hintKeys() []key.Binding {
 	return []key.Binding{p.keys.Resume, p.keys.Report}
 }
 
-func capitalized(text string) string {
+func Capitalized(text string) string {
 	if text == "" {
 		return text
 	}

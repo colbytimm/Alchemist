@@ -122,6 +122,12 @@ func TestParseMutationShapes(t *testing.T) {
 	}
 }
 
+func TestACommentInTheConditionIsNotSent(t *testing.T) {
+	m := parseMutation(t, "UPDATE a.b o SET o.x = 1 WHERE o.a = 1 -- a note\r\n AND o.b = 2")
+
+	assert.Equal(t, "o.a = 1  \r\n AND o.b = 2", m.Where)
+}
+
 func TestWhereTrueIsEveryItem(t *testing.T) {
 	assert.True(t, parseMutation(t, "UPDATE a.b o SET o.x = 1 WHERE true").EveryItem)
 	assert.True(t, parseMutation(t, "UPDATE a.b o SET o.x = 1 WHERE TRUE;").EveryItem)
@@ -174,6 +180,13 @@ func TestParseMutationRefusals(t *testing.T) {
 		{name: "an unclosed string in the WHERE", input: `UPDATE a.b o SET o.x = 1 WHERE o.y = "open`, line: 1, column: 38, message: "never closed"},
 		{name: "a number JSON cannot read", input: "UPDATE a.b o SET o.x = 01 WHERE true", line: 1, column: 24, message: "01 is not a number JSON reads"},
 		{name: "invalid JSON", input: `UPDATE a.b o SET o.x = {"a" 1} WHERE true`, line: 1, column: 24, message: "not valid JSON"},
+		{name: "a ) that closes the wrapper early", input: "UPDATE a.b o SET o.x = 1 WHERE o.a = 1) OR (true", line: 1, column: 39, message: "unbalanced parentheses in the WHERE"},
+		{
+			name: "a ) after a comment the service ends at \\r", input: "UPDATE a.b o SET o.x = 1 WHERE o.a = 1 -- x\r) OR (true\n AND o.b = 2",
+			line: 1, column: 45, message: "unbalanced parentheses in the WHERE",
+		},
+		{name: "a ( never closed", input: "UPDATE a.b o SET o.x = 1 WHERE (o.a = 1 OR o.b = 2", line: 1, column: 50, message: "unbalanced parentheses in the WHERE"},
+		{name: "a ( never closed before a semicolon", input: "UPDATE a.b o SET o.x = 1 WHERE (o.a = 1;", line: 1, column: 40, message: "unbalanced parentheses in the WHERE"},
 		{name: "UNSET the whole item", input: "UPDATE a.b o UNSET o WHERE true", line: 1, column: 20, message: "UNSET needs a field"},
 	}
 	for _, tt := range tests {
@@ -195,6 +208,9 @@ func TestIsMutation(t *testing.T) {
 	assert.True(t, query.IsMutation("-- note\nupdate a.b"))
 	assert.True(t, query.IsMutation("WITH x AS (SELECT 1) UPDATE a.b"))
 	assert.False(t, query.IsMutation("SELECT c.update FROM c"))
+	assert.False(t, query.IsMutation("WITH x AS (SELECT * FROM a.b) SELECT c.update FROM c"), "a field named update")
+	assert.False(t, query.IsMutation("WITH x AS (SELECT VALUE u.update FROM a.b u) SELECT * FROM x"), "one inside a CTE")
+	assert.True(t, query.IsMutation("WITH x AS (SELECT * FROM a.b) UPDATE a.b o SET o.x = 1 WHERE true"))
 	for _, text := range append(append([]string{}, plannerSeeds...), batchSeeds...) {
 		assert.False(t, query.IsMutation(text), text)
 	}
@@ -214,6 +230,18 @@ var mutationSeeds = []string{
 	"UPDATE a.b",
 	"UPDATE a.b o SET",
 	"UPDATE a.b o SET o.x = ",
+	"UPDATE a.b o SET o.x = 1 WHERE o.a = 1 -- x\r) OR (true\n AND o.b = 2",
+	"UPDATE a.b o SET o.x = 1 WHERE o.a = 1 -- note\n AND o.b = 2",
+	goalDelete,
+	"delete from a.b as item where item.y = 2;",
+	"DELETE FROM a.b WHERE true",
+	"DELETE a.b o WHERE true",
+	"DELETE o.tmp FROM a.b o WHERE true",
+	"DELETE FROM a.b o USING x.y z WHERE true",
+	"DELETE FROM",
+	`DELETE FROM a.b o WHERE o.status = "cancelled") OR (true`,
+	"DELETE FROM a.b o WHERE o.x = 1) ORDER BY o.x",
+	"DELETE FROM a.b o WHERE o.a = 1 -- x\r) OR (true\n AND o.b = 2",
 }
 
 func FuzzParseMutation(f *testing.F) {
@@ -225,6 +253,18 @@ func FuzzParseMutation(f *testing.F) {
 		if err != nil {
 			return
 		}
+		depth := 0
+		for _, r := range stripStrings(parsed.Where) {
+			switch r {
+			case '(':
+				depth++
+			case ')':
+				depth--
+			}
+			require.GreaterOrEqual(t, depth, 0, "a ) closes the wrapper early: %s", parsed.Where)
+		}
+		require.Zero(t, depth, "the WHERE's parentheses pair up: %s", parsed.Where)
+		require.NotContains(t, stripStrings(parsed.Where), "--", "no comment reaches the service: %q", parsed.Where)
 		text := parsed.String()
 		again, err := query.ParseMutation(text)
 		require.NoError(t, err, text)
@@ -245,4 +285,41 @@ func TestTheStatementFormatsBackToItself(t *testing.T) {
 
 	assert.Equal(t, `UPDATE sales.orders AS o SET o.status = "archived", o.archivedAt = "2026-01-01" WHERE o.status = "shipped" AND o.total < 50`, m.String())
 	assert.Equal(t, json.RawMessage(`"archived"`), parseMutation(t, m.String()).Assignments[0].Value)
+}
+
+// stripStrings blanks the string literals and comments of a condition,
+// whose parentheses are text rather than grouping. A string leaves a space,
+// so that the text either side of it stays apart.
+func stripStrings(condition string) string {
+	var out []rune
+	var quote rune
+	escaped, comment := false, false
+	runes := []rune(condition)
+	for i, r := range runes {
+		switch {
+		case comment:
+			comment = r != '\n' && r != '\r'
+			continue
+		case quote != 0 && escaped:
+			escaped = false
+			continue
+		case quote != 0 && r == '\\':
+			escaped = true
+			continue
+		case quote != 0 && r == quote:
+			quote = 0
+			continue
+		case quote != 0:
+			continue
+		case r == '"' || r == '\'':
+			quote = r
+			out = append(out, ' ')
+			continue
+		case r == '-' && i+1 < len(runes) && runes[i+1] == '-':
+			comment = true
+			continue
+		}
+		out = append(out, r)
+	}
+	return string(out)
 }

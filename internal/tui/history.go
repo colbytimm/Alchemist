@@ -127,7 +127,7 @@ func (m Model) recall() (Model, bool) {
 		return m, false
 	}
 	m.editor = m.editor.SetValue(entry.Query)
-	if entry.Kind != history.KindBatch && entry.Kind != history.KindUpdate { // they name their own target, which is no scope for what runs next
+	if !entry.NamesTarget() {
 		m = m.setScope(m.accounts.active, entry.Scope)
 	}
 	m.recalledName = ""

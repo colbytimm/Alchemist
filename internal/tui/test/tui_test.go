@@ -459,8 +459,13 @@ func press(t *testing.T, m tea.Model, key tea.KeyMsg) (tea.Model, []tea.Msg) {
 // turn, such as a notice retiring itself, settles as press settles it.
 func pressWriting(t *testing.T, m tea.Model, key tea.KeyMsg) tea.Model {
 	t.Helper()
-	model, cmd := m.Update(key)
-	m = model
+	return settleWriting(m.Update(key))
+}
+
+// settleWriting is settle for a command that writes to disk: it is waited
+// on however long the write takes, and what its answers start is settled
+// as settle settles it.
+func settleWriting(m tea.Model, cmd tea.Cmd) tea.Model {
 	for _, msg := range answers(cmd) {
 		m, _ = settle(m.Update(msg))
 	}

@@ -28,10 +28,11 @@ type editAccount struct {
 }
 
 type capturedEdit struct {
-	method  string
-	path    string
-	body    []byte
-	ifMatch string
+	method       string
+	path         string
+	body         []byte
+	ifMatch      string
+	partitionKey string
 }
 
 func (a *editAccount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +42,10 @@ func (a *editAccount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	body, _ := io.ReadAll(r.Body)
 	a.mu.Lock()
-	a.requests = append(a.requests, capturedEdit{method: r.Method, path: r.URL.EscapedPath(), body: body, ifMatch: r.Header.Get("If-Match")})
+	a.requests = append(a.requests, capturedEdit{
+		method: r.Method, path: r.URL.EscapedPath(), body: body,
+		ifMatch: r.Header.Get("If-Match"), partitionKey: r.Header.Get("x-ms-documentdb-partitionkey"),
+	})
 	a.mu.Unlock()
 	w.Header().Set("x-ms-request-charge", "10.5")
 	w.Header().Set("etag", `"e2"`)
@@ -249,4 +253,68 @@ func TestScanQuery(t *testing.T) {
 			assert.Equal(t, tt.want, cosmos.ScanQuery(tt.request, tt.keyPaths))
 		})
 	}
+}
+
+func deleteOn(version string) adapter.Operation {
+	return adapter.Operation{Kind: adapter.OperationDelete, ID: "o1", IfMatch: version}
+}
+
+func TestADeleteCarriesItsVersionAndKeyVerbatim(t *testing.T) {
+	tests := []struct {
+		name string
+		key  adapter.PartitionKey
+		want string
+	}{
+		{name: "a plain key", key: customer, want: `["c01"]`},
+		{name: "a two-path key", key: adapter.PartitionKey{json.RawMessage(`"t1"`), json.RawMessage(`"u1"`)}, want: `["t1","u1"]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			acct := &editAccount{status: http.StatusNoContent}
+
+			result, err := itemEditor(t, acct).EditItem(context.Background(), []string{"sales", "orders"}, tt.key, deleteOn(`"00000a00-0000-0000-0000-65f1a2b30000"`))
+
+			require.NoError(t, err)
+			assert.Equal(t, "204 No Content", result.Status)
+			requests := acct.sent()
+			require.Len(t, requests, 1)
+			assert.Equal(t, http.MethodDelete, requests[0].method)
+			assert.Equal(t, `"00000a00-0000-0000-0000-65f1a2b30000"`, requests[0].ifMatch, "the version verbatim, quotes included")
+			assert.JSONEq(t, tt.want, requests[0].partitionKey)
+			assert.Empty(t, requests[0].body)
+		})
+	}
+}
+
+func TestADeleteIsClassifiedByItsAnswer(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		want   error
+	}{
+		{name: "a changed item", status: http.StatusPreconditionFailed, want: adapter.ErrPreconditionFailed},
+		{name: "a missing item", status: http.StatusNotFound, want: adapter.ErrItemNotFound},
+		{name: "a service error", status: http.StatusServiceUnavailable, want: adapter.ErrWriteOutcomeUnknown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			acct := &editAccount{status: tt.status}
+
+			_, err := itemEditor(t, acct).EditItem(context.Background(), []string{"sales", "orders"}, customer, deleteOn(`"e1"`))
+
+			require.ErrorIs(t, err, tt.want)
+			assert.Len(t, acct.sent(), 1, "sent once, never replayed")
+		})
+	}
+}
+
+func TestAThrottledDeleteIsLeftToThePool(t *testing.T) {
+	acct := &editAccount{status: http.StatusTooManyRequests, retryAfter: "100"}
+
+	_, err := itemEditor(t, acct).EditItem(context.Background(), []string{"sales", "orders"}, customer, deleteOn(`"e1"`))
+
+	var throttled *adapter.ThrottledError
+	require.ErrorAs(t, err, &throttled)
+	assert.Equal(t, 100*time.Millisecond, throttled.RetryAfter)
+	assert.Len(t, acct.sent(), 1)
 }

@@ -209,7 +209,7 @@ func (a Analysis) statementStart() []Diagnostic {
 	}
 	_, size := utf8.DecodeRuneInString(a.text[first.start:])
 	end := max(first.end, first.start+size)
-	return []Diagnostic{{Start: first.start, End: end, Message: "a statement starts with SELECT, UPDATE or BEGIN BATCH"}}
+	return []Diagnostic{{Start: first.start, End: end, Message: "a statement starts with SELECT, UPDATE, DELETE or BEGIN BATCH"}}
 }
 
 var closingBrackets = map[string]string{")": "(", "]": "[", "}": "{"}

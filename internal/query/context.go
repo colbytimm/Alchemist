@@ -100,7 +100,9 @@ func (a Analysis) Context(cursor int) Completion {
 	case a.batch:
 		completion = batchCompletion(before)
 	case keywordAt(a.code, 0, "UPDATE"):
-		completion = mutationCompletion(before, word.end > word.start)
+		completion = updateCompletion(before, word.end > word.start)
+	case keywordAt(a.code, 0, "DELETE"):
+		completion = deleteCompletion(before, word.end > word.start)
 	default:
 		c := classifier{toks: before, parser: a.parser, typing: word.end > word.start}
 		completion = c.classify()
@@ -159,7 +161,7 @@ type classifier struct {
 func (c classifier) classify() Completion {
 	last, ok := c.last()
 	if !ok {
-		return Completion{Kind: CompleteKeyword, Keywords: []string{"SELECT", "UPDATE"}}
+		return Completion{Kind: CompleteKeyword, Keywords: []string{"SELECT", "UPDATE", "DELETE"}}
 	}
 	if last.kind == tokDot {
 		return c.afterDot()

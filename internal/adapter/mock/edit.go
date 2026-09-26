@@ -1,9 +1,11 @@
 package mock
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -198,30 +200,37 @@ func applied(status int, kind adapter.OperationKind, etag string) adapter.Operat
 	return adapter.OperationResult{Outcome: adapter.OperationApplied, Status: statusText(status), ETag: etag, RequestCharge: charges[kind]}
 }
 
-// conditionHolds evaluates a patch condition of the one shape the mock
-// reads: FROM <alias> WHERE (<predicate>), then AND IS_DEFINED(<alias>.<field>)
-// once for each top-level field that must be there. The predicate is one a
-// test registered.
+// conditionHolds evaluates a patch condition of the shapes the mock reads:
+// FROM <alias> WHERE (<predicate>), then AND <guard> once for each path
+// that must be there, or FROM <alias> WHERE <guard> AND ... alone. A guard
+// is IS_DEFINED, IS_OBJECT or IS_ARRAY of a path written with dots. The
+// predicate is one a test registered. What the vNext emulator refuses with
+// 400, the mock refuses too: a bracket or an index in a guard, and a bare
+// true beside an AND.
 func (a *Adapter) conditionHolds(condition string, item json.RawMessage) (bool, error) {
 	if condition == "" {
 		return true, nil
 	}
 	alias, rest, ok := cutConditionHead(condition)
 	if !ok {
-		return false, fmt.Errorf("condition %q is not FROM <alias> WHERE (<predicate>)", condition)
+		return false, fmt.Errorf("condition %q does not start FROM <alias> WHERE", condition)
 	}
-	for _, predicate := range longestFirst(a.predicates) {
-		tail, found := strings.CutPrefix(rest, predicate+")")
-		if !found {
-			continue
-		}
-		fields, err := definedFields(alias, tail)
-		if err != nil {
-			return false, fmt.Errorf("condition %q: %w", condition, err)
-		}
-		return a.predicates[predicate](item) && hasFields(item, fields), nil
+	predicate, tail, err := a.cutPredicate(rest)
+	if err != nil {
+		return false, fmt.Errorf("condition %q: %w", condition, err)
 	}
-	return false, fmt.Errorf("condition %q names no predicate registered with WithPredicate", condition)
+	if predicate == "true" && tail != "" {
+		return false, fmt.Errorf("condition %q: a bare true beside an AND", condition)
+	}
+	guards, err := readGuards(alias, tail)
+	if err != nil {
+		return false, fmt.Errorf("condition %q: %w", condition, err)
+	}
+	matches := a.predicates[predicate]
+	if predicate == "" {
+		matches = func(json.RawMessage) bool { return true }
+	}
+	return matches(item) && everyGuardHolds(item, guards), nil
 }
 
 func cutConditionHead(condition string) (alias, rest string, ok bool) {
@@ -229,7 +238,22 @@ func cutConditionHead(condition string) (alias, rest string, ok bool) {
 	if !ok {
 		return "", "", false
 	}
-	return strings.Cut(rest, " WHERE (")
+	return strings.Cut(rest, " WHERE ")
+}
+
+// cutPredicate reads the registered predicate a condition opens with, in
+// its parentheses; a condition of guards alone has none, and holds by
+// them alone.
+func (a *Adapter) cutPredicate(rest string) (string, string, error) {
+	if !strings.HasPrefix(rest, "(") {
+		return "", " AND " + rest, nil
+	}
+	for _, predicate := range longestFirst(a.predicates) {
+		if tail, found := strings.CutPrefix(rest, "("+predicate+")"); found {
+			return predicate, tail, nil
+		}
+	}
+	return "", "", errors.New("it names no predicate registered with WithPredicate")
 }
 
 // longestFirst orders the predicates so that one which starts another is
@@ -240,47 +264,62 @@ func longestFirst(predicates map[string]func(json.RawMessage) bool) []string {
 	})
 }
 
-func definedFields(alias, tail string) ([]string, error) {
-	var fields []string
+// guard is one check of a condition: its function and the path it asks
+// about.
+type guard struct {
+	function string
+	path     []string
+}
+
+var guardFunctions = []string{"IS_DEFINED", "IS_OBJECT", "IS_ARRAY"}
+
+// readGuards reads the guards after a condition's predicate.
+func readGuards(alias, tail string) ([]guard, error) {
+	var guards []guard
 	for tail != "" {
-		clause, found := strings.CutPrefix(tail, " AND IS_DEFINED("+alias)
-		end := strings.Index(clause, ")")
-		if !found || end < 0 {
+		clause, found := strings.CutPrefix(tail, " AND ")
+		function, ref, opened := strings.Cut(clause, "("+alias)
+		end := strings.Index(ref, ")")
+		if !found || !opened || end < 0 || !slices.Contains(guardFunctions, function) {
 			return nil, fmt.Errorf("unexpected %q", tail)
 		}
-		name, err := topLevelName(clause[:end])
-		if err != nil {
-			return nil, err
+		if strings.ContainsAny(ref[:end], "[]") {
+			return nil, fmt.Errorf("%s of %q: a bracket in a patch condition", function, ref[:end])
 		}
-		fields = append(fields, name)
-		tail = clause[end+1:]
+		guards = append(guards, guard{function: function, path: strings.Split(strings.TrimPrefix(ref[:end], "."), ".")})
+		tail = ref[end+1:]
 	}
-	return fields, nil
+	return guards, nil
 }
 
-// topLevelName reads .name or ["name"], the two ways to name a field.
-func topLevelName(ref string) (string, error) {
-	if name, ok := strings.CutPrefix(ref, "."); ok && !strings.ContainsAny(name, ".[") {
-		return name, nil
-	}
-	quoted, ok := strings.CutPrefix(ref, "[")
-	quoted, closed := strings.CutSuffix(quoted, "]")
-	var name string
-	if !ok || !closed || json.Unmarshal([]byte(quoted), &name) != nil {
-		return "", fmt.Errorf("IS_DEFINED of %q: only top-level fields are supported", ref)
-	}
-	return name, nil
-}
-
-func hasFields(item json.RawMessage, names []string) bool {
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(item, &fields) != nil {
-		return false
-	}
-	for _, name := range names {
-		if _, ok := fields[name]; !ok {
+func everyGuardHolds(item json.RawMessage, guards []guard) bool {
+	for _, g := range guards {
+		value, ok := valueAtPath(item, g.path)
+		switch {
+		case !ok:
+			return false
+		case g.function == "IS_OBJECT" && (len(value) == 0 || value[0] != '{'):
+			return false
+		case g.function == "IS_ARRAY" && (len(value) == 0 || value[0] != '['):
 			return false
 		}
 	}
 	return true
+}
+
+// valueAtPath is what item holds at the property names of path.
+func valueAtPath(item json.RawMessage, path []string) (json.RawMessage, bool) {
+	value := item
+	for _, name := range path {
+		var object map[string]json.RawMessage
+		if json.Unmarshal(value, &object) != nil || object == nil {
+			return nil, false
+		}
+		next, ok := object[name]
+		if !ok {
+			return nil, false
+		}
+		value = next
+	}
+	return bytes.TrimSpace(value), true
 }

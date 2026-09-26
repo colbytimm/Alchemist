@@ -22,26 +22,28 @@ import (
 const selectionStepTimeout = 2 * time.Minute
 
 var (
-	errNoEditSupport      = errors.New("this adapter cannot update items")
+	errNoEditSupport      = errors.New("this adapter cannot update or delete items")
 	errSelectionCancelled = errors.New("selection cancelled: nothing was written")
 )
 
-// mutationRefusalError is an update that failed a check made before
-// anything was read, with every problem found.
+// mutationRefusalError is an update or a delete that failed a check made
+// before anything was read, with every problem found.
 type mutationRefusalError struct {
+	kind     query.MutationKind
 	problems []string
 }
 
 func (e *mutationRefusalError) Error() string {
-	return "Update refused, nothing was read:\n  " + strings.Join(e.problems, "\n  ")
+	return panes.Capitalized(e.kind.String()) + " refused, nothing was read:\n  " + strings.Join(e.problems, "\n  ")
 }
 
-// mutationRequest is an update between ctrl+r and its review: the account
-// it belongs to from the moment the key was pressed, and the text it came
-// from.
+// mutationRequest is an update or a delete between ctrl+r and its review:
+// the account it belongs to from the moment the key was pressed, the text
+// it came from, and what that text starts, parsed or not.
 type mutationRequest struct {
 	account  string
 	text     string
+	kind     query.MutationKind
 	mutation query.Mutation
 }
 
@@ -61,9 +63,10 @@ type mutationSelecting struct {
 	check    query.MutationCheck
 }
 
-// startMutation is ctrl+r on an update. It never writes: it checks the
-// statement, reads which items it would change, and opens the review. The
-// one way to write is the review's enter, with the confirmation typed.
+// startMutation is ctrl+r on an update or a delete. It never writes: it
+// checks the statement, reads which items it would write, and opens the
+// review. The one way to write is the review's enter, with the
+// confirmation typed.
 func (m Model) startMutation() (Model, tea.Cmd) {
 	m = m.closeSuggestions()
 	m.pendingMutation = pendingMutation{}
@@ -73,15 +76,16 @@ func (m Model) startMutation() (Model, tea.Cmd) {
 		return m.showFailure(m.whyNoConnection(), runFailed)
 	}
 	request := mutationRequest{account: entry.account.Name, text: m.editor.Value()}
-	if err := m.checkNoAccountTarget(request.text); err != nil {
+	request.kind, _ = query.MutationKindOf(request.text)
+	if err := m.checkNoAccountTarget(request); err != nil {
 		return m.refuseMutation(request, err)
 	}
 	mutation, err := query.ParseMutation(request.text)
 	if err != nil {
-		return m.refuseMutation(request, fmt.Errorf("the update does not parse, so nothing was read: %w", err))
+		return m.refuseMutation(request, fmt.Errorf("the %s does not parse, so nothing was read: %w", request.kind, err))
 	}
 	request.mutation = mutation
-	if refusal := m.jobRefusal(); refusal != nil {
+	if refusal := m.jobRefusal(request.kind); refusal != nil {
 		return m.refuseMutation(request, refusal)
 	}
 	if _, err := m.itemEditor(entry); err != nil {
@@ -92,17 +96,18 @@ func (m Model) startMutation() (Model, tea.Cmd) {
 
 // checkNoAccountTarget refuses a target whose first part names an account
 // of this session, for the reason checkNoAccountNamed refuses a source.
-func (m Model) checkNoAccountTarget(text string) error {
-	target := query.MutationTarget(text)
+func (m Model) checkNoAccountTarget(request mutationRequest) error {
+	target := query.MutationTarget(request.text)
 	if len(target) >= accountQualifiedParts && m.accounts.known(target[0]) {
-		return fmt.Errorf("UPDATE %s: %w", strings.Join(target, "."), errAccountInQuery)
+		return fmt.Errorf("%s %s: %w", request.kind.Head(), strings.Join(target, "."), errAccountInQuery)
 	}
 	return nil
 }
 
-// jobRefusal is why no update may start now: another job holds the slot.
-// It is asked before anything is read, so a refused update spends nothing.
-func (m Model) jobRefusal() error {
+// jobRefusal is why no statement of kind may start now: another job holds
+// the slot. It is asked before anything is read, so a refused statement
+// spends nothing.
+func (m Model) jobRefusal(kind query.MutationKind) error {
 	if !m.job.active() {
 		return nil
 	}
@@ -111,13 +116,14 @@ func (m Model) jobRefusal() error {
 		return fmt.Errorf("%s is running on %s/%s: %s in the catalog shows it",
 			m.job.named(), account, strings.Join(path, "."), m.job.kind.reopenKey())
 	}
-	return errors.New(m.job.waitText("updates"))
+	return errors.New(m.job.waitText(kind.String() + "s"))
 }
 
 // itemEditor hands out the ItemEditor that writes on entry's account. It
-// is the one place an update reaches a backend's writes from, and so where
-// read-only is enforced: before the selection, which a read-only account
-// could never act on, and again as the job starts.
+// is the one place an update or a delete reaches a backend's writes from,
+// and so where read-only is enforced: before the selection, which a
+// read-only account could never act on, again as the job starts, and again
+// on a resume.
 func (m Model) itemEditor(entry accountEntry) (adapter.ItemEditor, error) {
 	if entry.management.Editor == nil || entry.management.Scanner == nil {
 		return nil, errNoEditSupport
@@ -175,7 +181,7 @@ func (m Model) failPendingMutation(msg ErrMsg) (Model, tea.Cmd) {
 func (m Model) selectTargets(request mutationRequest, paths []string) (Model, tea.Cmd) {
 	check := query.CheckMutation(request.mutation, paths)
 	if len(check.Problems) > 0 {
-		return m.refuseMutation(request, &mutationRefusalError{problems: check.Problems})
+		return m.refuseMutation(request, &mutationRefusalError{kind: request.kind, problems: check.Problems})
 	}
 	entry, _ := m.accounts.get(request.account)
 	m = m.beginRun(request.account)
@@ -185,7 +191,7 @@ func (m Model) selectTargets(request mutationRequest, paths []string) (Model, te
 	m.historyEntry = newMutationEntry(request)
 	ctx, cancel := context.WithTimeout(context.Background(), selectionStepTimeout)
 	m.cancel = cancel
-	m.logger.Info("update selecting", "account", request.account, "target", request.mutation.Target)
+	m.logger.Info(request.kind.String()+" selecting", "account", request.account, "target", request.mutation.Target)
 	scanner, limit := entry.management.Scanner, entry.account.MaxMutationItems
 	model, cmd := m.syncStatusBar()
 	return model, tea.Batch(cmd, openSelection(ctx, cancel, model.run, request, scanner, paths, limit))
@@ -238,7 +244,7 @@ func (m Model) closeSelection(selection *mutate.Selection) {
 		return
 	}
 	if err := selection.Close(); err != nil {
-		m.logger.Error("close an update's selection", "error", err)
+		m.logger.Error("close a selection", "error", err)
 	}
 }
 
@@ -274,22 +280,26 @@ func (m Model) acceptTargets(msg TargetsSelectedMsg) (Model, tea.Cmd) {
 	}
 	m.mutationReview = m.mutationReview.Open(draft).SetSize(m.width, m.height)
 	m.overlay = overlayMutationReview
-	m.logger.Info("update selected", "account", msg.Account, "target", draft.Mutation.Target,
+	m.logger.Info(draft.Mutation.Kind.String()+" selected", "account", msg.Account, "target", draft.Mutation.Target,
 		"items", len(targets.Items), "RU", targets.RequestCharge)
 	model, cmd := m.syncStatusBar()
-	return model, tea.Batch(cmd, m.snapshotLine(msg.Account, draft.Mutation.Target))
+	return model, tea.Batch(cmd, m.snapshotLine(msg.Account, draft.Mutation))
 }
 
 // selectionWarnings are what the selection found worth a second look.
 func selectionWarnings(m query.Mutation, targets mutate.Targets) []string {
 	var warnings []string
+	if unplaced := targets.Unplaced(); unplaced > 0 {
+		warnings = append(warnings, fmt.Sprintf("%s lack the parent of a path the statement sets, and are skipped.",
+			countItems(unplaced)))
+	}
 	if keyless := targets.Keyless(); keyless > 0 {
 		warnings = append(warnings, fmt.Sprintf("%s have no partition key value: they cannot be addressed and are skipped.",
 			countItems(keyless)))
 	}
 	if targets.WholeItems {
-		warnings = append(warnings, "An UNSET made the selection read whole items, to see which have each path: "+
-			"its charge is a full read of the matching items.")
+		warnings = append(warnings, "An UNSET or a nested SET made the selection read whole items, to see which "+
+			"have each path: its charge is a full read of the matching items.")
 	}
 	if targets.Unaffected > 0 {
 		paths := make([]string, 0, len(m.Removals))
@@ -312,11 +322,16 @@ func countItems(n int) string {
 // snapshotLine reads what the review can say of a copy taken before the
 // run: the newest snapshot of the target, or that there is none. Without
 // a snapshot store, it names the clone.
-func (m Model) snapshotLine(account string, target []string) tea.Cmd {
+func (m Model) snapshotLine(account string, mutation query.Mutation) tea.Cmd {
 	run, root := m.run, m.snapshotRoot
+	target := mutation.Target
 	container := strings.Join(target, ".")
+	noWayBack := ""
+	if mutation.Kind == query.MutationDelete {
+		noWayBack = " Deleted items cannot be brought back from here."
+	}
 	if root == "" {
-		line := fmt.Sprintf("Before a large run, take a copy: esc, then y in the catalog clones %s.", container)
+		line := fmt.Sprintf("Before a large run, take a copy: esc, then y in the catalog clones %s.%s", container, noWayBack)
 		return func() tea.Msg { return snapshotLineMsg{line: line, run: run} }
 	}
 	loc := snapshot.Location{Root: root, Account: account, Database: target[0], Container: target[1]}
@@ -324,7 +339,8 @@ func (m Model) snapshotLine(account string, target []string) tea.Cmd {
 		record, err := snapshot.Newest(loc)
 		switch {
 		case errors.Is(err, snapshot.ErrNoSnapshot):
-			return snapshotLineMsg{line: fmt.Sprintf("No snapshot of %s. esc, then s in the catalog takes one.", container), run: run}
+			line := fmt.Sprintf("No snapshot of %s. esc, then s in the catalog takes one.%s", container, noWayBack)
+			return snapshotLineMsg{line: line, run: run}
 		case err != nil:
 			return snapshotLineMsg{line: "The snapshot store could not be read: " + err.Error(), run: run}
 		}
@@ -376,8 +392,8 @@ func (m Model) cancelSelection() (Model, tea.Cmd) {
 	return m.showFailure(errSelectionCancelled, runFailed)
 }
 
-// refuseMutation reports an update that never reached the adapter, and
-// records it, as every refusal is.
+// refuseMutation reports an update or a delete that never reached the
+// adapter, and records it, as every refusal is.
 func (m Model) refuseMutation(request mutationRequest, err error) (Model, tea.Cmd) {
 	m = m.beginRun(request.account)
 	model, cmd := m.showFailure(err, runFailed)
@@ -385,11 +401,15 @@ func (m Model) refuseMutation(request mutationRequest, err error) (Model, tea.Cm
 	return model, tea.Batch(cmd, model.recordFailure(err))
 }
 
-// newMutationEntry records an update against the target it names, which is
-// no scope for what runs next; one that did not parse has none.
+// newMutationEntry records an update or a delete against the target it
+// names, which is no scope for what runs next; one that did not parse has
+// none.
 func newMutationEntry(request mutationRequest) history.Entry {
 	entry := newEntry(request.account, request.mutation.Target, request.text)
 	entry.Kind = history.KindUpdate
+	if request.kind == query.MutationDelete {
+		entry.Kind = history.KindDelete
+	}
 	return entry
 }
 
@@ -438,7 +458,7 @@ func (m Model) confirmMutation(draft panes.MutationDraft) (Model, tea.Cmd) {
 	if !ok || !entry.connected() {
 		return m.refuseMutation(request, errRunAbandoned)
 	}
-	if refusal := m.jobRefusal(); refusal != nil {
+	if refusal := m.jobRefusal(request.kind); refusal != nil {
 		return m.refuseMutation(request, refusal)
 	}
 	editor, err := m.itemEditor(entry)

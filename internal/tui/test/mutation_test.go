@@ -1,17 +1,21 @@
 package tui_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/adapter/mock"
 	"github.com/colbytimm/alchemist/internal/history"
+	"github.com/colbytimm/alchemist/internal/mutate"
 	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui"
 )
@@ -56,7 +60,9 @@ func newUpdateConnection(t *testing.T, opts ...mock.Option) *recordingConnection
 
 func newUpdateModel(t *testing.T, conn *recordingConnection, store history.Store, accounts ...tui.Account) tea.Model {
 	t.Helper()
-	return newWideModel(t, conn, tui.Options{Manage: managed, History: store, Accounts: accounts})
+	m, _ := newModelWith(t, conn, tui.Options{Manage: managed, History: store, Accounts: accounts}).
+		Update(tea.WindowSizeMsg{Width: 3 * testWidth, Height: testHeight})
+	return settleNow(m, m.Init())
 }
 
 // dryRun types statement and presses ctrl+r, driving the selection to its
@@ -147,7 +153,7 @@ func TestOnlyTheExactNameStartsTheUpdate(t *testing.T) {
 func TestEveryItemNeedsTheNameAndTheCount(t *testing.T) {
 	conn := newUpdateConnection(t)
 	m := dryRun(t, newUpdateModel(t, conn, &recordingStore{}), `UPDATE sales.orders o SET o.flag = true WHERE true`)
-	require.Contains(t, plain(m.View()), "Every item in sales.orders. Type the container name and the item count:")
+	require.Contains(t, plain(m.View()), "Every item in sales.orders. Type orders 5 to update:")
 	require.Contains(t, plain(m.View()), "WHERE true: every item in sales.orders is a target.")
 
 	m = confirmUpdate(t, m, firstContainer)
@@ -212,7 +218,7 @@ func TestAConnectionThatCannotEditItemsRefusesAnUpdate(t *testing.T) {
 
 	m = dryRun(t, m, archiveShipped)
 
-	assert.Contains(t, plain(m.View()), "this adapter cannot update items")
+	assert.Contains(t, plain(m.View()), "this adapter cannot update or delete items")
 	assert.Zero(t, conn.scans)
 }
 
@@ -511,7 +517,7 @@ func TestAResumeOnAnAccountTurnedReadOnlyWritesNothing(t *testing.T) {
 
 	m = pressNow(t, m, keyRune('r'))
 
-	assert.Contains(t, plain(m.View()), "mock is read-only, so nothing was sent.")
+	assert.Contains(t, plain(m.View()), "mock turned read-only: no further item was sent.")
 	assert.Zero(t, conn.edits.Load())
 }
 
@@ -529,4 +535,41 @@ func TestTheReviewAndTheProgressFitTheSmallestTerminal(t *testing.T) {
 	view = plain(m.View())
 	assert.Contains(t, view, "Writers")
 	assert.Contains(t, view, "esc hide")
+}
+
+func TestAnAccountTurnedReadOnlyMidJobWritesNoFurtherChunk(t *testing.T) {
+	conn := newUpdateConnection(t)
+	m := dryRun(t, newUpdateModel(t, conn, &recordingStore{}), archiveShipped)
+	m, probe := heldConfirm(t, m, firstContainer)
+	answered := answers(probe)
+	require.Equal(t, int32(1), conn.edits.Load(), "the probe wrote its one item")
+
+	m, _ = m.Update(tui.AccountsListedMsg{Accounts: []tui.Account{{Name: mock.Name, ReadOnly: true}}})
+	for _, msg := range answered {
+		m = settleNow(m.Update(msg))
+	}
+
+	view := plain(m.View())
+	assert.Contains(t, view, "Failed.")
+	assert.Contains(t, view, "mock turned read-only: no further item was sent.")
+	assert.Contains(t, view, "r resume", "the job ends short, resumable")
+	assert.Equal(t, int32(1), conn.edits.Load(), "no chunk after the profile turned read-only")
+}
+
+func TestTheRowsPastTheReportsCapAreLogged(t *testing.T) {
+	total := mutate.MaxReportRows + 2
+	conn := newConnection(t, mock.WithPredicate("true", func(json.RawMessage) bool { return true }), mock.WithItemCount(ordersPath, total))
+	var logged bytes.Buffer
+	m := newWideModel(t, conn, tui.Options{
+		Manage: managed, Logger: log.New(&logged),
+		Accounts: []tui.Account{{Name: mock.Name, MaxMutationItems: 2 * total, Writers: 16}},
+	})
+	m = dryRun(t, m, `UPDATE sales.orders o SET o.x = 1 WHERE true`)
+
+	m = confirmUpdate(t, m, fmt.Sprintf("orders %d", total))
+	m = pressAll(t, m, keyMsg(tea.KeyEnter))
+
+	assert.Contains(t, plain(m.View()), "The log names the rest.")
+	assert.Equal(t, 2, strings.Count(logged.String(), "update outcome past the report's rows"))
+	assert.Contains(t, logged.String(), "item-10001")
 }

@@ -186,10 +186,10 @@ func scopeWidth(entries []history.Entry) int {
 	return min(width, maxScopeWidth)
 }
 
-// entryScope tags a batch or an update, whose scope is the target it wrote
-// to rather than a scope the query ran under.
+// entryScope tags a batch, an update or a delete, whose scope is the
+// target it wrote to rather than a scope the query ran under.
 func entryScope(entry history.Entry) string {
-	if entry.Kind == history.KindBatch || entry.Kind == history.KindUpdate {
+	if entry.NamesTarget() {
 		return entry.Kind + " " + scopeText(entry.Scope)
 	}
 	return scopeText(entry.Scope)

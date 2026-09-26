@@ -10,25 +10,26 @@ type Analysis struct {
 	code   []token
 	parser *parser
 	batch  bool
-	// mutation marks an UPDATE, and updateAlias is the name its items go
-	// by: the one it declares, or the default.
-	mutation    bool
-	updateAlias string
+	// mutation marks an UPDATE or a DELETE, and mutationAlias is the name
+	// its items go by: the one it declares, or the default.
+	mutation      bool
+	mutationAlias string
 }
 
 func Analyze(text string) Analysis {
 	tokens := lex(text)
 	statement := code(tokens)
 	a := Analysis{
-		text:     text,
-		tokens:   tokens,
-		code:     statement,
-		parser:   parseTokens(statement),
-		batch:    keywordAt(statement, 0, "BEGIN") && keywordAt(statement, 1, "BATCH"),
-		mutation: isMutation(statement),
+		text:   text,
+		tokens: tokens,
+		code:   statement,
+		parser: parseTokens(statement),
+		batch:  keywordAt(statement, 0, "BEGIN") && keywordAt(statement, 1, "BATCH"),
 	}
-	if a.mutation {
-		a.updateAlias = a.parser.declareUpdateTarget()
+	kind, mutation := mutationKind(statement)
+	if mutation {
+		a.mutation = true
+		a.mutationAlias = a.parser.declareMutationTarget(kind)
 	}
 	return a
 }
@@ -50,8 +51,8 @@ func (a Analysis) aliasNames() []string {
 			names = append(names, name)
 		}
 	}
-	if a.updateAlias != "" {
-		add(a.updateAlias)
+	if a.mutationAlias != "" {
+		add(a.mutationAlias)
 	}
 	for _, alias := range (classifier{parser: a.parser}).aliases() {
 		add(alias.Name)

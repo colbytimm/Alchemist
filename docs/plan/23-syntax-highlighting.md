@@ -482,7 +482,14 @@ What landed differs from the text above in these ways:
   update, a join in its `WHERE`) are flagged with the parser's message too. An update
   checks its aliases without waiting for a `FROM`, and `SET`/`UNSET` join the words a
   misspelled clause is matched against. The statement-start message became `a statement
-  starts with SELECT, UPDATE or BEGIN BATCH`.
+  starts with SELECT, UPDATE or BEGIN BATCH` (with `DELETE` after iteration 22).
+
+- **Iteration 22 merged in.** A `DELETE FROM` is analysed as 22's `mutationKind`
+  reads it, CTE list included, and highlighted and checked as an update is: `DELETE`
+  joins the mutation keywords, its target after `FROM` is a source root and its alias a
+  declaration, and its `MutationSyntaxError`s reach `Diagnose` through the same
+  statement reader. The statement-start message names `DELETE` too. Comments end at
+  `\r` as well as `\n` in the one lexer both the parser and the painter use.
 
 ### Benchmarks
 

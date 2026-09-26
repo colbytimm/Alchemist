@@ -95,8 +95,10 @@ condition  = every token up to the end of the statement
   with it: `o.status`, `o.shipTo.region`, `o["order-id"]`, `o.lines[0].qty`.
 - A path becomes a JSON Pointer (`/shipTo/region`, `/order-id`, `/lines/0/qty`), with
   `~` and `/` escaped as `~0` and `~1`.
-- `SET path = value` is the patch operation `set`: the path is created when absent and
-  replaced when present. It is not `replace`, which would fail every item that lacks
+- `SET path = value` is the patch operation `set`: the path's last step is created when
+  absent and replaced when present. Its parent is never created: a `set` of
+  `/ship/region` on an item with no `ship` is refused with 400 (verified on the
+  emulator; see "Implementation notes" for how such items are handled). It is not `replace`, which would fail every item that lacks
   the field, and not `add`, which inserts into an array instead of overwriting.
 - `UNSET path` is `remove`. The service fails a `remove` of an absent path, and one
   failed operation fails the item's whole patch. So an item that lacks the path gets a
@@ -1114,3 +1116,43 @@ and the progress view keep their prompt and keys at 80×24.
   fields. Report pages never feed the index: the report has no plan.
 - 23 has not landed on this branch, so there is no `Diagnose` to extend; its plan's step
   adds `MutationSyntaxError` there.
+- **A WHERE's parentheses must pair up.** The condition is sent as `(<condition>)` with
+  more conditions ANDed after it, both as the selection's filter (after `Since` when a
+  scan has both) and as each patch's condition. `o.a = 1) OR (true` would escape that
+  pair and match every item, so `ParseMutation` refuses any condition whose depth goes
+  below zero or does not end at zero: `unbalanced parentheses in the WHERE`. The fuzz
+  target checks that every `Where` it accepts is balanced.
+- **A nested SET needs its parent** (verified on the emulator: 400 without it). The
+  selection reads whole items when any `SET` has more than one step, as for `UNSET`;
+  an item lacking the parent (an object for a named field, or for an index an array
+  holding that element) is kept as the target outcome `skipped: no parent` and never
+  sent, so the probe never blames the `WHERE` for it. An index past an array's end is
+  treated the same: there the service appends, with a condition or without, and a
+  rerun appends again, which is not idempotent.
+- **The patch condition is written in the shapes the vNext emulator takes.** Each
+  nested `SET` re-asserts `IS_OBJECT(<parent>)`, or `IS_ARRAY(<parent>)` for an index,
+  and each kept `UNSET` `IS_DEFINED(<path>)`, so a parent removed or turned into a
+  scalar since the selection is a 412 and `skipped: changed`. Verified refused with
+  400 in a condition: a bracketed property (`o["x"]`), an array index (`o.lines[0]`),
+  `ARRAY_LENGTH`, and a bare `true` beside an `AND` (`(true) AND IS_DEFINED(o.x)`;
+  `(true)` alone is taken). So a guard whose path needs a bracket is left out, the
+  selection's check covering it, and for `WHERE true` the condition is the guards
+  alone. The mock refuses the same shapes, so the engine's tests catch a regression.
+  `CheckMutation` warns of every nested `SET`, the preview marks each path an item has
+  no parent for with `!`, and the review counts the items that lack a parent.
+- **A comment never reaches the service.** The lexer ends a `--` comment at `\r` as
+  well as `\n`, as the service does, and `Where` holds the condition with each comment
+  replaced by a space: a comment the service ended where Alchemist did not would carry
+  the rest of the line out of the `(<condition>)` wrapper.
+- **Mid-job, a read-only account says what the job left:** `prod turned read-only: no
+  further item was sent`, before the next chunk and on `r`.
+- **Read-only is asked again before every chunk**, not only at the confirmation and on
+  `r`: the switcher re-reads the profiles, and one turned read-only mid-job ends the job
+  short (`failed`, resumable) before its next chunk.
+- **Past `MaxReportRows`, every omitted row is logged** (id, partition key, outcome) as
+  the report is built, which is what the banner's "The log names the rest" means.
+- `IsMutation` reads a `WITH` buffer's statement as the first `UPDATE` or `SELECT`
+  outside parentheses and not after a dot, so `WITH … SELECT c.update …` stays a query.
+- **22 has since landed** on this engine (see its "Implementation notes"): `operation`
+  switches on `Mutation.Kind`, `Confirmation` asks every delete for the name and the
+  count, and the job, selection, report cursor and job slot serve both kinds unchanged.

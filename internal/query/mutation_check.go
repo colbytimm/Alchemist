@@ -28,6 +28,7 @@ func CheckMutation(m Mutation, keyPaths []string) MutationCheck {
 	}
 	c.checkOverlaps()
 	c.warnScope()
+	c.warnNested()
 	return c.check
 }
 
@@ -110,11 +111,25 @@ func overlaps(a, b string) bool {
 func (c *mutationChecker) warnScope() {
 	target := strings.Join(c.mutation.Target, ".")
 	switch {
+	case c.mutation.EveryItem && c.mutation.Kind == MutationDelete:
+		c.check.Warnings = append(c.check.Warnings, fmt.Sprintf("Every item in %s. Deleting and recreating the container "+
+			"(d, then c in the catalog) spends no RU per item, but it is a new container and its settings must be given again.", target))
 	case c.mutation.EveryItem:
 		c.check.Warnings = append(c.check.Warnings, fmt.Sprintf("WHERE true: every item in %s is a target.", target))
 	case len(c.keyPaths) > 0 && !pinsKey(c.mutation, c.keyPaths[0]):
 		c.check.Warnings = append(c.check.Warnings,
 			fmt.Sprintf("The WHERE does not pin %s: the selection reads every partition.", c.keyPaths[0]))
+	}
+}
+
+// warnNested says what a SET below the top level needs: a patch's set
+// creates the last step of its path, never a parent.
+func (c *mutationChecker) warnNested() {
+	for _, a := range c.mutation.Assignments {
+		if parent, ok := a.Path.Parent(); ok {
+			c.check.Warnings = append(c.check.Warnings,
+				fmt.Sprintf("SET %s needs %s on each item: a patch creates only the last step of a path, so an item without it is skipped, not written.", a.Path, parent))
+		}
 	}
 }
 
