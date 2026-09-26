@@ -157,6 +157,35 @@ func TestABareNameIsTheScopedContainerInsideTheCTEThatDeclaresIt(t *testing.T) {
 	assert.Equal(t, []string{"sales", "orders"}, plan.WithDefaultScope([]string{"sales", "orders"}).Scope())
 }
 
+func TestAnArrayBindingInASubqueryIsNoCTE(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "in an earlier CTE", input: "WITH x AS (SELECT o.id FROM a.b o WHERE EXISTS(SELECT VALUE 1 FROM t IN o.tags)), t AS (SELECT * FROM c.d) SELECT * FROM x"},
+		{name: "in the main query", input: "WITH t AS (SELECT * FROM c.d) SELECT * FROM a.b o WHERE EXISTS(SELECT VALUE 1 FROM t IN o.tags)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan, err := query.BuildPlan(tt.input)
+
+			require.NoError(t, err)
+			assert.False(t, plan.Simulated())
+		})
+	}
+}
+
+func TestAnAliasNamedCrossIsNoCrossApply(t *testing.T) {
+	for _, input := range []string{
+		"SELECT * FROM a.b AS CROSS APPLY l IN CROSS.lines",
+		"WITH x AS (SELECT * FROM a.b AS CROSS APPLY l IN CROSS.lines) SELECT * FROM x",
+	} {
+		_, err := query.BuildPlan(input)
+
+		require.ErrorIs(t, err, query.ErrUnsupported, input)
+	}
+}
+
 func TestComposedCTEsFlattenAJoinOverAUnion(t *testing.T) {
 	plan, err := query.BuildPlan(composed)
 

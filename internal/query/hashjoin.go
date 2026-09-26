@@ -133,11 +133,11 @@ func (j *joinCursor) hold(ctx context.Context, h int, meter *meter) error {
 	j.tables[h] = table
 	holder := j.run.budget.holder(in.label)
 	for in.cursor != nil {
-		rows, items, err := j.rel.readRows(ctx, in, len(j.hops), meter)
+		rows, expansion, err := j.rel.readRows(ctx, in, len(j.hops), meter)
 		if err != nil {
 			return err
 		}
-		if err := j.run.budget.hold(holder, in.heldRows(len(rows), items)); err != nil {
+		if err := j.run.budget.hold(holder, in.heldRows(len(rows), expansion)); err != nil {
 			return err
 		}
 		for _, row := range rows {

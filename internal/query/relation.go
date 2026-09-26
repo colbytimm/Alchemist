@@ -45,13 +45,13 @@ func (in *joinInput) aliases() []string {
 	return names
 }
 
-// heldRows is what holding rows, read from items, adds to the budget: all
-// of them, or for a Materialize's items only what APPLYs expanded them by.
-func (in *joinInput) heldRows(rows, items int) int {
+// heldRows is what holding rows adds to the budget: all of them, or for a
+// Materialize's items only the rows APPLYs added beyond one per item.
+func (in *joinInput) heldRows(rows, expansion int) int {
 	if !in.shared {
 		return rows
 	}
-	return max(rows-items, 0)
+	return expansion
 }
 
 func (in *joinInput) slot(alias string) int {
@@ -164,9 +164,9 @@ func (r *execution) newRelation(join *Join) *relation {
 
 // readRows reads the next page of in, closing its cursor after the last one,
 // and returns its items as rows: expanded by the input's APPLYs, keyed for
-// the hops, and cut down to what the SELECT list names. items is how many
-// items the page held.
-func (rel *relation) readRows(ctx context.Context, in *joinInput, hops int, meter *meter) (rows []joinRow, items int, err error) {
+// the hops, and cut down to what the SELECT list names. expansion counts the
+// rows beyond the first that each item became.
+func (rel *relation) readRows(ctx context.Context, in *joinInput, hops int, meter *meter) (rows []joinRow, expansion int, err error) {
 	page, err := in.cursor.NextPage(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -188,17 +188,20 @@ func (rel *relation) readRows(ctx context.Context, in *joinInput, hops int, mete
 		if err != nil {
 			return nil, 0, err
 		}
+		kept := 0
 		for _, row := range expanded {
-			kept, err := rel.finish(in, row, hops)
+			finished, err := rel.finish(in, row, hops)
 			if err != nil {
 				return nil, 0, err
 			}
-			if kept.present() {
-				rows = append(rows, kept)
+			if finished.present() {
+				rows = append(rows, finished)
+				kept++
 			}
 		}
+		expansion += max(kept-1, 0)
 	}
-	return rows, len(page.Raw), nil
+	return rows, expansion, nil
 }
 
 // headers opens one leafPage per slot of in for a page of its items.

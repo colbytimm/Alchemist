@@ -104,8 +104,9 @@ func (p *planner) countReads() map[string]int {
 // cteReads lists the one-part sources of f that name one of visible.
 func cteReads(f fragment, visible []string) []string {
 	var read []string
-	for _, s := range parseTokens(f.toks).sources {
-		if len(s.path) == 1 && slices.Contains(visible, s.path[0].text) {
+	scanned := parseTokens(f.toks)
+	for _, s := range scanned.sources {
+		if len(s.path) == 1 && !scanned.rangesOverArray(s) && slices.Contains(visible, s.path[0].text) {
 			read = append(read, s.path[0].text)
 		}
 	}
@@ -149,7 +150,7 @@ func (p *planner) lowerBody(f fragment, owner string) (lowered, error) {
 	}
 	containers := scanned.containerSources()
 	if len(reads) == 0 && len(containers) <= 1 && allCrossApplies(f.toks, applies) {
-		return p.opaque(f, containers, applies, owner), nil
+		return p.opaque(f, containers, applies, owner)
 	}
 	if err := checkMergeable(containers); err != nil {
 		return lowered{}, err
@@ -169,7 +170,7 @@ func (p *planner) lowerBody(f fragment, owner string) (lowered, error) {
 func (p *planner) readsOf(scanned *parser, owner string) ([]source, error) {
 	var reads []source
 	for _, s := range scanned.sources {
-		if len(s.path) != 1 {
+		if len(s.path) != 1 || scanned.rangesOverArray(s) {
 			continue
 		}
 		name := s.path[0].text
@@ -187,12 +188,12 @@ func (p *planner) readsOf(scanned *parser, owner string) ([]source, error) {
 	return reads, nil
 }
 
-// isSourceList reports whether the first FROM clause lists sources with
-// commas.
 func notASource(name string) error {
 	return unsupported(name + " is neither a container nor a CTE declared before it")
 }
 
+// isSourceList reports whether the first FROM clause lists sources with
+// commas.
 func isSourceList(scanned *parser) bool {
 	listed := 0
 	for _, s := range scanned.sources {
@@ -235,14 +236,17 @@ func checkApplyOperands(toks []token, applies []int) error {
 }
 
 // allCrossApplies reports whether every APPLY is a CROSS APPLY, which the
-// service runs as its own JOIN ... IN.
+// service runs as its own JOIN ... IN. A CROSS after a dot or AS is a name,
+// not the start of one.
 func allCrossApplies(toks []token, applies []int) bool {
-	return !slices.ContainsFunc(applies, func(i int) bool { return !keywordAt(toks, i-1, "CROSS") || followsDot(toks, i-1) })
+	return !slices.ContainsFunc(applies, func(i int) bool {
+		return !keywordAt(toks, i-1, "CROSS") || followsDot(toks, i-1) || keywordAt(toks, i-2, "AS")
+	})
 }
 
 // opaque lowers a body the service runs whole: its container is rewritten to
 // its alias and its CROSS APPLYs to JOINs, and nothing else changes.
-func (p *planner) opaque(f fragment, containers []source, applies []int, owner string) lowered {
+func (p *planner) opaque(f fragment, containers []source, applies []int, owner string) (lowered, error) {
 	var edits []edit
 	for _, i := range applies {
 		edits = append(edits, edit{start: f.toks[i-1].start, end: f.toks[i].end, text: "JOIN"})
@@ -253,12 +257,16 @@ func (p *planner) opaque(f fragment, containers []source, applies []int, owner s
 		leaf.Query.Scope = scopeOf(containers[0])
 		edits = append(edits, edit{start: containers[0].start, end: containers[0].end, text: leaf.Alias})
 	}
-	leaf.Query.Text = f.spliced(edits)
+	text, err := f.spliced(edits)
+	if err != nil {
+		return lowered{}, err
+	}
+	leaf.Query.Text = text
 	fields, values := projectionFields(f.toks)
 	if owner != "" {
 		leaf.Fields = fields
 	}
-	return lowered{node: &Scan{Leaf: p.addLeaf(leaf)}, fields: fields, values: values}
+	return lowered{node: &Scan{Leaf: p.addLeaf(leaf)}, fields: fields, values: values}, nil
 }
 
 func (p *planner) addLeaf(leaf Leaf) int {
@@ -272,18 +280,22 @@ type edit struct {
 	text       string
 }
 
-// spliced is the fragment's text with edits made, which must not overlap.
-func (f fragment) spliced(edits []edit) string {
+// spliced is the fragment's text with edits made. Overlapping edits mean
+// the planner misread the text, which it refuses rather than rewrite.
+func (f fragment) spliced(edits []edit) (string, error) {
 	slices.SortFunc(edits, func(a, b edit) int { return a.start - b.start })
 	var out strings.Builder
 	at := f.start
 	for _, e := range edits {
+		if e.start < at || e.end > f.end {
+			return "", unsupported("a query whose sources overlap as the planner reads them")
+		}
 		out.WriteString(f.text[at:e.start])
 		out.WriteString(e.text)
 		at = e.end
 	}
 	out.WriteString(f.text[at:f.end])
-	return out.String()
+	return out.String(), nil
 }
 
 func (p *planner) union(f fragment, sources, containers []source, owner string) (lowered, error) {
@@ -301,11 +313,15 @@ func (p *planner) union(f fragment, sources, containers []source, owner string) 
 	if fields != nil {
 		fields = append([]string{ContainerColumn}, fields...)
 	}
+	text, err := rewrittenText(f, containers, alias)
+	if err != nil {
+		return lowered{}, err
+	}
 	union := &Union{}
 	for _, c := range containers {
 		leaf := Leaf{
 			Alias: alias,
-			Query: adapter.Query{Text: rewrittenText(f, containers, alias), Scope: scopeOf(c)},
+			Query: adapter.Query{Text: text, Scope: scopeOf(c)},
 			Name:  owner,
 		}
 		union.Leaves = append(union.Leaves, p.addLeaf(leaf))
@@ -358,7 +374,7 @@ func aliasOrDefault(alias string) string {
 }
 
 // rewrittenText replaces the whole run of container sources with alias.
-func rewrittenText(f fragment, containers []source, alias string) string {
+func rewrittenText(f fragment, containers []source, alias string) (string, error) {
 	first, last := containers[0], containers[len(containers)-1]
 	return f.spliced([]edit{{start: first.start, end: last.end, text: alias}})
 }

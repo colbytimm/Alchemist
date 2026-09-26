@@ -531,6 +531,8 @@ var plannerSeeds = []string{
 	"WITH x AS (SELECT",
 	"SELECT * FROM a.b x CROSS APPLY (SELECT",
 	"FROM A.CROSS APPLY",
+	"SELECT * FROM a.b AS CROSS APPLY l IN CROSS.lines",
+	"WITH x AS (SELECT * FROM a.b AS CROSS APPLY l IN CROSS.lines) SELECT * FROM x",
 }
 
 func FuzzBuildPlan(f *testing.F) {

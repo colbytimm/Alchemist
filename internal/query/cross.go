@@ -84,11 +84,11 @@ func (c *crossCursor) holdWhole(ctx context.Context, in *joinInput, meter *meter
 	holder := c.run.budget.holder(in.label)
 	var held []joinRow
 	for in.cursor != nil {
-		rows, items, err := c.rel.readRows(ctx, in, 0, meter)
+		rows, expansion, err := c.rel.readRows(ctx, in, 0, meter)
 		if err != nil {
 			return nil, err
 		}
-		if err := c.run.budget.hold(holder, in.heldRows(len(rows), items)); err != nil {
+		if err := c.run.budget.hold(holder, in.heldRows(len(rows), expansion)); err != nil {
 			return nil, err
 		}
 		held = append(held, rows...)

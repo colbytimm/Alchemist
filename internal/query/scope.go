@@ -389,6 +389,12 @@ func (p *parser) record(src source) {
 	}
 }
 
+// rangesOverArray reports whether s is the alias of `FROM alias IN path`, a
+// fresh binding rather than a source.
+func (p *parser) rangesOverArray(s source) bool {
+	return p.isKeyword(s.nextTok, "IN")
+}
+
 func (p *parser) isKeyword(i int, kw string) bool {
 	return keywordAt(p.toks, i, kw)
 }

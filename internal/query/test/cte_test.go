@@ -134,6 +134,26 @@ func TestTheElementsAnApplyAddsToAMaterializedCTECountAgainstTheCap(t *testing.T
 	require.ErrorIs(t, err, query.ErrJoinTooLarge, "two orders held once, and eighteen rows more once their lines are applied")
 }
 
+func TestAnItemWithNoElementDoesNotOffsetTheExpansionOfAnother(t *testing.T) {
+	var lines []string
+	for i := range 10 {
+		lines = append(lines, fmt.Sprintf(`{"s":"s%d"}`, i))
+	}
+	orders := []string{`{"id":"o0","k":1,"lines":[` + strings.Join(lines, ",") + `]}`}
+	for i := 1; i < 11; i++ {
+		orders = append(orders, fmt.Sprintf(`{"id":"o%d","k":1,"lines":[]}`, i))
+	}
+	conn := newContainers(map[string][]adapter.Page{"sales.orders": {page(t, 1, orders...)}})
+	text := "WITH x AS (SELECT * FROM sales.orders o) " +
+		"SELECT a.id, l.s, b.id AS bid FROM x a JOIN x b ON a.k = b.k CROSS APPLY l IN b.lines"
+	cursor, err := query.Engine{Connection: conn, MaxJoinRows: 11}.Execute(context.Background(), plan(t, text))
+	require.NoError(t, err)
+
+	_, err = cursor.NextPage(context.Background())
+
+	require.ErrorIs(t, err, query.ErrJoinTooLarge, "eleven orders held once, and nine rows more for o0's lines")
+}
+
 func TestComposedCTEsAreReadAsFlatItemsUnderTheirNames(t *testing.T) {
 	conn := newContainers(map[string][]adapter.Page{
 		"sales.orders":    {page(t, 1, `{"customerId":"c1","id":"o1","sku":"s1"}`)},
