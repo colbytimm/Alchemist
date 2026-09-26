@@ -13,10 +13,9 @@ dictionaryDefinitions: []
 
 ignorePaths:
   - .git/**
+  - "**/testdata/fuzz/**"
   - go.mod
   - go.sum
-  # Fuzz corpora are generated inputs, not prose.
-  - "**/testdata/fuzz/**"
 
 words:
   # Module and dependency names

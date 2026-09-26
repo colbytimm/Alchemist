@@ -540,6 +540,8 @@ var plannerSeeds = []string{
 	"WITH t AS (SELECT * FROM c.d) SELECT * FROM a.b o WHERE EXISTS(SELECT VALUE 1 FROM t IN o.tags)",
 	"SELECT * FROM a.b x NATURAL JOIN c.d y",
 	"WITH x AS (SELECT 1), y AS (SELECT",
+	"WITH 西 AS (SELECT o.id FROM sales.orders o WHERE o.名 = 1) SELECT 西.id, çu.name FROM 西 JOIN sales.customers çu ON 西.id = çu.id",
+	"SELECT ö.id FROM\u00a0sales.orders ö CROSS APPLY ł IN ö.lines",
 }
 
 func FuzzBuildPlan(f *testing.F) {

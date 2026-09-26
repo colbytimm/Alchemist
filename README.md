@@ -157,7 +157,9 @@ line at the bottom of the editor says why while the cursor is on it:
 | A batch that does not parse | `BEGIN BATCH sales.orders PARTITION` | the batch parser's message |
 | An update or a delete that does not parse | `DELETE FROM sales.orders o` | the parser's message |
 
-"Did you mean" only offers a word within two edits of what you typed. Nothing that
+"Did you mean" only offers a word within two edits of what you typed, and a call is
+only flagged when there is such a word: a function far from every one Alchemist knows
+may be one the service added since. Nothing that
 could be right is flagged: not an unknown field (Cosmos has no schema), not an unknown
 database or container (the catalog may not be listed yet), and not a query shape the
 planner refuses, which `ctrl+r` explains better than a squiggle could. The word you
@@ -173,7 +175,9 @@ hint line always says what is wrong in words. Terminals cannot be asked reliably
 SSH or through tmux, so the form is a setting: `diagnostics = "underline"` on the
 [profile](#profiles), or `--diagnostics underline` for one session, draws a plain
 underline, and `off` flags nothing and stops looking. Under `NO_COLOR` the editor has
-no color and every squiggle is a plain underline. tmux passes the curly form through
+no color and every squiggle is a plain underline. An older terminal that reads the
+`:` in `4:3` as a `;` shows a squiggle as dim text or a colored background instead; set
+`diagnostics = "underline"` there. tmux passes the curly form through
 when told the outer terminal draws it:
 
 ```tmux

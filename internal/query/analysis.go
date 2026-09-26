@@ -13,6 +13,7 @@ type Analysis struct {
 	// mutation marks an UPDATE or a DELETE, and mutationAlias is the name
 	// its items go by: the one it declares, or the default.
 	mutation      bool
+	mutationKind  MutationKind
 	mutationAlias string
 }
 
@@ -29,14 +30,10 @@ func Analyze(text string) Analysis {
 	a.parser.declarations = append(a.parser.declarations, cteNameTokens(statement)...)
 	kind, mutation := mutationKind(statement)
 	if mutation {
-		a.mutation = true
+		a.mutation, a.mutationKind = true, kind
 		a.mutationAlias = a.parser.declareMutationTarget(kind)
 	}
 	return a
-}
-
-func (a Analysis) Text() string {
-	return a.text
 }
 
 // aliasNames are the names the query may read items through: every alias
@@ -91,7 +88,6 @@ func (a Analysis) isUserFunction(i int) bool {
 	return a.isCall(i) && keywordAt(a.code, i-2, "UDF")
 }
 
-// isCall reports whether the identifier at i is followed by a parenthesis.
 func (a Analysis) isCall(i int) bool {
 	return isSymbolAt(a.code, i+1, "(")
 }

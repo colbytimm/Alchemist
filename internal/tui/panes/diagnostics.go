@@ -71,7 +71,7 @@ func (m marks) shown(lexical []query.Diagnostic) []query.Diagnostic {
 		}
 	}
 	for _, d := range m.checked {
-		if !m.typingIn(d) && !slices.ContainsFunc(lexical, func(l query.Diagnostic) bool { return overlap(d, l) }) {
+		if !m.typingIn(d) && !slices.ContainsFunc(lexical, d.Overlaps) {
 			shown = append(shown, d)
 		}
 	}
@@ -81,10 +81,6 @@ func (m marks) shown(lexical []query.Diagnostic) []query.Diagnostic {
 
 func (m marks) typingIn(d query.Diagnostic) bool {
 	return d.Start <= m.typingAt && m.typingAt <= d.End
-}
-
-func overlap(a, b query.Diagnostic) bool {
-	return a.Start < b.End && b.Start < a.End
 }
 
 func (e Editor) shownDiagnostics() []query.Diagnostic {

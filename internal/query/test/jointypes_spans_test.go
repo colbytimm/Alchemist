@@ -92,3 +92,54 @@ func TestAWithSelectIsAQueryForThePlanner(t *testing.T) {
 	_, err := query.BuildPlan(westAndBig)
 	require.NoError(t, err)
 }
+
+func TestMultibyteNamesKeepTheirBytesThroughTheRewrites(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{
+			name:  "a CTE and an alias named in other scripts",
+			input: "WITH 西 AS (SELECT o.id FROM sales.orders o WHERE o.名 = 1) SELECT 西.id, çu.name FROM 西 JOIN sales.customers çu ON 西.id = çu.id",
+			want:  []string{"SELECT o.id FROM o WHERE o.名 = 1", "SELECT * FROM çu"},
+		},
+		{
+			name:  "an outer join and a pushed-down condition",
+			input: "SELECT é.id FROM sales.orders é LEFT JOIN sales.customers ç ON é.cid = ç.id WHERE é.名 = 'ü'",
+			want:  []string{"SELECT * FROM é WHERE (é.名 = 'ü')", "SELECT * FROM ç"},
+		},
+		{
+			name:  "a lone cross apply, rewritten, beside a no-break space",
+			input: "SELECT ö.id FROM sales.orders ö CROSS APPLY ł IN ö.lines",
+			want:  []string{"SELECT ö.id FROM ö JOIN ł IN ö.lines"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan, err := query.BuildPlan(tt.input)
+			require.NoError(t, err)
+
+			var got []string
+			for _, leaf := range plan.Leaves {
+				got = append(got, leaf.Query.Text)
+			}
+			assert.Equal(t, tt.want, got)
+			assert.Empty(t, diagnose(tt.input))
+		})
+	}
+}
+
+func TestAJoinModifierAfterAnAliasIsNoMisspelledClause(t *testing.T) {
+	for _, input := range []string{
+		"SELECT * FROM sales.orders o LEFT JOIN sales.customers cu ON o.cid = cu.id",
+		"SELECT * FROM sales.orders o RIGHT OUTER JOIN sales.customers cu ON o.cid = cu.id",
+		"SELECT * FROM sales.orders o FULL JOIN sales.customers cu ON o.cid = cu.id",
+		"SELECT * FROM sales.orders o INNER JOIN sales.customers cu ON o.cid = cu.id",
+		"SELECT * FROM sales.orders o CROSS JOIN sales.customers cu",
+		"SELECT * FROM sales.orders o CROSS APPLY l IN o.lines",
+		"SELECT * FROM sales.orders o OUTER APPLY l IN o.lines",
+	} {
+		assert.Empty(t, diagnose(input), input)
+	}
+}

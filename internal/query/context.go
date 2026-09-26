@@ -78,13 +78,25 @@ func (c Completion) WithDefaultScope(scope []string) Completion {
 	return c
 }
 
+// clauses are the words that open a query's clauses, in the order a query
+// writes them.
+var clauses = []string{"WITH", "SELECT", "FROM", "WHERE", "GROUP", "ORDER", "OFFSET", "LIMIT"}
+
+func setOf(words []string) map[string]bool {
+	set := make(map[string]bool, len(words))
+	for _, word := range words {
+		set[word] = true
+	}
+	return set
+}
+
 // Keyword groups, in the order they are offered.
 var (
 	literalKeywords    = []string{"NOT", "EXISTS", "ARRAY", "TRUE", "FALSE", "NULL", "UNDEFINED"}
 	operatorKeywords   = []string{"AND", "OR", "NOT", "IN", "LIKE", "BETWEEN"}
 	selectKeywords     = []string{"DISTINCT", "TOP", "VALUE"}
 	negatedOperators   = []string{"IN", "LIKE", "BETWEEN"}
-	clauseWords        = map[string]bool{"SELECT": true, "FROM": true, "WHERE": true, "GROUP": true, "ORDER": true, "OFFSET": true, "LIMIT": true}
+	clauseWords        = setOf(clauses)
 	sourceBreakers     = map[string]bool{"JOIN": true, "ON": true, "IN": true, "APPLY": true}
 	joinWords          = []string{"JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "OUTER"}
 	valueEndingSymbols = map[string]bool{")": true, "*": true, "]": true}

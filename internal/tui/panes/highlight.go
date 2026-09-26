@@ -78,15 +78,18 @@ func lineStarts(value string) []int {
 	return starts
 }
 
-// palette is the escape codes of every class, rendered once for the color
-// profile and background they were made under.
+// palette is the escape codes of every class and of the squiggle, rendered
+// once for the color profile, background and underline setting they were
+// made under.
 type palette struct {
-	profile termenv.Profile
-	dark    bool
-	ready   bool
-	kinds   map[query.SpanKind]theme.Sequences
-	plain   theme.Sequences
-	cursor  theme.Sequences
+	profile   termenv.Profile
+	dark      bool
+	setting   theme.DiagnosticUnderline
+	ready     bool
+	kinds     map[query.SpanKind]theme.Sequences
+	plain     theme.Sequences
+	cursor    theme.Sequences
+	underline theme.Sequences
 }
 
 var spanStyles = map[query.SpanKind]func() lipgloss.Style{
@@ -102,11 +105,11 @@ var spanStyles = map[query.SpanKind]func() lipgloss.Style{
 	query.SpanPunctuation: theme.SyntaxPunctuation,
 }
 
-// currentPalette re-renders only when the terminal's profile or background
-// is not the one the palette was made for.
-func (h *highlighter) currentPalette(cursor lipgloss.Style) palette {
+// currentPalette re-renders only when the terminal's profile or background,
+// or the underline setting, is not the one the palette was made for.
+func (h *highlighter) currentPalette(cursor lipgloss.Style, setting theme.DiagnosticUnderline) palette {
 	profile, dark := lipgloss.ColorProfile(), lipgloss.HasDarkBackground()
-	if h.palette.ready && h.palette.profile == profile && h.palette.dark == dark {
+	if h.palette.ready && h.palette.profile == profile && h.palette.dark == dark && h.palette.setting == setting {
 		return h.palette
 	}
 	kinds := make(map[query.SpanKind]theme.Sequences, len(spanStyles))
@@ -114,12 +117,14 @@ func (h *highlighter) currentPalette(cursor lipgloss.Style) palette {
 		kinds[kind] = theme.SequencesOf(style())
 	}
 	h.palette = palette{
-		profile: profile,
-		dark:    dark,
-		ready:   true,
-		kinds:   kinds,
-		plain:   theme.SequencesOf(theme.TextStyle()),
-		cursor:  theme.SequencesOf(cursor.Inline(true).Reverse(true)),
+		profile:   profile,
+		dark:      dark,
+		setting:   setting,
+		ready:     true,
+		kinds:     kinds,
+		plain:     theme.SequencesOf(theme.TextStyle()),
+		cursor:    theme.SequencesOf(cursor.Inline(true).Reverse(true)),
+		underline: setting.Sequences(theme.DiagnosticError()),
 	}
 	return h.palette
 }
@@ -232,10 +237,9 @@ func (h *highlighter) paint(r paintRequest) string {
 	rows := readRows(r.view)
 	painter := rowPainter{
 		highlighter: h,
-		palette:     h.currentPalette(r.cursor),
+		palette:     h.currentPalette(r.cursor, r.underline),
 		prompt:      r.prompt.Render(editorPrompt),
 		diagnostics: r.diagnostics,
-		underline:   r.underline,
 	}
 	for start := range h.candidates(r.cursorLine, len(rows.text)) {
 		if painted, ok := painter.paint(rows, start); ok {
@@ -305,7 +309,6 @@ type rowPainter struct {
 	palette     palette
 	prompt      string
 	diagnostics []query.Diagnostic
-	underline   theme.DiagnosticUnderline
 }
 
 // paint reports false when the rows show something other than the value
@@ -314,8 +317,8 @@ func (p rowPainter) paint(rows frameRows, start int) (string, bool) {
 	walk := valueWalk{
 		value:       p.value,
 		position:    start,
-		spans:       p.spans[firstEndingAfter(p.spans, start):],
-		diagnostics: p.diagnostics[firstDiagnosticEndingAfter(p.diagnostics, start):],
+		spans:       p.spans[firstEndingAfter(p.spans, start, spanEnd):],
+		diagnostics: p.diagnostics[firstEndingAfter(p.diagnostics, start, diagnosticEnd):],
 	}
 	var out strings.Builder
 	out.Grow(len(rows.text) * 64)
@@ -367,9 +370,12 @@ func (p rowPainter) writeRun(out *strings.Builder, c runeStyle, text string) {
 	sequences := p.palette.of(c.kind)
 	out.WriteString(sequences.Open)
 	if c.diagnosed {
-		text = p.underline.Render(text, theme.DiagnosticError())
+		out.WriteString(p.palette.underline.Open)
+		out.WriteString(text)
+		out.WriteString(p.palette.underline.Close)
+	} else {
+		out.WriteString(text)
 	}
-	out.WriteString(text)
 	out.WriteString(sequences.Close)
 }
 
@@ -438,10 +444,12 @@ func (w *valueWalk) endRow() {
 	}
 }
 
-func firstEndingAfter(spans []query.Span, offset int) int {
-	return sort.Search(len(spans), func(i int) bool { return spans[i].End > offset })
+// firstEndingAfter is the index of the first of ranges, in order, that ends
+// past offset.
+func firstEndingAfter[T any](ranges []T, offset int, end func(T) int) int {
+	return sort.Search(len(ranges), func(i int) bool { return end(ranges[i]) > offset })
 }
 
-func firstDiagnosticEndingAfter(diagnostics []query.Diagnostic, offset int) int {
-	return sort.Search(len(diagnostics), func(i int) bool { return diagnostics[i].End > offset })
-}
+func spanEnd(s query.Span) int { return s.End }
+
+func diagnosticEnd(d query.Diagnostic) int { return d.End }
