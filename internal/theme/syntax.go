@@ -98,17 +98,24 @@ func (u DiagnosticUnderline) String() string {
 	return diagnosticUnderlineNames[u]
 }
 
-// Render underlines text in color. A terminal that does not know the curly
-// form (SGR 4:3) draws a plain underline or none, in the text's own color,
-// and under NO_COLOR every form is a plain underline.
+// Render underlines text in color.
 func (u DiagnosticUnderline) Render(text string, color lipgloss.AdaptiveColor) string {
+	sequences := u.Sequences(color)
+	return sequences.Open + text + sequences.Close
+}
+
+// Sequences are the escape codes Render writes around its text, in the
+// terminal's current profile. A terminal that does not know the curly form
+// (SGR 4:3) draws a plain underline or none, in the text's own color, and
+// under NO_COLOR every form is a plain underline.
+func (u DiagnosticUnderline) Sequences(color lipgloss.AdaptiveColor) Sequences {
 	switch {
 	case u == NoUnderline:
-		return text
+		return Sequences{}
 	case u == PlainUnderline || lipgloss.ColorProfile() == termenv.Ascii:
-		return "\x1b[4m" + text + "\x1b[24m"
+		return Sequences{Open: "\x1b[4m", Close: "\x1b[24m"}
 	}
-	return "\x1b[4:3m\x1b[" + underlineColor(color) + "m" + text + "\x1b[4:0m\x1b[59m"
+	return Sequences{Open: "\x1b[4:3m\x1b[" + underlineColor(color) + "m", Close: "\x1b[4:0m\x1b[59m"}
 }
 
 // underlineColor is SGR 58 for color, in the terminal's profile.
