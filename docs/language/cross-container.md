@@ -75,6 +75,8 @@ Every open order, with its customer's name where the customer exists. A row with
 match on the other side is **padded**: its cells for that side are empty, and its JSON
 leaves that side out altogether (`{"o":{…}}`), so an export tells a missing customer
 from a stored `null`. An order with no `customerId` matches nothing and is padded
+![A LEFT JOIN of sales.orders and sales.customers, marked simulated (client-side), with 2.00 RU across 2 containers](../images/cross-container.png)
+
 too.
 
 ### Filtering an outer join

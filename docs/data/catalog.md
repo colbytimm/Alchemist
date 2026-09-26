@@ -53,6 +53,8 @@ throughput has no offer of its own — keeps its heading with a line saying why.
 overlay scrolls, `r` reads the node again, and `esc` or `i` closes it. A node already
 read reopens without a request.
 
+![The info overlay of sales.orders: identity, partition key, throughput, storage, partitions, time to live and indexing](../images/node-info.png)
+
 ---
 
 [← 10. Profiles and Accounts](profiles.md) · [Contents](../README.md) · [12. Cloning →](cloning.md)

@@ -17,6 +17,12 @@ item (`enter` on it), and what changed in the definition, such as the indexing p
 the TTL or the throughput. `s` and `v` on a database take and list database
 snapshots, one per container.
 
+![Two snapshots of sales.orders, the second with eight items modified, and the store's size on disk](../images/snapshots.png)
+
+![The diff between the two snapshots: eight items modified, each listing the fields that changed](../images/snapshot-diff.png)
+
+![The field-by-field diff of one item: archivedAt added and status changed from shipped to archived](../images/snapshot-item-diff.png)
+
 | Key | Where | Action |
 |---|---|---|
 | `s` | snapshots | take snapshot |

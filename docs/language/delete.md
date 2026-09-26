@@ -46,6 +46,8 @@ per 1 KB item), the warnings an [update](update.md#82-the-dry-run-and-review) sh
 whether a snapshot of the container exists, and that deleted items cannot be brought
 back from Alchemist.
 
+![The review of a delete: the first items that would go, the rough cost, the warnings, and the prompt 'Type orders 9 to delete'](../images/delete-review.png)
+
 ## 9.4. Running it
 
 Everything else is the update's: `ctrl+r` is a dry run that deletes nothing, recalled

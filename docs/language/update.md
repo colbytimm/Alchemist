@@ -52,6 +52,8 @@ cost, a before → after of a few of them, a rough write cost, and every warning
 - items that already lack an `UNSET` path;
 - whether a snapshot of the container exists.
 
+![The review of an update: the items matched, a before and after of three of them, the rough write cost and the warnings](../images/update-review.png)
+
 It starts only once the container's name is typed back exactly, and for `WHERE true`
 the name and the item count (`orders 60`); `esc` writes nothing and records nothing. A
 statement recalled from history or a saved query is reviewed again, every time. More
@@ -102,12 +104,16 @@ account. While it runs, `x` in the switcher refuses its account, `d` refuses its
 container, a batch into its container waits, and so do a clone, a snapshot and another
 update. The first `q` shows it; the second stops it and quits.
 
+![The progress view of a finished update: 8 of 8 items updated](../images/update-done.png)
+
 The report is one row per item with its outcome (`updated`, `skipped: changed`,
 `skipped: gone`, `skipped: no partition key`, `skipped: no parent`, `failed`,
 `unknown`, `not attempted`), the service's status and its charge, and a status bar
 that splits the charge between the selection and the writes. Past 10,000 items it
 shows every item that was not updated first, and the log names the rest; the totals
 always cover every item.
+
+![The report of an update in the results pane, one row per item, with the charge split between the selection and the writes](../images/update-report.png)
 
 ---
 

@@ -8,6 +8,8 @@
 
 ## 2.1. The three panes
 
+![The catalog, the editor and the results, after a query of sales.orders](../images/workspace.png)
+
 The screen holds the catalog, the editor, and the results. `tab` moves to the next
 pane and `shift+tab` to the previous one; `e` jumps to the editor from anywhere. `?`
 lists the bindings of the pane you are in, and `esc` closes whatever overlay is open.
@@ -20,6 +22,10 @@ lists the bindings of the pane you are in, and `esc` closes whatever overlay is 
 - The **results** pane shows the rows of the last query.
 
 The status bar at the bottom leads with the account the session is on.
+
+`?` opens the key overlay:
+
+![The key overlay, grouped by pane](../images/help.png)
 
 ## 2.2. Choosing what a query reads
 

@@ -32,6 +32,8 @@ one of the theme's, and adapts to a light or a dark terminal as the panes do.
 What Alchemist can tell is wrong from the text alone gets a red squiggle, and the hint
 line at the bottom of the editor says why while the cursor is on it:
 
+![CONTAIN underlined in red, with the hint 'unknown function CONTAIN: did you mean CONTAINS?'](../images/diagnostics.png)
+
 | Flagged | Example | Hint |
 |---|---|---|
 | An unterminated string | `WHERE c.region = "west` | `unterminated string: close it with "` |
@@ -97,6 +99,8 @@ next:
 - databases after `FROM`, `JOIN`, or a list comma;
 - containers after `db.`;
 - fields after `alias.`, nested paths included.
+
+![The fields of sales.orders offered after o., each with its type, the partition key marked](../images/autocomplete.png)
 
 Aliases resolve the way the planner reads them, so in a
 [cross-container query](../language/cross-container.md) each side completes its own

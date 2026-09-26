@@ -4,6 +4,8 @@ Every binding, grouped by where it applies. `?` lists the same bindings inside t
 app, for the pane you are in. While the editor has the keyboard, plain letters are
 text; `ctrl+c` always quits.
 
+![The key overlay, grouped by pane](../images/help.png)
+
 - [Anywhere](#anywhere)
 - [Catalog](#catalog)
 - [Results](#results)

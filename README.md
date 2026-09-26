@@ -4,6 +4,8 @@ A keyboard-driven terminal IDE for Azure Cosmos DB (NoSQL API), inspired by
 [harlequin](https://github.com/tconbeer/harlequin): browse databases and containers,
 write SQL, and page through results without leaving the terminal.
 
+![Alchemist connected to the Cosmos DB emulator: the catalog, a highlighted query in the editor, and its results with the request charge in the status bar](docs/images/workspace.png)
+
 <!-- TODO: record docs/demo.tape with `vhs docs/demo.tape` and embed docs/demo.gif here -->
 
 > **Status: early development.** Everything below works today. Release builds are

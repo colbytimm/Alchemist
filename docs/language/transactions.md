@@ -47,6 +47,8 @@ account, the container, the key, each operation, and a warning for a write with 
 is typed back exactly and `enter` pressed; `esc` sends nothing and records nothing. A
 batch that only reads runs straight away.
 
+![The review of a batch: account, container, partition key, each operation, and a warning for each write without IF MATCH](../images/batch-review.png)
+
 `ctrl+b` on a row of a `SELECT *` query of one container, or in its detail, adds a
 `REPLACE` of that document, conditional on its current ETag, to the batch in the
 editor, or starts one when the editor holds a query.
@@ -58,6 +60,8 @@ that writes, and `ctrl+b` drafts nothing there.
 
 The outcome is a result set, one row per operation, which the detail view and export
 treat like any other. It is one of four, and the status bar says which:
+
+![A committed batch: one row per operation with its status, charge and new ETag](../images/batch-committed.png)
 
 - **committed**: every operation applied.
 - **rolled back**: an operation failed and nothing was written; the failed one is
