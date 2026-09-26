@@ -394,17 +394,22 @@ review keeps its prompt and confirmation at 80×24.
   `query.MutationKindOf(text)` names the kind before parsing, so a refusal is recorded
   in history under `delete` even when the text does not parse. `MutationKind` gained
   `Head()` (`UPDATE`, `DELETE FROM`) for the account-qualified refusal.
-- **21's round-1 fixes cover a delete.** A `WITH` buffer is a mutation only when its
-  first `UPDATE`, `DELETE` or `SELECT` outside parentheses, and not after a dot, is one
-  of the first two, so `WITH … SELECT c.delete …` stays a query. The unbalanced-`WHERE`
+- **21's round-1 fixes cover a delete.** A `WITH` buffer is a mutation only when the
+  word after its CTE list, each CTE read as `<name> AS ( … )`, is `UPDATE` or `DELETE`,
+  so `WITH … SELECT c.delete …` and a CTE named `delete` or `update` stay queries. The unbalanced-`WHERE`
   refusal is in the `parseWhere` both kinds share, so
   `DELETE … WHERE o.status = "cancelled") OR (true` is refused rather than selecting
   every item, and `refuseClauses` refuses `TOP`, `ORDER`, `OFFSET`, `LIMIT` and
   `RETURNING` at any depth at or below zero, so `) ORDER BY …` cannot slip past it.
 - **The prompt spells out the text to type**: `Type orders 1204 to delete:`, and for an
-  update over every item `Type orders 1204 to update:`. The review's `Items` line shows
+  update over every item `Type orders 1204 to update:`. It wraps rather than being cut
+  at the frame's edge, where the count sits, and the scrolling body gives up the lines. The review's `Items` line shows
   the count with thousands separators, which the confirmation does not take; the plan's
   prompt named the parts without showing them.
+- **A kind's words are one table** in `query` (`mutationWords`): its name, `Applied`,
+  `Ongoing`, `Head`, and the refusal texts that name it. The remaining branches on
+  `MutationDelete` in `mutate` and the TUI choose behavior (the operation, the guard, the
+  confirmation, the preview rows), not words.
 - **Refusal texts take the kind**: `a DELETE has one target container`, `TOP in a
   DELETE`, the other-container hint ends `delete WHERE o.id IN (…)`, and after a
   delete's target only `expected WHERE`. `DELETE … USING` is refused beside `JOIN`.

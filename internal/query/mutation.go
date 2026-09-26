@@ -17,39 +17,49 @@ const (
 	MutationDelete
 )
 
-func (k MutationKind) String() string {
-	if k == MutationDelete {
-		return "delete"
-	}
-	return "update"
+// kindWords are the words a statement of one kind is named and refused in.
+type kindWords struct {
+	name, applied, ongoing string
+	// head opens the statement, up to its target; statement is its keyword
+	// with an article.
+	head, statement string
+	noWhere         string
+	expectedWhere   string
 }
 
-// Applied is what an item the statement wrote was: "updated", "deleted".
-func (k MutationKind) Applied() string {
-	return k.String() + "d"
+var mutationWords = map[MutationKind]kindWords{
+	MutationUpdate: {
+		name: "update", applied: "updated", ongoing: "updating",
+		head: "UPDATE", statement: "an UPDATE",
+		noWhere:       "UPDATE needs a WHERE. To change every item, write WHERE true",
+		expectedWhere: "expected WHERE, or a comma and another change",
+	},
+	MutationDelete: {
+		name: "delete", applied: "deleted", ongoing: "deleting",
+		head: "DELETE FROM", statement: "a DELETE",
+		noWhere:       "DELETE needs a WHERE. To delete every item, write WHERE true",
+		expectedWhere: "expected WHERE",
+	},
 }
+
+func (k MutationKind) words() kindWords {
+	if words, ok := mutationWords[k]; ok {
+		return words
+	}
+	return mutationWords[MutationUpdate]
+}
+
+func (k MutationKind) String() string { return k.words().name }
+
+// Applied is what an item the statement wrote was: "updated", "deleted".
+func (k MutationKind) Applied() string { return k.words().applied }
 
 // Ongoing is what the statement is doing while it writes: "updating",
 // "deleting".
-func (k MutationKind) Ongoing() string {
-	return strings.TrimSuffix(k.String(), "e") + "ing"
-}
+func (k MutationKind) Ongoing() string { return k.words().ongoing }
 
 // Head is what a statement of kind k opens with, up to its target.
-func (k MutationKind) Head() string {
-	if k == MutationDelete {
-		return "DELETE FROM"
-	}
-	return "UPDATE"
-}
-
-// statement is the kind's keyword with its article: "an UPDATE".
-func (k MutationKind) statement() string {
-	if k == MutationDelete {
-		return "a DELETE"
-	}
-	return "an UPDATE"
-}
+func (k MutationKind) Head() string { return k.words().head }
 
 // MutationSyntaxError is a mutation statement that does not parse, at the
 // line and column, both from one, where parsing stopped. Err is
@@ -83,15 +93,8 @@ const (
 	errDeleteField  = "DELETE removes whole items: removing a field is UPDATE … UNSET"
 )
 
-func noWhere(k MutationKind) string {
-	if k == MutationDelete {
-		return "DELETE needs a WHERE. To delete every item, write WHERE true"
-	}
-	return "UPDATE needs a WHERE. To change every item, write WHERE true"
-}
-
 func oneTarget(k MutationKind) string {
-	return k.statement() + " has one target container"
+	return k.words().statement + " has one target container"
 }
 
 func otherContainer(k MutationKind) string {
@@ -238,22 +241,42 @@ func mutationKind(toks []token) (MutationKind, bool) {
 	return 0, false
 }
 
-// statementAfterCTEs is the first word outside parentheses, after a WITH,
-// that starts a statement: the CTEs' own bodies are inside theirs.
+// statementAfterCTEs is the word that opens the statement after a WITH's
+// CTE list, each CTE read as <name> AS ( … ), and "" for a list that does
+// not read so. A CTE's name may be any word, UPDATE and DELETE included.
 func statementAfterCTEs(toks []token) string {
-	depth := 0
-	for i, tok := range toks {
+	for i := 1; ; i++ {
+		if i+2 >= len(toks) || toks[i].kind != tokIdent || !keywordAt(toks, i+1, "AS") || !isSymbol(toks[i+2], "(") {
+			return ""
+		}
+		i = matchingParen(toks, i+2) + 1
 		switch {
-		case isSymbol(tok, "("):
-			depth++
-		case isSymbol(tok, ")"):
-			depth--
-		case depth == 0 && tok.kind == tokIdent && !followsDot(toks, i) &&
-			(tok.upper == "UPDATE" || tok.upper == "DELETE" || tok.upper == "SELECT"):
-			return tok.upper
+		case i >= len(toks):
+			return ""
+		case toks[i].kind == tokIdent:
+			return toks[i].upper
+		case toks[i].kind != tokComma:
+			return ""
 		}
 	}
-	return ""
+}
+
+// matchingParen is the index of the ) that closes the ( at open, or the
+// last index when none does.
+func matchingParen(toks []token, open int) int {
+	depth := 0
+	for i := open; i < len(toks); i++ {
+		switch {
+		case isSymbol(toks[i], "("):
+			depth++
+		case isSymbol(toks[i], ")"):
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return len(toks) - 1
 }
 
 // MutationTarget is the dotted path an UPDATE or a DELETE FROM names as
@@ -426,7 +449,7 @@ func (p *mutationParser) refuseClauses() error {
 			depth--
 		case depth <= 0 && tok.kind == tokIdent && slices.Contains(refusedClauses, tok.upper) && !followsDot(p.toks, i):
 			p.i = i
-			return p.unsupported(tok.upper + " in " + p.kind.statement())
+			return p.unsupported(tok.upper + " in " + p.kind.words().statement)
 		}
 	}
 	return nil
@@ -692,13 +715,13 @@ func (p *mutationParser) parseNumber() (json.RawMessage, error) {
 // of the statement.
 func (p *mutationParser) parseWhere(alias string) (string, error) {
 	if p.done() || isSymbolAt(p.toks, p.i, ";") {
-		return "", p.fail(noWhere(p.kind))
+		return "", p.fail(p.kind.words().noWhere)
 	}
 	if p.startsSource() {
 		return "", p.unsupported(oneTarget(p.kind))
 	}
 	if !p.keyword("WHERE") {
-		return "", p.fail(p.expectedWhere())
+		return "", p.fail(p.kind.words().expectedWhere)
 	}
 	start, end := p.i, p.statementEnd()
 	if end == start {
@@ -740,13 +763,6 @@ func (p *mutationParser) conditionText(start, end int) string {
 	}
 	text.WriteString(p.text[last:to])
 	return text.String()
-}
-
-func (p *mutationParser) expectedWhere() string {
-	if p.kind == MutationDelete {
-		return "expected WHERE"
-	}
-	return "expected WHERE, or a comma and another change"
 }
 
 // statementEnd is the index of the semicolon that ends the statement, or of

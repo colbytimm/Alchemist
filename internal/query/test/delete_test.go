@@ -148,6 +148,9 @@ func TestIsMutationSeesADelete(t *testing.T) {
 		{name: "TRUNCATE", input: "TRUNCATE a.b"},
 		{name: "a field called delete after a CTE", input: "WITH x AS (SELECT c.id FROM c) SELECT c.delete FROM c"},
 		{name: "a field called delete inside a CTE", input: "WITH x AS (SELECT c.delete FROM c) SELECT * FROM x"},
+		{name: "a CTE called delete", input: "WITH delete AS (SELECT * FROM a.b) SELECT * FROM delete"},
+		{name: "a CTE called update", input: "WITH update AS (SELECT * FROM a.b) SELECT * FROM update"},
+		{name: "two CTEs then a delete", input: "WITH x AS (SELECT 1), y AS (SELECT (2)) DELETE FROM a.b o WHERE true", want: true},
 		{name: "a CTE then a delete", input: "WITH x AS (SELECT c.id FROM c) DELETE FROM a.b o WHERE true", want: true},
 	}
 	for _, tt := range tests {
