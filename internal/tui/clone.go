@@ -295,7 +295,7 @@ func (m Model) handleCloneReviewKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.overlay = overlayCloneForm
 		return m, nil
 	case tea.KeyEnter:
-		if !m.cloneReview.Confirmed() || m.job.active() {
+		if !m.cloneReview.Confirmed() || m.jobRunning() {
 			return m, nil
 		}
 		return m.startClone(m.clonePrompt.plan)

@@ -17,7 +17,8 @@ const (
 	resultsHint  = "no results yet"
 	noRowsHint   = "no rows"
 	// maxColumnWidth stops one long value from pushing every other column off
-	// the pane.
+	// the pane. Width the columns on screen leave over is handed back to
+	// the ones it cut short.
 	maxColumnWidth = 24
 	columnGap      = "  "
 )
@@ -35,13 +36,14 @@ type Results struct {
 	bannerFailed bool
 	failedRow    int
 	columns      []string
-	widths       []int
-	rows         [][]string
-	raw          []json.RawMessage
-	failure      string
-	cursor       int
-	firstCol     int
-	loaded       bool
+	// widths are each column's widest value, before maxColumnWidth.
+	widths   []int
+	rows     [][]string
+	raw      []json.RawMessage
+	failure  string
+	cursor   int
+	firstCol int
+	loaded   bool
 }
 
 func NewResults() Results {
@@ -207,11 +209,12 @@ func (r Results) emptyContent() string {
 func (r Results) table() string {
 	width, height := r.frame.inner()
 	columns := r.visibleColumns(width)
+	widths := r.shownWidths(columns, width)
 	lines := window(append(r.bannerLines(), r.failureLines()...), 0, max(height/2, 1))
-	lines = append(lines, r.headerLine(columns))
+	lines = append(lines, r.headerLine(columns, widths))
 	start, end := windowBounds(len(r.rows), r.cursor, height-len(lines))
 	for i := start; i < end; i++ {
-		lines = append(lines, r.rowLine(r.rows[i], columns, r.rowStyle(i)))
+		lines = append(lines, r.rowLine(r.rows[i], columns, widths, r.rowStyle(i)))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -257,7 +260,7 @@ func (r Results) visibleColumns(width int) []int {
 	var columns []int
 	used := 0
 	for i := r.firstCol; i < len(r.columns); i++ {
-		next := used + r.widths[i]
+		next := used + r.cappedWidth(i)
 		if len(columns) > 0 {
 			next += len(columnGap)
 		}
@@ -270,18 +273,37 @@ func (r Results) visibleColumns(width int) []int {
 	return columns
 }
 
-func (r Results) headerLine(columns []int) string {
+func (r Results) cappedWidth(i int) int { return min(r.widths[i], maxColumnWidth) }
+
+// shownWidths sizes the visible columns: each at its capped width, then
+// the width left in the pane given to the ones the cap cut short, in order.
+func (r Results) shownWidths(columns []int, width int) []int {
+	shown := make([]int, len(columns))
+	spare := width - len(columnGap)*(len(columns)-1)
+	for n, i := range columns {
+		shown[n] = r.cappedWidth(i)
+		spare -= shown[n]
+	}
+	for n, i := range columns {
+		grow := min(max(spare, 0), r.widths[i]-shown[n])
+		shown[n] += grow
+		spare -= grow
+	}
+	return shown
+}
+
+func (r Results) headerLine(columns, widths []int) string {
 	cells := make([]string, 0, len(columns))
-	for _, i := range columns {
-		cells = append(cells, fit(r.columns[i], r.widths[i]))
+	for n, i := range columns {
+		cells = append(cells, fit(r.columns[i], widths[n]))
 	}
 	return headerStyle().Render(strings.Join(cells, columnGap))
 }
 
-func (r Results) rowLine(row []string, columns []int, style lipgloss.Style) string {
+func (r Results) rowLine(row []string, columns, widths []int, style lipgloss.Style) string {
 	cells := make([]string, 0, len(columns))
-	for _, i := range columns {
-		cells = append(cells, fit(cell(row, i), r.widths[i]))
+	for n, i := range columns {
+		cells = append(cells, fit(cell(row, i), widths[n]))
 	}
 	return style.Render(strings.Join(cells, columnGap))
 }
@@ -290,8 +312,6 @@ func headerStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(theme.Gold()).Bold(true)
 }
 
-// columnWidths sizes every column to its widest value, capped so one column
-// cannot crowd out the rest.
 func columnWidths(columns []string, rows [][]string) []int {
 	widths := make([]int, len(columns))
 	for i, name := range columns {
@@ -301,9 +321,6 @@ func columnWidths(columns []string, rows [][]string) []int {
 		for i := range min(len(row), len(widths)) {
 			widths[i] = max(widths[i], lipgloss.Width(row[i]))
 		}
-	}
-	for i := range widths {
-		widths[i] = min(widths[i], maxColumnWidth)
 	}
 	return widths
 }

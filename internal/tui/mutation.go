@@ -104,11 +104,11 @@ func (m Model) checkNoAccountTarget(request mutationRequest) error {
 	return nil
 }
 
-// jobRefusal is why no statement of kind may start now: another job holds
-// the slot. It is asked before anything is read, so a refused statement
+// jobRefusal is why no statement of kind may start now: another job is
+// running. It is asked before anything is read, so a refused statement
 // spends nothing.
 func (m Model) jobRefusal(kind query.MutationKind) error {
-	if !m.job.active() {
+	if !m.jobRunning() {
 		return nil
 	}
 	if m.job.kind == jobMutation {
