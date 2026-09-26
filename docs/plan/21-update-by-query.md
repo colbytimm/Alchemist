@@ -1127,12 +1127,17 @@ and the progress view keep their prompt and keys at 80×24.
   an item lacking the parent (an object for a named field, or for an index an array
   holding that element) is kept as the target outcome `skipped: no parent` and never
   sent, so the probe never blames the `WHERE` for it. An index past an array's end is
-  treated the same: the emulator appends there without a condition, again on every
-  rerun, and refuses the patch with one. Each patch re-asserts `IS_DEFINED(<parent>)`,
-  so a parent removed since the selection is `skipped: changed`. `IS_DEFINED` is the
-  only guard: the vNext emulator answers `IS_OBJECT`, `IS_ARRAY` and `ARRAY_LENGTH` in a
-  patch condition with 400, and an index inside one too, so a parent reached through an
-  index, and an array shortened since the selection, are left to the selection's check.
+  treated the same: there the service appends, with a condition or without, and a
+  rerun appends again, which is not idempotent.
+- **The patch condition is written in the shapes the vNext emulator takes.** Each
+  nested `SET` re-asserts `IS_OBJECT(<parent>)`, or `IS_ARRAY(<parent>)` for an index,
+  and each kept `UNSET` `IS_DEFINED(<path>)`, so a parent removed or turned into a
+  scalar since the selection is a 412 and `skipped: changed`. Verified refused with
+  400 in a condition: a bracketed property (`o["x"]`), an array index (`o.lines[0]`),
+  `ARRAY_LENGTH`, and a bare `true` beside an `AND` (`(true) AND IS_DEFINED(o.x)`;
+  `(true)` alone is taken). So a guard whose path needs a bracket is left out, the
+  selection's check covering it, and for `WHERE true` the condition is the guards
+  alone. The mock refuses the same shapes, so the engine's tests catch a regression.
   `CheckMutation` warns of every nested `SET`, the preview marks each path an item has
   no parent for with `!`, and the review counts the items that lack a parent.
 - **A comment never reaches the service.** The lexer ends a `--` comment at `\r` as

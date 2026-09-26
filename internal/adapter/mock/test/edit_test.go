@@ -102,12 +102,50 @@ func TestAnEditNeedsTheFieldsItsConditionAsksFor(t *testing.T) {
 	a := mock.New(mock.WithPredicate(openOrders, statusIs("open")), mock.WithItems(ordersPath, order("o1", "c01")))
 	remove := adapter.Operation{
 		Kind: adapter.OperationPatch, ID: "o1", Body: json.RawMessage(`[{"op":"remove","path":"/note"}]`),
-		Condition: "FROM o WHERE (" + openOrders + `) AND IS_DEFINED(o["note"])`,
+		Condition: "FROM o WHERE (" + openOrders + ") AND IS_DEFINED(o.note)",
 	}
 
 	_, err := itemEditor(t, a).EditItem(context.Background(), ordersPath, c01, remove)
 
 	require.ErrorIs(t, err, adapter.ErrPreconditionFailed)
+}
+
+func TestAnEditConditionedOnAScalarWhereAnObjectMustBeIsLeftAsItIs(t *testing.T) {
+	a := mock.New(mock.WithPredicate(openOrders, statusIs("open")),
+		mock.WithItems(ordersPath, json.RawMessage(`{"id":"o1","customerId":"c01","status":"open","ship":"none"}`)))
+	set := adapter.Operation{
+		Kind: adapter.OperationPatch, ID: "o1", Body: json.RawMessage(`[{"op":"set","path":"/ship/region","value":"w"}]`),
+		Condition: "FROM o WHERE (" + openOrders + ") AND IS_OBJECT(o.ship)",
+	}
+
+	_, err := itemEditor(t, a).EditItem(context.Background(), ordersPath, c01, set)
+
+	require.ErrorIs(t, err, adapter.ErrPreconditionFailed)
+}
+
+func TestAnEditConditionTheEmulatorRefusesIsRefused(t *testing.T) {
+	a := mock.New(mock.WithPredicate(openOrders, statusIs("open")), mock.WithPredicate("true", statusIs("open")),
+		mock.WithItems(ordersPath, order("o1", "c01")))
+	for _, condition := range []string{
+		"FROM o WHERE (" + openOrders + `) AND IS_DEFINED(o["note"])`,
+		"FROM o WHERE (" + openOrders + ") AND IS_DEFINED(o.lines[0])",
+		"FROM o WHERE (true) AND IS_DEFINED(o.status)",
+	} {
+		t.Run(condition, func(t *testing.T) {
+			_, err := itemEditor(t, a).EditItem(context.Background(), ordersPath, c01, patchOpen("o1", condition))
+
+			require.Error(t, err)
+			assert.NotErrorIs(t, err, adapter.ErrPreconditionFailed)
+		})
+	}
+}
+
+func TestAnEditConditionedOnGuardsAloneReadsAsTrue(t *testing.T) {
+	a := mock.New(mock.WithItems(ordersPath, order("o1", "c01")))
+
+	_, err := itemEditor(t, a).EditItem(context.Background(), ordersPath, c01, patchOpen("o1", "FROM o WHERE IS_DEFINED(o.status)"))
+
+	require.NoError(t, err)
 }
 
 func TestAnEditOfAMissingItemIsNotFound(t *testing.T) {
