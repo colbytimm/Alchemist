@@ -111,6 +111,9 @@ func overlaps(a, b string) bool {
 func (c *mutationChecker) warnScope() {
 	target := strings.Join(c.mutation.Target, ".")
 	switch {
+	case c.mutation.EveryItem && c.mutation.Kind == MutationDelete:
+		c.check.Warnings = append(c.check.Warnings, fmt.Sprintf("Every item in %s. Deleting and recreating the container "+
+			"(d, then c in the catalog) spends no RU per item, but it is a new container and its settings must be given again.", target))
 	case c.mutation.EveryItem:
 		c.check.Warnings = append(c.check.Warnings, fmt.Sprintf("WHERE true: every item in %s is a target.", target))
 	case len(c.keyPaths) > 0 && !pinsKey(c.mutation, c.keyPaths[0]):

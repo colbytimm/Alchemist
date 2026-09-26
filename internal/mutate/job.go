@@ -23,6 +23,9 @@ const (
 	// PlanningChargePerPatch is the request units a review plans on for a
 	// patch of a small item. It is a rough figure, labeled as one.
 	PlanningChargePerPatch = 10
+	// PlanningChargePerDelete is PlanningChargePerPatch's figure for a
+	// delete.
+	PlanningChargePerDelete = 7
 	// writeTimeout bounds one write. A write is never cancelled by a stop,
 	// only by this: cancelling a sent write is how an unknown outcome is
 	// made.
@@ -32,12 +35,17 @@ const (
 var (
 	// ErrProbeRefused is a job whose first write was refused: whatever the
 	// service objects to is likely to refuse every other write too.
-	ErrProbeRefused = errors.New("the service refused the first write, so no other was sent. " +
-		"A WHERE it takes for a query but not as a patch condition is refused this way; " +
-		"a few items can be patched in a BEGIN BATCH with IF MATCH")
+	ErrProbeRefused = errors.New("the service refused the first write, so no other was sent")
+	// ErrNoVersion is a delete target whose selection read no version: a
+	// delete is only ever sent on one, so it is never sent.
+	ErrNoVersion       = errors.New("no version was read for it, and a delete is only sent on one")
 	ErrTooManyFailures = fmt.Errorf("more than %d items failed", MaxFailures)
 	ErrNoAnswer        = fmt.Errorf("%d writes in a row had no answer: the network may be gone", MaxUnknown)
 )
+
+// patchProbeAdvice follows ErrProbeRefused for a patch.
+const patchProbeAdvice = "A WHERE it takes for a query but not as a patch condition is refused this way; " +
+	"a few items can be patched in a BEGIN BATCH with IF MATCH"
 
 // UnknownAdvice is the status of an item whose write had no answer.
 const UnknownAdvice = "no answer: check before assuming. Running the statement again settles it"
@@ -160,7 +168,8 @@ type Job struct {
 
 // NewJob prepares the writes of targets. A target with no partition key,
 // or lacking the parent of a path the statement sets, is skipped from the
-// start; nothing is sent until ApplyChunk.
+// start, and a delete target with no version fails unsent; nothing is sent
+// until ApplyChunk.
 func NewJob(m query.Mutation, targets Targets, editor adapter.ItemEditor, pool *writers.Pool) *Job {
 	j := &Job{mutation: m, targets: targets, editor: editor, pool: pool, results: make([]Result, len(targets.Items))}
 	for i, target := range targets.Items {
@@ -169,6 +178,8 @@ func NewJob(m query.Mutation, targets Targets, editor adapter.ItemEditor, pool *
 			j.results[i] = Result{Outcome: SkippedNoKey, Status: "no partition key"}
 		case target.NoParent:
 			j.results[i] = Result{Outcome: SkippedNoParent, Status: "a path the statement sets has no parent, or no such element, on this item"}
+		case m.Kind == query.MutationDelete && target.Version == "":
+			j.results[i] = Result{Outcome: Failed, Status: ErrNoVersion.Error(), Err: ErrNoVersion}
 		}
 		j.counts.add(j.results[i].Outcome, 1)
 	}
@@ -334,7 +345,7 @@ func (j *Job) judge(indices []int) error {
 		case j.unanswered >= MaxUnknown:
 			return ErrNoAnswer
 		case !j.proven && result.Outcome == Failed:
-			return fmt.Errorf("%w: %w", ErrProbeRefused, result.Err)
+			return j.probeRefused(result.Err)
 		case result.Outcome == Applied || result.Outcome == SkippedChanged:
 			j.proven = true
 		}
@@ -343,6 +354,13 @@ func (j *Job) judge(indices []int) error {
 		return ErrTooManyFailures
 	}
 	return nil
+}
+
+func (j *Job) probeRefused(err error) error {
+	if j.mutation.Kind == query.MutationDelete {
+		return fmt.Errorf("%w: %w", ErrProbeRefused, err)
+	}
+	return fmt.Errorf("%w. %s: %w", ErrProbeRefused, patchProbeAdvice, err)
 }
 
 func (j *Job) progress(indices []int, duration time.Duration) Progress {
@@ -395,19 +413,22 @@ func (s Summary) Clean() bool {
 	return s.Counts.Failed == 0 && s.Counts.Unknown == 0 && s.Counts.NotAttempted == 0
 }
 
-// Sentence says in words what the job did, as in "Updated 409 of 412
-// items in sales.orders. 2 had changed, 1 was gone." for an update.
+// Sentence says in words what the job did, as in "Deleted 19 of 20 items
+// from sales.orders. 1 had changed and was kept." for a delete.
 func (s Summary) Sentence() string {
 	c := s.Counts
-	verb := s.Kind.Applied()
-	text := fmt.Sprintf("%s%s %s of %s in %s.", strings.ToUpper(verb[:1]), verb[1:], formatCount(c.Applied),
-		items(s.Total), strings.Join(s.Container, "."))
+	verb, preposition, changed := s.Kind.Applied(), "in", formatCount(c.Changed)+" had changed"
+	if s.Kind == query.MutationDelete {
+		preposition, changed = "from", plural(c.Changed, "had changed and was kept", "had changed and were kept")
+	}
+	text := fmt.Sprintf("%s%s %s of %s %s %s.", strings.ToUpper(verb[:1]), verb[1:], formatCount(c.Applied),
+		items(s.Total), preposition, strings.Join(s.Container, "."))
 	var parts []string
 	for _, detail := range []struct {
 		n    int
 		text string
 	}{
-		{c.Changed, formatCount(c.Changed) + " had changed"},
+		{c.Changed, changed},
 		{c.Gone, plural(c.Gone, "was gone", "were gone")},
 		{c.NoKey, formatCount(c.NoKey) + " had no partition key"},
 		{c.NoParent, formatCount(c.NoParent) + " had no parent for a nested SET"},
@@ -422,9 +443,18 @@ func (s Summary) Sentence() string {
 		text += " " + strings.Join(parts, ", ") + "."
 	}
 	if c.NotAttempted > 0 {
-		text += " " + plural(c.NotAttempted, "was not attempted and is unchanged.", "were not attempted and are unchanged.")
+		text += " " + plural(c.NotAttempted, "was not attempted and is "+s.untouched()+".",
+			"were not attempted and are "+s.untouched()+".")
 	}
 	return text
+}
+
+// untouched is what an item not attempted still is.
+func (s Summary) untouched() string {
+	if s.Kind == query.MutationDelete {
+		return "still there"
+	}
+	return "unchanged"
 }
 
 func items(n int) string {

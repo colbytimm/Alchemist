@@ -232,6 +232,16 @@ var mutationSeeds = []string{
 	"UPDATE a.b o SET o.x = ",
 	"UPDATE a.b o SET o.x = 1 WHERE o.a = 1 -- x\r) OR (true\n AND o.b = 2",
 	"UPDATE a.b o SET o.x = 1 WHERE o.a = 1 -- note\n AND o.b = 2",
+	goalDelete,
+	"delete from a.b as item where item.y = 2;",
+	"DELETE FROM a.b WHERE true",
+	"DELETE a.b o WHERE true",
+	"DELETE o.tmp FROM a.b o WHERE true",
+	"DELETE FROM a.b o USING x.y z WHERE true",
+	"DELETE FROM",
+	`DELETE FROM a.b o WHERE o.status = "cancelled") OR (true`,
+	"DELETE FROM a.b o WHERE o.x = 1) ORDER BY o.x",
+	"DELETE FROM a.b o WHERE o.a = 1 -- x\r) OR (true\n AND o.b = 2",
 }
 
 func FuzzParseMutation(f *testing.F) {

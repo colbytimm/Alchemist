@@ -26,7 +26,7 @@ const (
 	reportPageSize = 100
 )
 
-// mutationRun is the update holding the job slot: what it was confirmed
+// mutationRun is the update or delete holding the job slot: what it was confirmed
 // for, and how far it has got. Its job is held here only between steps;
 // while a step runs, the step owns it and hands it back in its message.
 type mutationRun struct {
@@ -64,10 +64,10 @@ func (m Model) startMutationJob(draft panes.MutationDraft, text string, editor a
 	m.mutating = mutationRun{
 		draft: draft,
 		job:   mutate.NewJob(mutation, draft.Targets, editor, pool),
-		entry: newMutationEntry(mutationRequest{account: draft.Account, text: text, mutation: mutation}),
+		entry: newMutationEntry(mutationRequest{account: draft.Account, text: text, kind: mutation.Kind, mutation: mutation}),
 	}
 	m.overlay = overlayMutationProgress
-	m.logger.Info("update started", "account", draft.Account, "target", mutation.Target,
+	m.logger.Info(mutation.Kind.String()+" started", "account", draft.Account, "target", mutation.Target,
 		"items", len(draft.Targets.Items), "writers", draft.Writers)
 	m, step := m.withJobKeys().stepMutation()
 	return m, tea.Batch(retired, step)
@@ -119,7 +119,7 @@ func (m Model) mutationWritable() error {
 	return err
 }
 
-// currentMutation reports whether a message belongs to the update holding
+// currentMutation reports whether a message belongs to the job holding
 // the slot, and takes its job back if so.
 func (m Model) currentMutation(id jobID, j *mutate.Job, progress mutate.Progress) (Model, bool) {
 	if m.job.kind != jobMutation || m.job.id != id {
@@ -183,13 +183,14 @@ func (m Model) endMutation(end panes.MutationEnd, err error) (Model, tea.Cmd) {
 	run.end, run.err, run.stopping = end, err, false
 	m.job.cancel = nil
 	c := run.progress.Counts
-	m.logger.Info("update ended", "account", run.draft.Account, "target", run.draft.Mutation.Target, "end", end,
-		"updated", c.Applied, "changed", c.Changed, "gone", c.Gone, "no key", c.NoKey, "failed", c.Failed,
+	kind := run.draft.Mutation.Kind
+	m.logger.Info(kind.String()+" ended", "account", run.draft.Account, "target", run.draft.Mutation.Target, "end", end,
+		kind.Applied(), c.Applied, "changed", c.Changed, "gone", c.Gone, "no key", c.NoKey, "failed", c.Failed,
 		"unknown", c.Unknown, "not attempted", c.NotAttempted, "RU", run.progress.WriteCharge, "error", err)
 	return m.syncMutation(), nil
 }
 
-// showMutationProgress is w while an update holds the slot: it opens the
+// showMutationProgress is w while an update or a delete holds the slot: it opens the
 // view and starts nothing.
 func (m Model) showMutationProgress() (Model, tea.Cmd) {
 	m.overlay = overlayMutationProgress
@@ -232,7 +233,7 @@ func (m Model) resumeMutationJob() (Model, tea.Cmd) {
 	run := &m.mutating
 	run.end, run.err, run.quitWarned = panes.MutationRunning, nil, false
 	run.job.Resume()
-	m.logger.Info("update resumed", "account", run.draft.Account, "target", run.draft.Mutation.Target,
+	m.logger.Info(run.draft.Mutation.Kind.String()+" resumed", "account", run.draft.Account, "target", run.draft.Mutation.Target,
 		"not attempted", run.progress.Counts.NotAttempted)
 	return m.stepMutation()
 }
@@ -309,7 +310,7 @@ func (m Model) releaseMutation() Model {
 	return m.withJobKeys()
 }
 
-// abandonMutation stops an update the session is quitting under, and
+// abandonMutation stops the job the session is quitting under, and
 // records it before the session ends. The writes in flight run to their
 // own deadline or the process's end; their outcome is unknown.
 func (m Model) abandonMutation() Model {
@@ -329,11 +330,12 @@ func (m Model) abandonMutation() Model {
 		entry.Error = strings.TrimPrefix(entry.Error+"; quit while running", "; ")
 	}
 	if err := m.history.Append(entry); err != nil {
-		m.logger.Warn("update not recorded", "error", err)
+		m.logger.Warn(run.draft.Mutation.Kind.String()+" not recorded", "error", err)
 	}
 	c := run.progress.Counts
-	m.logger.Warn("update left unfinished at quit", "account", run.draft.Account, "target", run.draft.Mutation.Target,
-		"updated", c.Applied, "failed", c.Failed, "unknown", c.Unknown, "not attempted", c.NotAttempted,
+	kind := run.draft.Mutation.Kind
+	m.logger.Warn(kind.String()+" left unfinished at quit", "account", run.draft.Account, "target", run.draft.Mutation.Target,
+		kind.Applied(), c.Applied, "failed", c.Failed, "unknown", c.Unknown, "not attempted", c.NotAttempted,
 		"in flight, outcome unknown", run.inFlight)
 	return m.releaseMutation()
 }
@@ -391,9 +393,9 @@ func (r mutationRun) status() panes.MutationStatus {
 		status.Progress.Writers = r.draft.Writers
 	}
 	if r.quitWarned && r.running() {
-		applied := r.draft.Mutation.Kind.Applied()
-		status.Warning = fmt.Sprintf("The %s is running. Quit again to stop it and quit; items already %s stay %s.",
-			r.draft.Mutation.Kind, applied, applied)
+		kind := r.draft.Mutation.Kind
+		status.Warning = fmt.Sprintf("%s is running. Quit again to stop it and quit; items already %s stay %s.",
+			panes.Capitalized(withArticle(kind.String())), kind.Applied(), kind.Applied())
 	}
 	return status
 }

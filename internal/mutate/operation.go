@@ -15,13 +15,21 @@ type patchEntry struct {
 	Value json.RawMessage `json:"value,omitempty"`
 }
 
-// operation is the write sent for t: a patch of every SET and of each
-// UNSET the item had a path for, on condition that the item still matches
-// the statement's WHERE, still has those paths, and still has an object or
-// an array where each nested SET goes. An item changed since it was
-// selected so that it no longer matches is left alone by the service, not
-// written.
+// operation is the write sent for t: a delete on the version the selection
+// read, or a conditional patch.
 func operation(m query.Mutation, t Target) adapter.Operation {
+	if m.Kind == query.MutationDelete {
+		return adapter.Operation{Kind: adapter.OperationDelete, ID: t.ID, IfMatch: t.Version}
+	}
+	return patch(m, t)
+}
+
+// patch is a patch of every SET and of each UNSET the item had a path for,
+// on condition that the item still matches the statement's WHERE, still
+// has those paths, and still has an object or an array where each nested
+// SET goes. An item changed since it was selected so that it no longer
+// matches is left alone by the service, not written.
+func patch(m query.Mutation, t Target) adapter.Operation {
 	entries := make([]patchEntry, 0, m.Operations())
 	var guards []string
 	for _, a := range m.Assignments {
@@ -55,14 +63,23 @@ func condition(m query.Mutation, guards []string) string {
 }
 
 // Confirmation is what the review asks to have typed before the job may
-// start: the container's name, and for a statement over every item, the
-// number of items too.
+// start: the container's name, and the number of items too for a delete or
+// for a statement over every item.
 func Confirmation(m query.Mutation, count int) string {
 	container := m.Target[len(m.Target)-1]
-	if m.EveryItem {
+	if m.EveryItem || m.Kind == query.MutationDelete {
 		return fmt.Sprintf("%s %d", container, count)
 	}
 	return container
+}
+
+// PlanningCharge is the request units a review plans on for one write of a
+// small item by a statement of kind.
+func PlanningCharge(kind query.MutationKind) int {
+	if kind == query.MutationDelete {
+		return PlanningChargePerDelete
+	}
+	return PlanningChargePerPatch
 }
 
 // Changes lists what the statement does to every item it writes, in the

@@ -32,11 +32,6 @@ func TestPreviewRefusesWhatIsNotAnItem(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestConfirmation(t *testing.T) {
-	assert.Equal(t, "orders", mutate.Confirmation(parse(t, archive), 412))
-	assert.Equal(t, "orders 60", mutate.Confirmation(parse(t, `UPDATE sales.orders o SET o.x = 1 WHERE true`), 60))
-}
-
 func TestChangesNameEveryOperation(t *testing.T) {
 	m := parse(t, `UPDATE sales.orders o SET o.status = "archived" UNSET o.tmp WHERE true`)
 

@@ -113,10 +113,13 @@ const vowels = "aeiou" // cspell:disable-line
 
 // named is the job with its article: "a clone", "an update".
 func (j job) named() string {
-	noun := j.noun
-	if noun == "" {
-		noun = j.kind.String()
+	if j.noun == "" {
+		return withArticle(j.kind.String())
 	}
+	return withArticle(j.noun)
+}
+
+func withArticle(noun string) string {
 	if strings.ContainsRune(vowels, rune(noun[0])) {
 		return "an " + noun
 	}

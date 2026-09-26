@@ -1158,3 +1158,6 @@ and the progress view keep their prompt and keys at 80×24.
   the report is built, which is what the banner's "The log names the rest" means.
 - `IsMutation` reads a `WITH` buffer's statement as the first `UPDATE` or `SELECT`
   outside parentheses and not after a dot, so `WITH … SELECT c.update …` stays a query.
+- **22 has since landed** on this engine (see its "Implementation notes"): `operation`
+  switches on `Mutation.Kind`, `Confirmation` asks every delete for the name and the
+  count, and the job, selection, report cursor and job slot serve both kinds unchanged.

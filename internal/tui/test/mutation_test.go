@@ -153,7 +153,7 @@ func TestOnlyTheExactNameStartsTheUpdate(t *testing.T) {
 func TestEveryItemNeedsTheNameAndTheCount(t *testing.T) {
 	conn := newUpdateConnection(t)
 	m := dryRun(t, newUpdateModel(t, conn, &recordingStore{}), `UPDATE sales.orders o SET o.flag = true WHERE true`)
-	require.Contains(t, plain(m.View()), "Every item in sales.orders. Type the container name and the item count:")
+	require.Contains(t, plain(m.View()), "Every item in sales.orders. Type orders 5 to update:")
 	require.Contains(t, plain(m.View()), "WHERE true: every item in sales.orders is a target.")
 
 	m = confirmUpdate(t, m, firstContainer)
@@ -218,7 +218,7 @@ func TestAConnectionThatCannotEditItemsRefusesAnUpdate(t *testing.T) {
 
 	m = dryRun(t, m, archiveShipped)
 
-	assert.Contains(t, plain(m.View()), "this adapter cannot update items")
+	assert.Contains(t, plain(m.View()), "this adapter cannot update or delete items")
 	assert.Zero(t, conn.scans)
 }
 
