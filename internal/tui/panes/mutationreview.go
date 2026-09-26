@@ -21,8 +21,11 @@ const (
 		"no longer matches is skipped. Stopping leaves the rest unchanged. There is no undo."
 	deleteConsequence = "Items are deleted one by one. An item changed since %s is skipped. " +
 		"Stopping leaves the rest in place. There is no undo."
-	noCharges   = "the backend reported no request units"
-	changeWidth = 14
+	noCharges = "the backend reported no request units"
+	// minReviewBody is the fewest scrolling lines a review keeps its header
+	// pinned above.
+	minReviewBody = 3
+	changeWidth   = 14
 )
 
 // MutationDraft is what a review is opened for: an update or a delete that
@@ -107,30 +110,50 @@ func (r MutationReview) ScrollUp() MutationReview {
 
 func (r MutationReview) ScrollDown() MutationReview {
 	width, _ := r.frame.inner()
-	r.offset = clampScroll(r.offset+1, len(r.bodyLines(width)), r.bodyHeight())
+	header, body := r.sections(width)
+	r.offset = clampScroll(r.offset+1, len(body), r.bodyHeight(header, width))
 	return r
 }
 
 func (r MutationReview) View() string {
 	width, _ := r.frame.inner()
-	body := r.bodyLines(width)
-	height := r.bodyHeight()
+	header, body := r.sections(width)
+	height := r.bodyHeight(header, width)
 	offset := clampScroll(r.offset, len(body), height)
 	visible := make([]string, height)
 	copy(visible, body[offset:min(offset+height, len(body))])
 
-	lines := append(r.headerLines(width), "")
+	lines := header
+	if len(lines) > 0 {
+		lines = append(lines, "")
+	}
 	lines = append(lines, visible...)
 	lines = append(lines, "")
 	lines = append(lines, r.footerLines(width)...)
 	return r.frame.renderWithHint(lines, r.hints.ShortHelpView(r.keys))
 }
 
+// sections splits the review into the header that stays in view and the
+// body that scrolls. A header that would leave the body fewer than
+// minReviewBody lines scrolls with it, so the prompt and its field are
+// never pushed out of view.
+func (r MutationReview) sections(width int) (header, body []string) {
+	header, body = r.headerLines(width), r.bodyLines(width)
+	_, height := r.frame.inner()
+	if height-len(header)-len(r.footerLines(width))-3 >= minReviewBody {
+		return header, body
+	}
+	return nil, append(append(header, ""), body...)
+}
+
 // bodyHeight is what is left for the scrolling part once the header, the
-// footer, the two blank lines between them and the hint line are placed.
-func (r MutationReview) bodyHeight() int {
-	width, height := r.frame.inner()
-	fixed := len(r.headerLines(width)) + len(r.footerLines(width)) + 3
+// footer, the blank lines around the body and the hint line are placed.
+func (r MutationReview) bodyHeight(header []string, width int) int {
+	_, height := r.frame.inner()
+	fixed := len(r.footerLines(width)) + 2
+	if len(header) > 0 {
+		fixed += len(header) + 1
+	}
 	return max(height-fixed, 1)
 }
 
