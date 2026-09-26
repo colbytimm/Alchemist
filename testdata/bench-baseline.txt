@@ -2,41 +2,41 @@ goos: linux
 goarch: amd64
 pkg: github.com/colbytimm/alchemist/internal/tui/test
 cpu: Intel(R) Xeon(R) Processor @ 2.80GHz
-BenchmarkTypingWithTheListOpen-4   	      50	  15175795 ns/op	 7810360 B/op	   28198 allocs/op
-BenchmarkTypingWithTheListOpen-4   	      50	  17490020 ns/op	 7817477 B/op	   28200 allocs/op
-BenchmarkTypingWithTheListOpen-4   	      50	  17326951 ns/op	 7818861 B/op	   28199 allocs/op
-BenchmarkTypingWithTheListOpen-4   	      50	  19379593 ns/op	 7815967 B/op	   28198 allocs/op
-BenchmarkTypingWithTheListOpen-4   	      50	  15545869 ns/op	 7810247 B/op	   28197 allocs/op
-BenchmarkTypingPlainBuffer/lines=200-4         	      50	   8059738 ns/op	 2279243 B/op	    9710 allocs/op
-BenchmarkTypingPlainBuffer/lines=200-4         	      50	   6866094 ns/op	 2272207 B/op	    9709 allocs/op
-BenchmarkTypingPlainBuffer/lines=200-4         	      50	   7034755 ns/op	 2274781 B/op	    9707 allocs/op
-BenchmarkTypingPlainBuffer/lines=200-4         	      50	   7520265 ns/op	 2282138 B/op	    9710 allocs/op
-BenchmarkTypingPlainBuffer/lines=200-4         	      50	   8171240 ns/op	 2275009 B/op	    9709 allocs/op
-BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  34074826 ns/op	 8664384 B/op	   74554 allocs/op
-BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  34563855 ns/op	 8658654 B/op	   74553 allocs/op
-BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  34450022 ns/op	 8664386 B/op	   74554 allocs/op
-BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  33515688 ns/op	 8655800 B/op	   74552 allocs/op
-BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  33395254 ns/op	 8661534 B/op	   74554 allocs/op
-BenchmarkViewWithoutEdit/lines=200-4           	      50	   1879595 ns/op	  506076 B/op	    1616 allocs/op
-BenchmarkViewWithoutEdit/lines=200-4           	      50	   1951461 ns/op	  503189 B/op	    1615 allocs/op
-BenchmarkViewWithoutEdit/lines=200-4           	      50	   2077029 ns/op	  508888 B/op	    1616 allocs/op
-BenchmarkViewWithoutEdit/lines=200-4           	      50	   1781220 ns/op	  506008 B/op	    1616 allocs/op
-BenchmarkViewWithoutEdit/lines=200-4           	      50	   2186899 ns/op	  511753 B/op	    1617 allocs/op
-BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1443981 ns/op	  501660 B/op	    1614 allocs/op
-BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1537989 ns/op	  494569 B/op	    1614 allocs/op
-BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1523940 ns/op	  501703 B/op	    1615 allocs/op
-BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1372358 ns/op	  505910 B/op	    1615 allocs/op
-BenchmarkViewWithoutEdit/lines=2000-4          	      50	   2111510 ns/op	  504565 B/op	    1615 allocs/op
+BenchmarkTypingWithTheListOpen-4   	      50	  17396441 ns/op	 7799135 B/op	   28196 allocs/op
+BenchmarkTypingWithTheListOpen-4   	      50	  18528281 ns/op	 7806214 B/op	   28197 allocs/op
+BenchmarkTypingWithTheListOpen-4   	      50	  19123813 ns/op	 7813430 B/op	   28200 allocs/op
+BenchmarkTypingWithTheListOpen-4   	      50	  18662601 ns/op	 7812069 B/op	   28199 allocs/op
+BenchmarkTypingWithTheListOpen-4   	      50	  18374585 ns/op	 7821720 B/op	   28198 allocs/op
+BenchmarkTypingPlainBuffer/lines=200-4         	      50	   9251895 ns/op	 2273647 B/op	    9709 allocs/op
+BenchmarkTypingPlainBuffer/lines=200-4         	      50	   7760849 ns/op	 2276480 B/op	    9710 allocs/op
+BenchmarkTypingPlainBuffer/lines=200-4         	      50	   7479324 ns/op	 2273647 B/op	    9709 allocs/op
+BenchmarkTypingPlainBuffer/lines=200-4         	      50	   7699202 ns/op	 2275095 B/op	    9710 allocs/op
+BenchmarkTypingPlainBuffer/lines=200-4         	      50	   8312949 ns/op	 2269209 B/op	    9708 allocs/op
+BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  34801180 ns/op	 8655899 B/op	   74554 allocs/op
+BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  34629162 ns/op	 8654417 B/op	   74553 allocs/op
+BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  34413743 ns/op	 8660095 B/op	   74554 allocs/op
+BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  36071228 ns/op	 8662890 B/op	   74554 allocs/op
+BenchmarkTypingPlainBuffer/lines=2000-4        	      50	  34422571 ns/op	 8655817 B/op	   74553 allocs/op
+BenchmarkViewWithoutEdit/lines=200-4           	      50	   2098716 ns/op	  514604 B/op	    1617 allocs/op
+BenchmarkViewWithoutEdit/lines=200-4           	      50	   1806095 ns/op	  506044 B/op	    1616 allocs/op
+BenchmarkViewWithoutEdit/lines=200-4           	      50	   1809082 ns/op	  511752 B/op	    1617 allocs/op
+BenchmarkViewWithoutEdit/lines=200-4           	      50	   2089705 ns/op	  506050 B/op	    1616 allocs/op
+BenchmarkViewWithoutEdit/lines=200-4           	      50	   1911788 ns/op	  511794 B/op	    1617 allocs/op
+BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1660246 ns/op	  498817 B/op	    1614 allocs/op
+BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1639755 ns/op	  498830 B/op	    1614 allocs/op
+BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1775138 ns/op	  503107 B/op	    1615 allocs/op
+BenchmarkViewWithoutEdit/lines=2000-4          	      50	   1650767 ns/op	  500296 B/op	    1615 allocs/op
+BenchmarkViewWithoutEdit/lines=2000-4          	      50	   2164331 ns/op	  504547 B/op	    1615 allocs/op
 PASS
-ok  	github.com/colbytimm/alchemist/internal/tui/test	21.792s
+ok  	github.com/colbytimm/alchemist/internal/tui/test	23.054s
 goos: linux
 goarch: amd64
 pkg: github.com/colbytimm/alchemist/internal/query/test
 cpu: Intel(R) Xeon(R) Processor @ 2.80GHz
-BenchmarkDiagnose-4   	      50	   1999939 ns/op	     496 B/op	      10 allocs/op
-BenchmarkDiagnose-4   	      50	   2113441 ns/op	     496 B/op	      10 allocs/op
-BenchmarkDiagnose-4   	      50	   2065349 ns/op	     496 B/op	      10 allocs/op
-BenchmarkDiagnose-4   	      50	   2026518 ns/op	     496 B/op	      10 allocs/op
-BenchmarkDiagnose-4   	      50	   1966610 ns/op	     496 B/op	      10 allocs/op
+BenchmarkDiagnose-4   	      50	   2109564 ns/op	     592 B/op	      10 allocs/op
+BenchmarkDiagnose-4   	      50	   2107788 ns/op	     592 B/op	      10 allocs/op
+BenchmarkDiagnose-4   	      50	   2082180 ns/op	     592 B/op	      10 allocs/op
+BenchmarkDiagnose-4   	      50	   2090668 ns/op	     592 B/op	      10 allocs/op
+BenchmarkDiagnose-4   	      50	   2091517 ns/op	     592 B/op	      10 allocs/op
 PASS
-ok  	github.com/colbytimm/alchemist/internal/query/test	0.738s
+ok  	github.com/colbytimm/alchemist/internal/query/test	0.814s
