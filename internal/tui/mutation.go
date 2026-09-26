@@ -283,13 +283,17 @@ func (m Model) acceptTargets(msg TargetsSelectedMsg) (Model, tea.Cmd) {
 // selectionWarnings are what the selection found worth a second look.
 func selectionWarnings(m query.Mutation, targets mutate.Targets) []string {
 	var warnings []string
+	if unplaced := targets.Unplaced(); unplaced > 0 {
+		warnings = append(warnings, fmt.Sprintf("%s lack the parent of a path the statement sets, and are skipped.",
+			countItems(unplaced)))
+	}
 	if keyless := targets.Keyless(); keyless > 0 {
 		warnings = append(warnings, fmt.Sprintf("%s have no partition key value: they cannot be addressed and are skipped.",
 			countItems(keyless)))
 	}
 	if targets.WholeItems {
-		warnings = append(warnings, "An UNSET made the selection read whole items, to see which have each path: "+
-			"its charge is a full read of the matching items.")
+		warnings = append(warnings, "An UNSET or a nested SET made the selection read whole items, to see which "+
+			"have each path: its charge is a full read of the matching items.")
 	}
 	if targets.Unaffected > 0 {
 		paths := make([]string, 0, len(m.Removals))

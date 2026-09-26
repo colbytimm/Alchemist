@@ -532,7 +532,7 @@ func TestThePromptHoldsWhileTheSaveIsInFlight(t *testing.T) {
 	m = pressAll(t, m, keyMsg(tea.KeyEscape), keyText("zz"))
 
 	assert.Contains(t, plain(m.View()), promptTitle, "esc waits for the outcome")
-	m, _ = settle(m, write)
+	m = settleWriting(m, write)
 	assert.NotContains(t, plain(m.View()), promptTitle)
 	assert.Equal(t, "q", only(t, store, mock.Name).Name, "nothing typed meanwhile reached the name")
 }

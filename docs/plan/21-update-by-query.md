@@ -95,8 +95,10 @@ condition  = every token up to the end of the statement
   with it: `o.status`, `o.shipTo.region`, `o["order-id"]`, `o.lines[0].qty`.
 - A path becomes a JSON Pointer (`/shipTo/region`, `/order-id`, `/lines/0/qty`), with
   `~` and `/` escaped as `~0` and `~1`.
-- `SET path = value` is the patch operation `set`: the path is created when absent and
-  replaced when present. It is not `replace`, which would fail every item that lacks
+- `SET path = value` is the patch operation `set`: the path's last step is created when
+  absent and replaced when present. Its parent is never created: a `set` of
+  `/ship/region` on an item with no `ship` is refused with 400 (verified on the
+  emulator; see "Implementation notes" for how such items are handled). It is not `replace`, which would fail every item that lacks
   the field, and not `add`, which inserts into an array instead of overwriting.
 - `UNSET path` is `remove`. The service fails a `remove` of an absent path, and one
   failed operation fails the item's whole patch. So an item that lacks the path gets a
@@ -1114,3 +1116,26 @@ and the progress view keep their prompt and keys at 80×24.
   fields. Report pages never feed the index: the report has no plan.
 - 23 has not landed on this branch, so there is no `Diagnose` to extend; its plan's step
   adds `MutationSyntaxError` there.
+- **A WHERE's parentheses must pair up.** The condition is sent as `(<condition>)` with
+  more conditions ANDed after it, both as the selection's filter (after `Since` when a
+  scan has both) and as each patch's condition. `o.a = 1) OR (true` would escape that
+  pair and match every item, so `ParseMutation` refuses any condition whose depth goes
+  below zero or does not end at zero: `unbalanced parentheses in the WHERE`. The fuzz
+  target checks that every `Where` it accepts is balanced.
+- **A nested SET needs its parent** (verified on the emulator: 400 without it). The
+  selection reads whole items when any `SET` has more than one step, as for `UNSET`;
+  an item lacking the parent (an object for a named field, an array for an index) is
+  kept as the target outcome `skipped: no parent` and never sent, so the probe never
+  blames the `WHERE` for it. Each patch re-asserts `IS_DEFINED(<parent>)`, so a parent
+  removed since the selection is `skipped: changed`. A parent reached through an array
+  index is not re-asserted: the vNext emulator answers an index inside a patch condition
+  with 400. It does take a `set` of an index past an array's end, so that is not refused.
+  `CheckMutation` warns of every nested `SET`, the preview marks each path an item has no
+  parent for with `!`, and the review counts the items that lack a parent.
+- **Read-only is asked again before every chunk**, not only at the confirmation and on
+  `r`: the switcher re-reads the profiles, and one turned read-only mid-job ends the job
+  short (`failed`, resumable) before its next chunk.
+- **Past `MaxReportRows`, every omitted row is logged** (id, partition key, outcome) as
+  the report is built, which is what the banner's "The log names the rest" means.
+- `IsMutation` reads a `WITH` buffer's statement as the first `UPDATE` or `SELECT`
+  outside parentheses and not after a dot, so `WITH … SELECT c.update …` stays a query.

@@ -16,6 +16,9 @@ const (
 	Added
 	Removed
 	Unchanged // a SET to the value the field already has
+	// NoParent is a SET whose parent the item lacks: the item is
+	// skipped, not written.
+	NoParent
 )
 
 // FieldChange is what the statement would do to one path of one item.
@@ -39,6 +42,11 @@ func Preview(item json.RawMessage, m query.Mutation) ([]FieldChange, error) {
 	changes := make([]FieldChange, 0, m.Operations())
 	for _, a := range m.Assignments {
 		change := FieldChange{Kind: Added, Path: a.Path.Pointer(), After: a.Value}
+		if !placeable(item, a.Path) {
+			change.Kind = NoParent
+			changes = append(changes, change)
+			continue
+		}
 		if before, ok := valueAt(item, a.Path.Steps); ok {
 			change.Before, change.Kind = before, Changed
 			if sameJSON(before, a.Value) {

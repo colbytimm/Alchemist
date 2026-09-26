@@ -114,6 +114,34 @@ func (c *ReportCursor) FirstProblem() (int, bool) {
 
 func (c *ReportCursor) Summary() Summary { return c.summary }
 
+// OmittedRow is a target the report has no row for: past MaxReportRows,
+// the log names it instead.
+type OmittedRow struct {
+	ID           string
+	PartitionKey string
+	Outcome      string
+}
+
+// Omitted lists the targets past the report's cap, in target order.
+func (c *ReportCursor) Omitted() []OmittedRow {
+	if len(c.order) == len(c.targets) {
+		return nil
+	}
+	shown := make([]bool, len(c.targets))
+	for _, i := range c.order {
+		shown[i] = true
+	}
+	omitted := make([]OmittedRow, 0, len(c.targets)-len(c.order))
+	for i, target := range c.targets {
+		if !shown[i] {
+			omitted = append(omitted, OmittedRow{
+				ID: target.ID, PartitionKey: query.PartitionText(target.Key), Outcome: c.results[i].Outcome.Label(c.kind),
+			})
+		}
+	}
+	return omitted
+}
+
 // NextPage serves the next rows. The first page carries the statistics of
 // the whole report, and later ones none, so a caller adding up its pages
 // counts every target once.

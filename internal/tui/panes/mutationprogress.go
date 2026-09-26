@@ -155,7 +155,7 @@ func skippedText(c mutate.Counts) string {
 	for _, reason := range []struct {
 		n    int
 		name string
-	}{{c.Changed, "changed"}, {c.Gone, "gone"}, {c.NoKey, "no key"}} {
+	}{{c.Changed, "changed"}, {c.Gone, "gone"}, {c.NoKey, "no key"}, {c.NoParent, "no parent"}} {
 		if reason.n > 0 {
 			reasons = append(reasons, fmt.Sprintf("%d %s", reason.n, reason.name))
 		}
