@@ -31,6 +31,10 @@ var profileNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // Config is the whole config file.
 type Config struct {
+	// Theme is the theme every launch opens in. It is kept as written: a
+	// theme that no longer loads must not stop the file loading, and must
+	// come back once its file is fixed.
+	Theme          string `toml:"theme,omitempty"`
 	DefaultProfile string `toml:"default_profile,omitempty"`
 	// SnapshotDir moves the snapshot store off its default under
 	// $XDG_DATA_HOME, for a home directory with no room for it.

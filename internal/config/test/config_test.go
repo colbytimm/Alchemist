@@ -141,6 +141,15 @@ func TestAddRejectsWhatCannotBeLaunched(t *testing.T) {
 	}
 }
 
+func TestPutKeepsTheTheme(t *testing.T) {
+	cfg := config.Config{Theme: "jarvis-hud"}
+
+	cfg, err := cfg.Put(prodProfile())
+
+	require.NoError(t, err)
+	assert.Equal(t, "jarvis-hud", cfg.Theme)
+}
+
 func TestAddLeavesTheOriginalUntouched(t *testing.T) {
 	original := twoProfiles(t)
 

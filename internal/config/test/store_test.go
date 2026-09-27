@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -74,6 +75,7 @@ func TestLoadMissingFileIsAnEmptyConfig(t *testing.T) {
 func TestLoadParsesTheDocumentedExample(t *testing.T) {
 	store := tempStore(t)
 	writeConfig(t, store, `
+theme = "dracula-at-midnight"
 default_profile = "emulator"
 snapshot_dir = "/mnt/big/snapshots"
 
@@ -111,7 +113,53 @@ endpoint = "https://myaccount.documents.azure.com:443/"
 		MaxMutationItems:   50000,
 	}, profile)
 	assert.Equal(t, "/mnt/big/snapshots", cfg.SnapshotDir)
+	assert.Equal(t, "dracula-at-midnight", cfg.Theme)
 	assert.Equal(t, []string{"emulator", "prod"}, cfg.Names())
+}
+
+func TestTheThemeSurvivesSaveThenLoad(t *testing.T) {
+	store := tempStore(t)
+	cfg := twoProfiles(t)
+	cfg.Theme = "jarvis-hud"
+
+	require.NoError(t, store.Save(cfg))
+	got, err := store.Load()
+
+	require.NoError(t, err)
+	assert.Equal(t, cfg, got)
+}
+
+func TestTheThemeIsWrittenAtTheTop(t *testing.T) {
+	store := tempStore(t)
+	cfg := twoProfiles(t)
+	cfg.Theme = "jarvis-hud"
+
+	require.NoError(t, store.Save(cfg))
+
+	text, err := os.ReadFile(store.Path)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(string(text), `theme = "jarvis-hud"`), string(text))
+}
+
+func TestLoadNeverJudgesTheTheme(t *testing.T) {
+	store := tempStore(t)
+	writeConfig(t, store, `theme = "no such theme, not even a file name"`)
+
+	cfg, err := store.Load()
+
+	require.NoError(t, err)
+	assert.Equal(t, "no such theme, not even a file name", cfg.Theme)
+}
+
+func TestSaveProfileKeepsTheTheme(t *testing.T) {
+	store := tempStore(t)
+	require.NoError(t, store.Save(config.Config{Theme: "jarvis-hud"}))
+
+	require.NoError(t, config.SaveProfile(store, newFakeKeyring(), prodProfile(), ""))
+
+	cfg, err := store.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "jarvis-hud", cfg.Theme)
 }
 
 func TestLoadRejectsBrokenFilesByName(t *testing.T) {
