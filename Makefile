@@ -11,15 +11,18 @@ GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.1.4
 GITLEAKS := go run github.com/zricethezav/gitleaks/v8@v8.30.1
 GORELEASER := go run github.com/goreleaser/goreleaser/v2@v2.17.1
 ACTIONLINT := go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+# goreleaser runs syft by name, so it is installed into TOOLS_BIN rather than run with go run.
+SYFT_VERSION := v1.52.0
 CSPELL := npx --yes cspell@10.1.1
 
 # --dot reaches .claude/ and .golangci.yml; --gitignore skips build artifacts.
 CSPELL_FLAGS := lint --no-progress --dot --gitignore "**"
 
-COVER_PKGS := ./app/...,./cmd/...,./internal/...
-EMULATOR_URL ?= http://localhost:8081
+TOOLS_BIN := $(CURDIR)/bin/tools
 
-.PHONY: all build test bench bench-gate bench-baseline test-coverage emulator-up emulator-wait emulator-seed emulator-down test-integration coverage-html fmt fmt-check vet lint spell security gosec govulncheck gitleaks actionlint release-check release-snapshot release clean help
+COVER_PKGS := ./app/...,./cmd/...,./internal/...
+
+.PHONY: all build test bench bench-gate bench-baseline test-coverage emulator-up emulator-seed emulator-down test-integration coverage-html fmt fmt-check vet lint spell security gosec govulncheck gitleaks actionlint syft release-check release-snapshot release clean help
 
 ## all: fmt-check, lint, spell, test, build
 all: fmt-check lint spell test build
@@ -50,25 +53,17 @@ bench-gate: bench
 bench-baseline:
 	go test $(BENCH_FLAGS) $(BENCH_PKGS) > testdata/bench-baseline.txt
 
-## emulator-up: start the Cosmos DB emulator container
-emulator-up:
-	docker compose -f test/integration/docker-compose.yml up -d --wait
-
-## emulator-wait: block until the emulator answers on EMULATOR_URL (it boots slowly)
-emulator-wait:
-	@for attempt in $$(seq 1 60); do \
-		if curl -ks --max-time 5 -o /dev/null $(EMULATOR_URL); then exit 0; fi; \
-		sleep 5; \
-	done; \
-	echo "emulator did not answer on $(EMULATOR_URL)"; exit 1
+## emulator-up: start the Cosmos DB emulator container and wait until it answers
+emulator-up: build
+	bin/$(BINARY_NAME) emulator start
 
 ## emulator-seed: replace the sales, telemetry and hr databases in the emulator with sample data
-emulator-seed:
-	go run ./test/seed
+emulator-seed: build
+	bin/$(BINARY_NAME) emulator seed --replace
 
-## emulator-down: stop the Cosmos DB emulator container
-emulator-down:
-	docker compose -f test/integration/docker-compose.yml down -v
+## emulator-down: delete the Cosmos DB emulator container and its data
+emulator-down: build
+	bin/$(BINARY_NAME) emulator remove --data
 
 ## test-integration: run integration tests against the emulator
 test-integration:
@@ -131,13 +126,22 @@ actionlint:
 release-check:
 	$(GORELEASER) check
 
-## release-snapshot: build every release archive into dist/ without publishing
-release-snapshot:
-	$(GORELEASER) release --snapshot --clean
+## syft: install the pinned syft, which writes the SBOMs, into bin/tools
+syft:
+	GOBIN=$(TOOLS_BIN) go install github.com/anchore/syft/cmd/syft@$(SYFT_VERSION)
 
-## release: publish a GitHub Release for the current tag (needs GITHUB_TOKEN)
-release:
-	$(GORELEASER) release --clean
+## release-snapshot: build every release artifact into dist/ without publishing (the MSI needs wixl)
+release-snapshot: syft
+	PATH="$(TOOLS_BIN):$$PATH" $(GORELEASER) release --snapshot --clean
+
+## brew-check: install the cask from dist/ with Homebrew and run it (after release-snapshot)
+.PHONY: brew-check
+brew-check:
+	test/homebrew/check.sh
+
+## release: publish a GitHub Release for the current tag (needs GITHUB_TOKEN, wixl and osslsigncode; HOMEBREW_TAP_TOKEN pushes the cask; WINGET_GITHUB_TOKEN opens the winget PR)
+release: syft
+	PATH="$(TOOLS_BIN):$$PATH" $(GORELEASER) release --clean
 
 ## clean: remove build and coverage artifacts
 clean:

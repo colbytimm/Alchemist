@@ -150,6 +150,16 @@ func TestPutKeepsTheTheme(t *testing.T) {
 	assert.Equal(t, "jarvis-hud", cfg.Theme)
 }
 
+func TestPutRefusesAWellKnownKeyOffThisMachine(t *testing.T) {
+	remote := prodProfile()
+	remote.WellKnownKey = true
+
+	_, err := config.Config{}.Put(remote)
+
+	require.ErrorIs(t, err, config.ErrInvalidConfig)
+	assert.Contains(t, err.Error(), "well_known_key is only for an emulator on this machine")
+}
+
 func TestAddLeavesTheOriginalUntouched(t *testing.T) {
 	original := twoProfiles(t)
 

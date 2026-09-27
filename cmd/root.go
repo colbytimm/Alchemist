@@ -70,7 +70,7 @@ func NewRootCmd(keyring config.Keyring) *cobra.Command {
 	session.bind(cmd.Flags())
 	cmd.PersistentFlags().String(snapshotDirFlag, "",
 		"keep snapshots here instead of snapshot_dir in config.toml or $XDG_DATA_HOME/alchemist/snapshots")
-	cmd.AddCommand(newProfileCmd(keyring), newSnapshotCmd(keyring), newThemeCmd())
+	cmd.AddCommand(newProfileCmd(keyring), newSnapshotCmd(keyring), newThemeCmd(), newEmulatorCmd(keyring))
 	cmd.SetVersionTemplate(fmt.Sprintf("%s {{.Version}}\n", app.Name))
 	cmd.CompletionOptions.DisableDefaultCmd = true
 	return cmd

@@ -15,6 +15,9 @@ jobs:
   gates:
     uses: ./.github/workflows/gates.yml
 
+  packages:
+    uses: ./.github/workflows/packages.yml
+
   release-check:
     runs-on: ubuntu-latest
     steps:

@@ -1,0 +1,135 @@
+name: packages
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # goreleaser derives the snapshot version from the latest tag.
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-name: packages
+      - run: sudo apt-get update && sudo apt-get install -y msitools wixl
+      - run: make release-snapshot
+      - run: sha256sum -c checksums.txt
+        working-directory: dist
+      - id: version
+        run: echo "version=$(jq -r .version dist/metadata.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: packages
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.msi
+            dist/*.deb
+            dist/*.rpm
+            dist/*.apk
+            dist/*.sbom.json
+            dist/checksums.txt
+            dist/winget/**
+            dist/homebrew/Casks/alchemist.rb
+
+  linux:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: debian:13
+            runner: ubuntu-latest
+            arch: amd64
+            format: deb
+            install: apt-get install -y
+            remove: apt-get remove -y
+          - image: debian:13
+            runner: ubuntu-24.04-arm
+            arch: arm64
+            format: deb
+            install: apt-get install -y
+            remove: apt-get remove -y
+          - image: fedora:44
+            runner: ubuntu-latest
+            arch: amd64
+            format: rpm
+            install: dnf install -y
+            remove: dnf remove -y
+          - image: alpine:3
+            runner: ubuntu-latest
+            arch: amd64
+            format: apk
+            install: apk add --allow-untrusted
+            remove: apk del
+    name: linux (${{ matrix.image }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.image }}
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      PACKAGE: alchemist_${{ needs.build.outputs.version }}_linux_${{ matrix.arch }}.${{ matrix.format }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: packages
+      - run: ${{ matrix.install }} "./$PACKAGE"
+      - run: alchemist --version | grep -F "Alchemist v$VERSION "
+      - run: ${{ matrix.remove }} alchemist
+      - run: test ! -e /usr/bin/alchemist
+
+  macos:
+    needs: build
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: packages
+      - run: tar -xzf "alchemist_${VERSION}_darwin_universal.tar.gz"
+      - run: lipo -archs alchemist
+      - run: lipo alchemist -verify_arch x86_64 arm64
+      - run: ./alchemist --version | grep -F "Alchemist v$VERSION "
+
+  windows:
+    needs: build
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: packages
+      - name: Install the MSI
+        run: |
+          $msi = "alchemist_${env:VERSION}_windows_amd64.msi"
+          $run = Start-Process msiexec.exe -ArgumentList '/i', $msi, '/qn', '/l*v', 'install.log' -Wait -PassThru
+          if ($run.ExitCode -ne 0) { Get-Content install.log -Tail 50; exit $run.ExitCode }
+      - name: Run from a PATH read from the registry
+        run: |
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+            [Environment]::GetEnvironmentVariable('Path', 'User')
+          $out = alchemist --version
+          if ($out -notlike "Alchemist v${env:VERSION} *") { throw "unexpected version: $out" }
+      - name: Uninstall the MSI
+        run: |
+          $msi = "alchemist_${env:VERSION}_windows_amd64.msi"
+          $run = Start-Process msiexec.exe -ArgumentList '/x', $msi, '/qn', '/l*v', 'uninstall.log' -Wait -PassThru
+          if ($run.ExitCode -ne 0) { Get-Content uninstall.log -Tail 50; exit $run.ExitCode }
+          if (Test-Path 'C:\Program Files\Alchemist\alchemist.exe') { throw 'alchemist.exe is still installed' }
+          if ([Environment]::GetEnvironmentVariable('Path', 'Machine') -like '*\Alchemist*') { throw 'PATH still names Alchemist' }
+      - name: Unpack the arm64 zip
+        run: |
+          Expand-Archive "alchemist_${env:VERSION}_windows_arm64.zip" -DestinationPath arm64
+          if (-not (Test-Path arm64\alchemist.exe)) { throw 'alchemist.exe is missing from the arm64 zip' }

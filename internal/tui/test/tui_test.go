@@ -459,19 +459,19 @@ func press(t *testing.T, m tea.Model, key tea.KeyMsg) (tea.Model, []tea.Msg) {
 	return settle(model, cmd)
 }
 
-// pressWriting is press for a key whose own command writes to disk: that
-// command is waited on however long the write takes, where press would take
-// a slow write for a timer and drop its answer. What the answers start in
+// pressDisk is press for a key whose own command reads or writes disk: that
+// command is waited on however long the disk takes, where press would take a
+// slow disk for a timer and drop its answer. What the answers start in
 // turn, such as a notice retiring itself, settles as press settles it.
-func pressWriting(t *testing.T, m tea.Model, key tea.KeyMsg) tea.Model {
+func pressDisk(t *testing.T, m tea.Model, key tea.KeyMsg) tea.Model {
 	t.Helper()
-	return settleWriting(m.Update(key))
+	return settleDisk(m.Update(key))
 }
 
-// settleWriting is settle for a command that writes to disk: it is waited
-// on however long the write takes, and what its answers start is settled
+// settleDisk is settle for a command that reads or writes disk: it is waited
+// on however long the disk takes, and what its answers start is settled
 // as settle settles it.
-func settleWriting(m tea.Model, cmd tea.Cmd) tea.Model {
+func settleDisk(m tea.Model, cmd tea.Cmd) tea.Model {
 	for _, msg := range answers(cmd) {
 		m, _ = settle(m.Update(msg))
 	}

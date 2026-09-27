@@ -7,7 +7,7 @@ write SQL, and page through results in one screen.
 
 <!-- TODO: record docs/demo.tape with `vhs docs/demo.tape` and embed docs/demo.gif here -->
 
-Alchemist is in early development. There are no release builds yet.
+Alchemist is in early development.
 
 ## Features
 
@@ -24,26 +24,42 @@ Alchemist is in early development. There are no release builds yet.
 - Several accounts in one session. Accounts are read-only unless you allow writes.
 - Color themes: the default, five built in, and your own. `ctrl+t` switches theme in
   the app and keeps it.
+- Installs with Homebrew on macOS and Linux, and winget on Windows.
 
 ## Quick start
 
-Build from source with Go 1.26 or newer:
+### Install
+
+On macOS and Linux, install with [Homebrew](https://brew.sh):
 
 ```sh
-git clone https://github.com/colbytimm/Alchemist.git
-cd Alchemist
-make build
+brew install colbytimm/tap/alchemist
 ```
+
+Download the file for your platform from the
+[releases page](https://github.com/colbytimm/Alchemist/releases):
+
+| Platform | File | Install |
+|---|---|---|
+| macOS | `alchemist_<version>_darwin_universal.tar.gz` | `tar -xzf` it and move `alchemist` to a directory on your `PATH` |
+| Linux | the `.deb`, `.rpm` or `.apk` for your architecture | `sudo apt install ./<file>.deb`, `sudo dnf install ./<file>.rpm` or `sudo apk add --allow-untrusted ./<file>.apk` |
+| Windows | none, winget downloads it | `winget install --id ColbyTimm.Alchemist -e`, then open a new terminal |
+| Windows, without winget | `alchemist_<version>_windows_amd64.msi`, or the `.zip` | run the MSI, then open a new terminal |
+
+On Windows, install with winget or the MSI, not both.
+
+[Installing](docs/install.md) covers every file, the keychain on Linux, verifying a
+download, uninstalling and building from source.
 
 Try it without an account. The mock adapter serves fixture data:
 
 ```sh
-./bin/alchemist --adapter mock
+alchemist --adapter mock
 ```
 
 ### Connect to an account
 
-Run `./bin/alchemist`. The first run asks for a profile name, the account endpoint and
+Run `alchemist`. The first run asks for a profile name, the account endpoint and
 the key:
 
 ![The connect form](docs/images/connect.png)
@@ -54,19 +70,21 @@ keychain if you tick the box, and is never written to the file. Next time,
 
 ### Use the local emulator
 
-`make emulator-up` starts the Cosmos DB emulator in Docker on port 8081, and
-`make emulator-seed` loads it with sample `sales`, `telemetry` and `hr` databases. Use
-the emulator's [well-known key](https://learn.microsoft.com/azure/cosmos-db/emulator#authentication)
-when asked:
+The Cosmos DB emulator runs in a container, so it needs Docker or Podman. These
+commands start it on port 8081, load it with sample `sales`, `telemetry` and `hr`
+databases, and open the app on it:
 
 ```sh
-make emulator-up
-make emulator-seed
-./bin/alchemist profile add emulator --endpoint http://localhost:8081
-./bin/alchemist emulator
+alchemist emulator start
+alchemist emulator seed
+alchemist emulator
 ```
 
-The emulator is local, so its profile allows writes.
+From a clone, run `./bin/alchemist` in place of `alchemist`.
+
+`start` adds the `emulator` profile, which uses the emulator's well-known key, so there
+is no key to paste. The emulator is local, so its profile allows writes. See
+[the local emulator](docs/data/emulator.md) for ports, data and troubleshooting.
 
 ### Run a query
 
@@ -89,12 +107,13 @@ SELECT o.id, o.total FROM sales.orders o WHERE o.status = "open"
 
 | Topic | Pages |
 |---|---|
+| Installing | [Install, verify and uninstall](docs/install.md) |
 | Editor | [Writing queries](docs/using/editor.md), [Results and export](docs/using/results.md), [History and saved queries](docs/using/history.md), [Themes](docs/using/themes.md) |
 | Query language | [Queries across containers](docs/language/cross-container.md), [Transactional batches](docs/language/transactions.md), [Updating by query](docs/language/update.md), [Deleting by query](docs/language/delete.md) |
-| Accounts and data | [Profiles and accounts](docs/data/profiles.md), [Managing the catalog](docs/data/catalog.md), [Cloning](docs/data/cloning.md), [Snapshots](docs/data/snapshots.md) |
+| Accounts and data | [Profiles and accounts](docs/data/profiles.md), [The local emulator](docs/data/emulator.md), [Managing the catalog](docs/data/catalog.md), [Cloning](docs/data/cloning.md), [Snapshots](docs/data/snapshots.md) |
 | Reference | [Keys](docs/reference/keys.md), [Statements](docs/reference/statements.md), [Commands](docs/reference/cli.md), [Configuration](docs/reference/configuration.md) |
 
-The examples use the sample data from `make emulator-seed`. `sales.orders` is the
+The examples use the sample data from `alchemist emulator seed`. `sales.orders` is the
 `orders` container in the `sales` database.
 
 ## Credits
