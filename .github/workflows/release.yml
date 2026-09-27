@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       # Opt-in, so the upstream can release before it has certificates and a
       # fork never trips it.
@@ -62,3 +64,13 @@ jobs:
           MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
           WINDOWS_SIGN_PFX: ${{ secrets.WINDOWS_SIGN_PFX }}
           WINDOWS_SIGN_PASSWORD: ${{ secrets.WINDOWS_SIGN_PASSWORD }}
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.msi
+            dist/*.deb
+            dist/*.rpm
+            dist/*.apk
+            dist/checksums.txt
