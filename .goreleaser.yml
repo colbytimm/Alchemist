@@ -2,26 +2,59 @@ version: 2
 
 project_name: alchemist
 
-# Future work, deliberately absent: Homebrew tap and other package managers,
-# container images, signing/notarization, SBOMs.
+# Future work, deliberately absent: container images.
 
 builds:
-  - env:
-      - CGO_ENABLED=0
+  - &build
+    id: alchemist
     goos:
       - linux
       - darwin
-      - windows
     goarch:
       - amd64
       - arm64
+    env:
+      - CGO_ENABLED=0
     ldflags:
       - -s -w
       - -X github.com/colbytimm/alchemist/app.Version=v{{ .Version }}
       - -X github.com/colbytimm/alchemist/app.BuildDate={{ .Date }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+  - <<: *build
+    id: alchemist-windows
+    goos:
+      - windows
+    hooks:
+      post:
+        # Signs the .exe when WINDOWS_SIGN_PFX is set, and builds the amd64 MSI.
+        - cmd: packaging/windows/package.sh "{{ .Path }}" "{{ .Arch }}" "{{ .Version }}" "{{ .IsSnapshot }}"
+          output: true
 
+universal_binaries:
+  - ids:
+      - alchemist
+    replace: true
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+# --snapshot does not skip this pipe: the switch itself keeps snapshots unsigned.
+# A bare binary cannot be stapled; Gatekeeper checks the ticket online on first run.
+notarize:
+  macos:
+    - enabled: '{{ and (not .IsSnapshot) (isEnvSet "MACOS_SIGN_P12") }}'
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        wait: true
+        timeout: 20m
+
+# Homebrew (#35) and winget (#36) read these names: one archive per OS and arch.
 archives:
-  - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ if eq .Arch "all" }}universal{{ else }}{{ .Arch }}{{ end }}
     format_overrides:
       - goos: windows
         formats: [zip]
@@ -29,11 +62,109 @@ archives:
       - LICENSE
       - README.md
 
+nfpms:
+  - id: packages
+    ids:
+      - alchemist
+    package_name: alchemist
+    file_name_template: "{{ .PackageName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - deb
+      - rpm
+      - apk
+    vendor: Colby Timm
+    maintainer: Colby Timm <colbytimm@users.noreply.github.com>
+    homepage: https://github.com/colbytimm/Alchemist
+    description: A keyboard-driven terminal IDE for Azure Cosmos DB.
+    license: MIT
+    section: utils
+    bindir: /usr/bin
+    # A suggestion, not a dependency: servers and containers use ALCHEMIST_<NAME>_KEY.
+    suggests:
+      - gnome-keyring
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/alchemist/copyright
+        packager: deb
+      - src: LICENSE
+        dst: /usr/share/licenses/alchemist/LICENSE
+        packager: rpm
+      - src: LICENSE
+        dst: /usr/share/licenses/alchemist/LICENSE
+        packager: apk
+      - src: README.md
+        dst: /usr/share/doc/alchemist/README.md
+
+winget:
+  - name: alchemist
+    package_identifier: ColbyTimm.Alchemist
+    package_name: Alchemist
+    publisher: Colby Timm
+    publisher_url: https://github.com/colbytimm
+    author: Colby Timm
+    copyright: Copyright (c) 2026 Colby Timm
+    short_description: A terminal IDE for Azure Cosmos DB.
+    description: >-
+      A keyboard-driven terminal IDE for Azure Cosmos DB (NoSQL API). Browse
+      databases, write SQL, and page through results in one screen.
+    homepage: https://github.com/colbytimm/Alchemist
+    license: MIT
+    license_url: https://github.com/colbytimm/Alchemist/blob/main/LICENSE
+    release_notes_url: https://github.com/colbytimm/Alchemist/releases/tag/{{ .Tag }}
+    tags: [azure, cosmos-db, database, sql, terminal, tui]
+    # A fork, or a release without the secret, skips the winget PR and still succeeds.
+    skip_upload: '{{ if isEnvSet "WINGET_GITHUB_TOKEN" }}auto{{ else }}true{{ end }}'
+    repository:
+      owner: colbytimm
+      name: winget-pkgs
+      token: "{{ .Env.WINGET_GITHUB_TOKEN }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
+
+homebrew_casks:
+  - repository:
+      owner: colbytimm
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    # Without the token (a fork) the cask is still written to dist/ but not pushed.
+    skip_upload: '{{ if isEnvSet "HOMEBREW_TAP_TOKEN" }}auto{{ else }}true{{ end }}'
+    commit_msg_template: "alchemist {{ .Tag }}"
+    description: Keyboard-driven terminal IDE for Azure Cosmos DB
+    homepage: https://github.com/colbytimm/Alchemist
+    # Overrides a safety: Homebrew quarantines cask downloads, and Gatekeeper refuses
+    # a binary that is not notarized. The cask pins each archive's SHA-256 instead.
+    # The condition matches notarize.macos, so a notarized release keeps the quarantine.
+    hooks:
+      post:
+        install: |-
+          {{- if not (and (not .IsSnapshot) (isEnvSet "MACOS_SIGN_P12")) }}
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/alchemist"]
+          end
+          {{- end }}
+
+sboms:
+  - artifacts: archive
+
 checksum:
   name_template: checksums.txt
+  extra_files:
+    - glob: dist/*.msi
 
 snapshot:
   version_template: "{{ incpatch .Version }}-snapshot"
+
+release:
+  prerelease: auto
+  extra_files:
+    - glob: dist/*.msi
+  footer: >-
+    Install instructions:
+    [docs/install.md](https://github.com/colbytimm/Alchemist/blob/v{{ .Version }}/docs/install.md).
 
 changelog:
   sort: asc

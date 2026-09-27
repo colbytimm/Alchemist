@@ -11,22 +11,37 @@ jobs:
   gates:
     uses: ./.github/workflows/gates.yml
 
-  snapshot:
+  packages:
     needs: gates
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/packages.yml
+
+  # Schema and field rules only: a snapshot's installer URLs name no real release.
+  winget-validate:
+    needs: packages
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: packages
+      - shell: pwsh
+        run: |
+          $manifest = (Get-ChildItem winget -Recurse -Filter *.installer.yaml).DirectoryName
+          winget validate --manifest $manifest
+
+  brew:
+    needs: packages
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
         with:
-          # goreleaser derives the snapshot version from the latest tag.
-          fetch-depth: 0
-      - uses: ./.github/actions/setup-go
-        with:
-          cache-name: snapshot
-      - run: make release-snapshot
-      - uses: actions/upload-artifact@v6
-        with:
-          name: snapshot-archives
-          path: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/checksums.txt
+          name: packages
+          path: dist
+      # ubuntu-latest has Homebrew installed but not on its PATH.
+      - if: runner.os == 'Linux'
+        run: echo /home/linuxbrew/.linuxbrew/bin >> "$GITHUB_PATH"
+      - run: make brew-check

@@ -66,6 +66,8 @@ See [keys](../data/profiles.md#keys) for the lookup order.
 
 ## Files
 
+On Windows, `~` is your user profile folder, `%USERPROFILE%`.
+
 | Path | Contents |
 |---|---|
 | `~/.config/alchemist/config.toml` | profiles and settings |
@@ -77,3 +79,5 @@ See [keys](../data/profiles.md#keys) for the lookup order.
 Keys are stored in the OS keychain under the service `alchemist`. The emulator's data
 is in the Docker or Podman volume `alchemist-cosmos-emulator-data`, not under these
 directories.
+
+Uninstalling Alchemist, with Homebrew, winget or otherwise, leaves these files and the keychain entries in place.

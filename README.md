@@ -7,7 +7,7 @@ write SQL, and page through results in one screen.
 
 <!-- TODO: record docs/demo.tape with `vhs docs/demo.tape` and embed docs/demo.gif here -->
 
-Alchemist is in early development. There are no release builds yet.
+Alchemist is in early development.
 
 ## Features
 
@@ -22,26 +22,42 @@ Alchemist is in early development. There are no release builds yet.
 - Snapshots of a container on disk, with diffs between them.
 - Query history, saved queries, and export to JSON or CSV.
 - Several accounts in one session. Accounts are read-only unless you allow writes.
+- Installs with Homebrew on macOS and Linux, and winget on Windows.
 
 ## Quick start
 
-Build from source with Go 1.26 or newer:
+### Install
+
+On macOS and Linux, install with [Homebrew](https://brew.sh):
 
 ```sh
-git clone https://github.com/colbytimm/Alchemist.git
-cd Alchemist
-make build
+brew install colbytimm/tap/alchemist
 ```
+
+Download the file for your platform from the
+[releases page](https://github.com/colbytimm/Alchemist/releases):
+
+| Platform | File | Install |
+|---|---|---|
+| macOS | `alchemist_<version>_darwin_universal.tar.gz` | `tar -xzf` it and move `alchemist` to a directory on your `PATH` |
+| Linux | the `.deb`, `.rpm` or `.apk` for your architecture | `sudo apt install ./<file>.deb`, `sudo dnf install ./<file>.rpm` or `sudo apk add --allow-untrusted ./<file>.apk` |
+| Windows | none, winget downloads it | `winget install --id ColbyTimm.Alchemist -e`, then open a new terminal |
+| Windows, without winget | `alchemist_<version>_windows_amd64.msi`, or the `.zip` | run the MSI, then open a new terminal |
+
+On Windows, install with winget or the MSI, not both.
+
+[Installing](docs/install.md) covers every file, the keychain on Linux, verifying a
+download, uninstalling and building from source.
 
 Try it without an account. The mock adapter serves fixture data:
 
 ```sh
-./bin/alchemist --adapter mock
+alchemist --adapter mock
 ```
 
 ### Connect to an account
 
-Run `./bin/alchemist`. The first run asks for a profile name, the account endpoint and
+Run `alchemist`. The first run asks for a profile name, the account endpoint and
 the key:
 
 ![The connect form](docs/images/connect.png)
@@ -89,6 +105,7 @@ SELECT o.id, o.total FROM sales.orders o WHERE o.status = "open"
 
 | Topic | Pages |
 |---|---|
+| Installing | [Install, verify and uninstall](docs/install.md) |
 | Editor | [Writing queries](docs/using/editor.md), [Results and export](docs/using/results.md), [History and saved queries](docs/using/history.md), [Themes](docs/using/themes.md) |
 | Query language | [Queries across containers](docs/language/cross-container.md), [Transactional batches](docs/language/transactions.md), [Updating by query](docs/language/update.md), [Deleting by query](docs/language/delete.md) |
 | Accounts and data | [Profiles and accounts](docs/data/profiles.md), [The local emulator](docs/data/emulator.md), [Managing the catalog](docs/data/catalog.md), [Cloning](docs/data/cloning.md), [Snapshots](docs/data/snapshots.md) |

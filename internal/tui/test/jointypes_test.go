@@ -127,5 +127,5 @@ func TestExportingAPaddedRowLeavesTheAbsentSideOut(t *testing.T) {
 func exportWriting(t *testing.T, m tea.Model, path string) {
 	t.Helper()
 	typed := pressAll(t, openExport(t, m), keyMsg(tea.KeyCtrlU), keyText(path))
-	pressWriting(t, typed, keyMsg(tea.KeyEnter))
+	pressDisk(t, typed, keyMsg(tea.KeyEnter))
 }

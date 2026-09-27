@@ -43,6 +43,35 @@ words:
   # Container runtimes, and the emulator image's own words
   - nerdctl
   - pgcosmos
+  # Release packaging, signing and installers
+  - anchore
+  - archs
+  - Authenticode
+  - bindir
+  - codesign
+  - GOBIN
+  - INSTALLDIR
+  - lipo
+  - LOCALAPPDATA
+  - msibuild
+  - msiexec
+  - msitools
+  - nfpm
+  - nfpms
+  - notlike
+  - notmatch
+  - osslsigncode
+  - readpass
+  - sboms
+  - syft
+  - TARGETDIR
+  - winget
+  - wixl
+  - xattr
+  # Homebrew
+  - linuxbrew
+  - postflight
+  - untap
   # Cosmos DB REST and SQL vocabulary
   - colls
   - documentdb
