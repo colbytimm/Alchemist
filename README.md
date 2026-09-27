@@ -85,12 +85,15 @@ SELECT o.id, o.total FROM sales.orders o WHERE o.status = "open"
 
 ## Documentation
 
-| Section | Covers |
+| Topic | Pages |
 |---|---|
-| [Working in the editor](docs/README.md#working-in-the-editor) | error hints, autocomplete, results, export, history, saved queries, themes |
-| [The query language](docs/README.md#the-query-language) | joins across containers, batches, updates and deletes by query |
-| [Accounts and data](docs/README.md#accounts-and-data) | profiles, read-only accounts, catalog management, cloning, snapshots |
-| [Reference](docs/README.md#reference) | keys, statements, commands, configuration |
+| Editor | [Writing queries](docs/using/editor.md), [Results and export](docs/using/results.md), [History and saved queries](docs/using/history.md), [Themes](docs/using/themes.md) |
+| Query language | [Queries across containers](docs/language/cross-container.md), [Transactional batches](docs/language/transactions.md), [Updating by query](docs/language/update.md), [Deleting by query](docs/language/delete.md) |
+| Accounts and data | [Profiles and accounts](docs/data/profiles.md), [Managing the catalog](docs/data/catalog.md), [Cloning](docs/data/cloning.md), [Snapshots](docs/data/snapshots.md) |
+| Reference | [Keys](docs/reference/keys.md), [Statements](docs/reference/statements.md), [Commands](docs/reference/cli.md), [Configuration](docs/reference/configuration.md) |
+
+The examples use the sample data from `make emulator-seed`. `sales.orders` is the
+`orders` container in the `sales` database.
 
 ## Credits
 
