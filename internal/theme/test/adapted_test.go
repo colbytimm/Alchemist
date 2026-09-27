@@ -28,10 +28,6 @@ var adaptedPalettes = map[string][]string{
 		"#ffffff", "#848bbd", "#ff7edb", "#f97e72", "#72f1b8", "#fede5d", "#fe4450", "#fede5d", "#fede5d",
 		"#f97e72", "#36f9f6", "#ff7edb", "#ff7edb", "#ff8b39", "#f97e72", "#848bbd", "#ffffff",
 	},
-	"red": {
-		"#F8F8F8", "#cc9999", "#cc3333", "#ff4444", "#41a83e", "#CCA700", "#F14C4C", "#f12727", "#f12727",
-		"#994646", "#ffb454", "#fb9a4b", "#fb9a4b", "#cd8d8d", "#994646", "#e7c0c0", "#F8F8F8",
-	},
 }
 
 func TestAdaptedThemesMatchTheMappingTable(t *testing.T) {

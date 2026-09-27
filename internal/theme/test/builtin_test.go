@@ -74,6 +74,16 @@ func TestAlchemistKeepsTodaysPalette(t *testing.T) {
 	assert.True(t, theme.Default().Adapts())
 }
 
+func TestRedIsAnOriginalDarkTheme(t *testing.T) {
+	red := mustFindTheme(t, "red")
+
+	assert.False(t, red.Adapts())
+	assert.Equal(t, theme.About{
+		Title: "Red", Author: "Alchemist", Source: "https://github.com/colbytimm/Alchemist",
+		License: "MIT", Background: "#3f141c",
+	}, red.About())
+}
+
 func TestFindReadsACustomTheme(t *testing.T) {
 	custom := customThemes(map[string]string{"mine.toml": withColor(alchemistFile(t), theme.Keyword, `"#FF0000"`)})
 

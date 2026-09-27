@@ -74,11 +74,11 @@ or removing a profile keeps it.
 | `dracula-at-midnight` | Dracula At Midnight 3.0.0 | Wallacy Santos Ferreira, after Dracula Theme | MIT | dark only | `#1f1f1f` |
 | `enchanted-grove-dark` | Enchanted Grove Dark, M Tech Themes 0.14.7 | M Tech | MIT | dark only | `#2A3D2B` |
 | `jarvis-hud` | JARVIS HUD | Mohammad Areeb Ahmad | MIT | dark only | `#04090e` |
-| `red` | Red, from VS Code | Microsoft | MIT | dark only | `#390000` |
+| `red` | | Alchemist | MIT | dark only | `#3f141c` |
 | `synthwave-84` | SynthWave '84 0.1.20 | Robb Owen | MIT | dark only | `#262335` |
 
-The five adapted themes come from dark VS Code themes. They give each role one color
-for light and dark terminals, and read best on a dark one.
+The four adapted themes come from dark VS Code themes. They and `red` give each role
+one color for light and dark terminals, and read best on a dark one.
 
 ### Alchemist
 
@@ -117,6 +117,8 @@ The default theme. Its colors adapt to light and dark terminals.
 ![The jarvis-hud theme](../images/theme-jarvis-hud.png)
 
 ### Red
+
+An original dark theme on a deep maroon background.
 
 ![The red theme](../images/theme-red.png)
 
@@ -289,5 +291,4 @@ too. [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) has every license in
 | `dracula-at-midnight` | [Dracula At Midnight](https://github.com/walcew/dracula-at-midnight) | Wallacy Santos Ferreira, after Dracula Theme | MIT |
 | `enchanted-grove-dark` | [M Tech Themes](https://github.com/ChrisMcKee1/mtech-pro-vscode-themes) | M Tech | MIT |
 | `jarvis-hud` | JARVIS HUD, read from the [vscodethemes.com mirror](https://github.com/AvinashReddy3108/CodemosModern-Themes-Registry) | Mohammad Areeb Ahmad | MIT |
-| `red` | [Red](https://github.com/microsoft/vscode/tree/main/extensions/theme-red), built into VS Code | Microsoft | MIT |
 | `synthwave-84` | [SynthWave '84](https://github.com/robb0wen/synthwave-vscode) | Robb Owen | MIT |
