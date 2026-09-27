@@ -21,9 +21,8 @@ CSPELL_FLAGS := lint --no-progress --dot --gitignore "**"
 TOOLS_BIN := $(CURDIR)/bin/tools
 
 COVER_PKGS := ./app/...,./cmd/...,./internal/...
-EMULATOR_URL ?= http://localhost:8081
 
-.PHONY: all build test bench bench-gate bench-baseline test-coverage emulator-up emulator-wait emulator-seed emulator-down test-integration coverage-html fmt fmt-check vet lint spell security gosec govulncheck gitleaks actionlint syft release-check release-snapshot release clean help
+.PHONY: all build test bench bench-gate bench-baseline test-coverage emulator-up emulator-seed emulator-down test-integration coverage-html fmt fmt-check vet lint spell security gosec govulncheck gitleaks actionlint syft release-check release-snapshot release clean help
 
 ## all: fmt-check, lint, spell, test, build
 all: fmt-check lint spell test build
@@ -54,25 +53,17 @@ bench-gate: bench
 bench-baseline:
 	go test $(BENCH_FLAGS) $(BENCH_PKGS) > testdata/bench-baseline.txt
 
-## emulator-up: start the Cosmos DB emulator container
-emulator-up:
-	docker compose -f test/integration/docker-compose.yml up -d --wait
-
-## emulator-wait: block until the emulator answers on EMULATOR_URL (it boots slowly)
-emulator-wait:
-	@for attempt in $$(seq 1 60); do \
-		if curl -ks --max-time 5 -o /dev/null $(EMULATOR_URL); then exit 0; fi; \
-		sleep 5; \
-	done; \
-	echo "emulator did not answer on $(EMULATOR_URL)"; exit 1
+## emulator-up: start the Cosmos DB emulator container and wait until it answers
+emulator-up: build
+	bin/$(BINARY_NAME) emulator start
 
 ## emulator-seed: replace the sales, telemetry and hr databases in the emulator with sample data
 emulator-seed: build
 	bin/$(BINARY_NAME) emulator seed --replace
 
-## emulator-down: stop the Cosmos DB emulator container
-emulator-down:
-	docker compose -f test/integration/docker-compose.yml down -v
+## emulator-down: delete the Cosmos DB emulator container and its data
+emulator-down: build
+	bin/$(BINARY_NAME) emulator remove --data
 
 ## test-integration: run integration tests against the emulator
 # -p 1: the vNext emulator keys offers by a number that databases and containers draw
