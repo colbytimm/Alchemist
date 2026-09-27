@@ -48,7 +48,14 @@ func newEmulatorCmd(keyring config.Keyring) *cobra.Command {
 		},
 	}
 	session.bind(cmd.Flags())
-	cmd.AddCommand(newEmulatorSeedCmd(keyring))
+	cmd.AddCommand(
+		newEmulatorStartCmd(keyring),
+		newEmulatorStopCmd(keyring),
+		newEmulatorStatusCmd(keyring),
+		newEmulatorSeedCmd(keyring),
+		newEmulatorLogsCmd(keyring),
+		newEmulatorRemoveCmd(keyring),
+	)
 	return cmd
 }
 

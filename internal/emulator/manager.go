@@ -144,7 +144,7 @@ func checkPortFree(port int) error {
 }
 
 // Stop stops a running container and returns it as it was found. A missing
-// one is not an error: there is nothing to stop.
+// or stopped one is not an error: there is nothing to stop.
 func (m Manager) Stop(ctx context.Context) (Container, error) {
 	c, err := m.Runtime.Inspect(ctx)
 	if err != nil || !c.Exists() {
@@ -152,6 +152,9 @@ func (m Manager) Stop(ctx context.Context) (Container, error) {
 	}
 	if !c.Managed {
 		return c, m.notManaged()
+	}
+	if !c.Running() {
+		return c, nil
 	}
 	return c, m.Runtime.Stop(ctx)
 }
