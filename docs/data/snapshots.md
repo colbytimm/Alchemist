@@ -1,27 +1,25 @@
-# 13. Snapshots
+# Snapshots
 
-- [13.1. Taking and comparing](#131-taking-and-comparing)
-- [13.2. From a shell](#132-from-a-shell)
-- [13.3. What a snapshot is](#133-what-a-snapshot-is)
-- [13.4. What it costs](#134-what-it-costs)
-- [13.5. Where it lives](#135-where-it-lives)
-- [13.6. Background captures](#136-background-captures)
+A snapshot is a copy of a container's items and settings, stored on disk. Compare two
+snapshots to see what changed.
 
-## 13.1. Taking and comparing
+## In the app
 
-`s` on a container in the catalog takes a snapshot of it: every item and the
-container's definition, kept on disk. `v` lists its snapshots, newest first, and
-`enter` shows what changed from the one before, or between the two marked with
-`space`: the items added, removed and modified, a field-by-field diff of any modified
-item (`enter` on it), and what changed in the definition, such as the indexing policy,
-the TTL or the throughput. `s` and `v` on a database take and list database
-snapshots, one per container.
+`s` on a container in the catalog takes a snapshot. `v` lists its snapshots:
 
-![Two snapshots of sales.orders, the second with eight items modified, and the store's size on disk](../images/snapshots.png)
+![Two snapshots of sales.orders](../images/snapshots.png)
 
-![The diff between the two snapshots: eight items modified, each listing the fields that changed](../images/snapshot-diff.png)
+`enter` compares the selected snapshot with the one before it. To compare any two,
+mark them with `space` first. The diff lists added, removed and modified items, and
+changes to settings such as indexing, TTL and throughput:
 
-![The field-by-field diff of one item: archivedAt added and status changed from shipped to archived](../images/snapshot-item-diff.png)
+![The diff between two snapshots](../images/snapshot-diff.png)
+
+`enter` on an item shows its changes field by field:
+
+![One item's changes](../images/snapshot-item-diff.png)
+
+On a database, `s` and `v` work on every container in it.
 
 | Key | Where | Action |
 |---|---|---|
@@ -30,77 +28,58 @@ snapshots, one per container.
 | `space` | snapshots | mark |
 | `enter` | snapshots | diff |
 | `d`, then `enter` | snapshots | delete snapshot |
-| `ctrl+e` | snapshots | export the snapshot's items (`.jsonl` or `.json`) |
+| `x` | snapshots, capturing | cancel capture |
+| `ctrl+e` | snapshots | export items (`.jsonl` or `.json`) |
 | `enter` | diff | fields |
 | `tab` | diff | all/added/removed/modified |
-| `ctrl+e` | diff | export the diff (`.json` with a JSON Patch per modified item, or `.csv`) |
+| `ctrl+e` | diff | export (`.json` with a JSON Patch per item, or `.csv`) |
 
-## 13.2. From a shell
-
-Every snapshot operation also runs with no TUI:
+## From the command line
 
 ```sh
 alchemist snapshot take prod sales.orders --note "before the migration"
 alchemist snapshot diff prod sales.orders          # previous → latest
-alchemist snapshot diff prod sales.orders --live   # the latest → now
+alchemist snapshot diff prod sales.orders --live   # latest → now
 alchemist snapshot list prod
 alchemist snapshot export prod sales.orders latest -o orders.jsonl
 alchemist snapshot verify prod sales --deep
 ```
 
-and from cron, pruning on a line of its own, since nothing prunes by itself:
+Snapshots are never pruned automatically. For a nightly snapshot with pruning:
 
 ```
 0 6 * * *  alchemist snapshot take prod sales --note nightly \
            && alchemist snapshot prune prod sales --keep-last 7 --keep-daily 30
 ```
 
-[Command-Line Programs](../reference/cli.md#alchemist-snapshot) documents every
-subcommand and flag.
+See [commands](../reference/cli.md#alchemist-snapshot) for every option.
 
-## 13.3. What a snapshot is
+## Consistency
 
-A snapshot of a live container is every item as the service returned it during the
-window the list shows (`started` to `finished`), not a point in time. No item is torn,
-and one nobody wrote during the window is exactly as it was; but there is no
-consistency between items, and an item created or deleted during the window may or may
-not be in it. A write missed that way is caught by the next snapshot. A restore point
-consistent across items is the account's continuous backup, not this.
+A snapshot records each item as it was read during the capture, not the container at
+one point in time. Items written during the capture may or may not be included. The
+next snapshot picks them up. For a consistent point-in-time copy, use the account's
+continuous backup.
 
-## 13.4. What it costs
+## Cost and storage
 
-The first snapshot reads every item once. After that a snapshot reads every item's key
-and version (which is the only way to see deletes), and the bodies of those that
-changed; a container nobody touched costs one read of its keys and under 4 KB of disk.
+The first snapshot reads every item. Later snapshots read each item's key and version,
+and only the full body of items that changed. An unchanged container costs one read of
+its keys and under 4 KB of disk.
 
-Items are stored once whichever snapshots hold them, compressed in blocks, so thirty
-daily snapshots of a container where 1% changes a day take about 1.4× the disk of one;
-`v` and `snapshot list` show the store against the exports it replaces
-(`30 snapshots · 30.0 GB of items · 460.0 MB on disk · 65× smaller`). A capture spends
-request units as fast as the account lets it, and the progress line shows how many.
+Unchanged items are stored once, compressed. Thirty daily snapshots of a container
+where 1% changes each day take about 1.4 times the space of one. `v` and
+`snapshot list` show the actual size.
 
-## 13.5. Where it lives
+Snapshots are stored in `~/.local/share/alchemist/snapshots`, by profile, database and
+container. Set `snapshot_dir` in `config.toml` or pass `--snapshot-dir` to move them.
+Files are readable only by you (`0600`). Snapshots are not encrypted.
 
-Under `$XDG_DATA_HOME/alchemist/snapshots` (`~/.local/share/alchemist/snapshots`), per
-profile, then database and container; `snapshot_dir` in `config.toml` or
-`--snapshot-dir` moves it. Directories are `0700` and files `0600`.
+## Background captures
 
-**Snapshots are not encrypted**: they are copies of the account's data, protected by
-file permissions and whatever encrypts the disk.
+Snapshots only read, so they work on read-only accounts. A capture runs in the
+background: `esc` hides it, the status bar shows its progress, `v` shows it again,
+and `x` cancels it. One background job runs at a time. Containers with more than
+`snapshot_max_items` items (5,000,000 by default) are refused.
 
-`alchemist profile remove` keeps an account's snapshots and says where; `--purge`
-deletes them with the profile.
-
-## 13.6. Background captures
-
-A snapshot only reads, so it works on a
-[read-only account](profiles.md#104-read-only-accounts). A capture runs in the
-background like a [clone](cloning.md): `esc` hides it, the status bar carries
-`snapshot prod/sales.orders 41% (v)` on every account, `v` in the catalog brings it
-back, and `x` cancels it, keeping nothing. One capture, clone or other background job
-runs at a time. A container past `snapshot_max_items` on the profile (5,000,000 when
-unset) is refused before anything is read.
-
----
-
-[← 12. Cloning](cloning.md) · [Contents](../README.md) · [Reference: Key Bindings →](../reference/keys.md)
+`alchemist profile remove` keeps a profile's snapshots unless you pass `--purge`.

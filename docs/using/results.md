@@ -1,48 +1,32 @@
-# 4. Results and Export
+# Results and export
 
-- [4.1. The results pane](#41-the-results-pane)
-- [4.2. Exporting a result set](#42-exporting-a-result-set)
-- [4.3. Where the file lands](#43-where-the-file-lands)
-
-## 4.1. The results pane
-
-The results pane shows the rows fetched so far, one column per field. Its title names
-the account the rows came from, which is not always the one the session is on now.
+## The results pane
 
 | Key | Action |
 |---|---|
 | `↑/k`, `↓/j` | move between rows |
-| `h/←`, `l/→` | scroll left, scroll right |
-| `enter` | the row's full document |
-| `m` | fetch the next page, while the status bar says `(+more)` |
+| `h/←`, `l/→` | scroll sideways |
+| `enter` | open the row's document |
+| `m` | fetch the next page |
 | `ctrl+e` | export to a file |
-| `ctrl+b` | add the row to a [batch](../language/transactions.md#72-review-and-commit) |
+| `ctrl+b` | add the row to a [batch](../language/transactions.md) |
 
-The status bar carries the request charge. A [simulated](../language/cross-container.md)
-result is marked `simulated (client-side)`, and its charge is broken down per
-container.
+The status bar shows the row count, the request charge and the elapsed time.
+`(+more)` means another page is available. The pane's title names the account the
+rows came from.
 
-## 4.2. Exporting a result set
+## Export
 
-`ctrl+e` in the results pane asks for a file name and writes the rows fetched so far.
-The extension picks the format, and `tab` switches the name between the two:
+`ctrl+e` writes the rows fetched so far. The file extension sets the format, and `tab`
+switches between the two:
 
-- `.json` writes the original documents as an indented array, exactly as the account
-  returned them.
-- `.csv` writes the columns in the order the results pane shows them, with nested
-  objects and arrays as compact JSON in their cell.
+- `.json`: the documents as returned, in an indented array.
+- `.csv`: the columns in the order shown, with nested values as compact JSON.
 
-Export never fetches. If the status bar says `(+more)`, press `m` until it does not,
-or export the part you have.
+Export does not fetch more pages. Press `m` until `(+more)` disappears to export
+everything.
 
-## 4.3. Where the file lands
-
-A bare name such as `results.json` lands in the directory Alchemist was started from.
-A path works too, relative, absolute, or starting with `~/`, and folders it names that
-do not exist yet are created. The prompt shows the full path it will write to as you
-type. An existing file is left alone unless the name ends in `!`, as in
+A bare file name is written to the directory you started Alchemist from. Relative,
+absolute and `~/` paths work, and missing folders are created. The prompt shows the
+full path. Alchemist will not overwrite a file unless the name ends in `!`, as in
 `~/exports/orders.csv!`.
-
----
-
-[← 3. Writing Queries](editor.md) · [Contents](../README.md) · [5. History and Saved Queries →](history.md)

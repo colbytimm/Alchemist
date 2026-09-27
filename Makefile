@@ -32,8 +32,8 @@ build:
 test:
 	go test ./...
 
-# The typing benchmarks of docs/development/building.md. Five runs each, of
-# which the gate takes the median.
+# The typing benchmarks that cmd/benchmark-gate holds to its budget. Five runs
+# each, of which the gate takes the median.
 BENCH_FLAGS := -run XXX -bench 'Typing|ViewWithoutEdit|Diagnose' -benchtime 50x -benchmem -count 5
 BENCH_PKGS := ./internal/tui/test/ ./internal/query/test/
 

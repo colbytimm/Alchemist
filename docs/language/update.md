@@ -1,13 +1,7 @@
-# 8. Updating by Query
+# Updating by query
 
-- [8.1. Grammar](#81-grammar)
-- [8.2. The dry run and review](#82-the-dry-run-and-review)
-- [8.3. Semantics](#83-semantics)
-- [8.4. The job](#84-the-job)
-
-Cosmos DB has no `UPDATE … WHERE`: its SQL only reads. Alchemist does what a careful
-script would, and says so: it selects the matching items with a query the service
-evaluates, then writes to each one with a patch.
+Cosmos DB SQL cannot write. Alchemist runs an `UPDATE` in two steps: a query finds the
+matching items, then each item gets a patch.
 
 ```sql
 UPDATE sales.orders o
@@ -15,106 +9,86 @@ SET o.status = "archived", o.archivedAt = "2026-01-01"
 WHERE o.status = "shipped" AND o.total < 50
 ```
 
-## 8.1. Grammar
+## Syntax
 
-- The target is always `<database>.<container>`, and the alias (`c` when none is
-  written) starts every path: `o.status`, `o.shipTo.region`, `o["order-id"]`,
-  `o.lines[0].qty`.
-- `SET path = value` sets the field, creating it where it is missing. A value is a
-  literal: a string in either quote, a number, `true`, `false`, `null`, or JSON.
-  `UNSET path` removes a field; an item that lacks it is left out of that operation.
-  A patch creates only the last step of a path: `SET o.shipTo.region` on an item with
-  no `shipTo` would be refused, so that item is `skipped: no parent` and never sent.
-- `WHERE` is required. `ctrl+r` pressed one clause early must not select a whole
-  container, so the every-item form is written out: `WHERE true`. The condition is the
-  service's own dialect and is never parsed; it is sent as written, twice.
-- Refused, with the reason: an expression or another field on the right of `=` (a
-  patch cannot read the item), `+=` and increment (not safe to run twice), `SET o =`,
-  array appends and moves, `id`, a partition key path or a system field, two paths
-  that overlap, more than 10 operations, a second container anywhere (`FROM`, `JOIN`,
-  `WITH`, or a `database.container` inside the `WHERE`), `TOP`, `ORDER BY`, `OFFSET`,
-  `LIMIT`, `RETURNING`, and anything after the statement's `;`. Every problem is listed
-  at once, and nothing is read.
+- The target is `database.container`. Every path starts with the alias (`c` if none is
+  given): `o.status`, `o.shipTo.region`, `o["order-id"]`, `o.lines[0].qty`.
+- `SET path = value` sets a field and creates it if missing. The value must be a
+  literal: a string, number, `true`, `false`, `null`, or JSON.
+- `UNSET path` removes a field.
+- A patch cannot create a missing parent object. An item without `shipTo` is skipped
+  by `SET o.shipTo.region`.
+- `WHERE` is required. Write `WHERE true` to update every item. The condition is sent
+  to the service as written.
 
-The synopsis is in the [statement reference](../reference/statements.md#update).
+These are refused, with the reason:
 
-## 8.2. The dry run and review
+- expressions or other fields on the right of `=`
+- `+=` and increments, which are unsafe to repeat
+- `SET o =`, array appends and moves
+- `id`, partition key paths and system fields
+- overlapping paths, and more than 10 operations
+- a second container anywhere in the statement
+- `TOP`, `ORDER BY`, `OFFSET`, `LIMIT`, `RETURNING`, and anything after `;`
 
-`ctrl+r` never writes. It is a dry run: it checks the statement, reads which items
-match (their identities only, or whole items when an `UNSET` must see which have the
-path), and opens a review. The review names the account, the container and its key,
-the condition, the exact number of items and when they were read, what the selection
-cost, a before → after of a few of them, a rough write cost, and every warning:
+## Review
 
-- a `WHERE` that does not pin the partition key;
-- `WHERE true`;
-- items with no partition key value;
-- items that already lack an `UNSET` path;
-- whether a snapshot of the container exists.
+`ctrl+r` does not write. It checks the statement, finds the matching items, and opens
+a review:
 
-![The review of an update: the items matched, a before and after of three of them, the rough write cost and the warnings](../images/update-review.png)
+![The update review](../images/update-review.png)
 
-It starts only once the container's name is typed back exactly, and for `WHERE true`
-the name and the item count (`orders 60`); `esc` writes nothing and records nothing. A
-statement recalled from history or a saved query is reviewed again, every time. More
-matches than `max_mutation_items` (10,000 unless the
-[profile](../reference/configuration.md#profile-settings) says otherwise) is a refusal
-with nothing written, never a truncated run. A
-[read-only account](../data/profiles.md#104-read-only-accounts) refuses before it reads
-anything.
+The review shows the item count, the selection cost, a before and after for a few
+items, an estimated write cost, and warnings. It warns when the `WHERE` does not
+filter on the partition key and when it is `WHERE true`, and says whether the
+container has a snapshot.
 
-## 8.3. Semantics
+To start, type the container name. For `WHERE true`, type the name and the item count
+(`orders 60`). A statement from history or a saved query is always reviewed again.
 
-What it means, in plain words:
+The update is refused if more than `max_mutation_items` items match (10,000 by
+default). Read-only accounts refuse it before reading anything.
 
-- **Not atomic.** Each item is its own write. A run that stops, fails or is quit has
-  updated some items and not others. There is no rollback and no undo; the report
-  lists exactly which.
-- **Not isolated.** The targets are the items that matched when the dry run read them.
-  Every write carries the `WHERE` as its condition, so an item changed since so that it
-  no longer matches is `skipped: changed` and left alone; one deleted since is
-  `skipped: gone`. A change to another field survives: a patch touches only its paths.
-- **A write is sent once.** A throttled write was not applied and is retried after the
-  wait the service asked for, with one writer fewer. A write with no answer is
-  `unknown`, never retried, and three in a row stop the job. So do more than 100
-  failed items, and a refusal of the very first write, which usually means the service
-  does not take the `WHERE` as a patch condition.
-- **Running it again is safe.** `SET` to a literal and `UNSET` give the same document
-  however often they run. Items already updated often stop matching and are not even
-  selected; the rest are written to the same values. That is also how an `unknown`
-  item is settled, and how a run stopped in an earlier session is finished.
-- Before a large run, take a copy: a [snapshot](../data/snapshots.md) of the container,
-  and its diff afterwards, or a [clone](../data/cloning.md).
+## How it runs
 
-## 8.4. The job
+- Each item is written separately. A stopped or failed run leaves some items updated,
+  and there is no rollback. The report lists which items were updated.
+- Each patch carries the `WHERE` as its condition. An item that changed and no longer
+  matches is `skipped: changed`. A deleted item is `skipped: gone`.
+- A throttled write is retried after the delay the service asks for. A write with no
+  response is marked `unknown` and not retried. The job stops after three unknowns in a
+  row, 100 failures, or a rejected first write.
+- Running the statement again is safe: `SET` to a literal and `UNSET` give the same
+  result every time. This is also how you finish a stopped run.
 
-The job runs in the background, up to four writes at a time or `writers` on the
-profile, and holds the session's one job slot, which a clone and a snapshot use too.
+Before a large update, take a [snapshot](../data/snapshots.md) or a
+[clone](../data/cloning.md).
+
+## Progress and report
+
+The job runs in the background with up to four writes at a time (`writers` on the
+profile). One background job runs at a time, shared with clones and snapshots.
+
+![A finished update](../images/update-done.png)
 
 | Key | Where | Action |
 |---|---|---|
-| `esc` | progress, running | hide the view |
-| `w` | catalog | show it again |
-| `x` | progress, running | stop after the writes in flight |
-| `r` | progress, ended short | resume with the items not yet attempted |
-| `esc`, `enter` | progress, ended | load the report into the results |
+| `esc` | progress, running | hide |
+| `w` | catalog | show again |
+| `x` | progress, running | stop |
+| `r` | progress, stopped | resume with the remaining items |
+| `esc`, `enter` | progress, finished | show the report |
 
-While hidden, the status bar carries `update prod/sales.orders 41% (w)` on every
-account. While it runs, `x` in the switcher refuses its account, `d` refuses its
-container, a batch into its container waits, and so do a clone, a snapshot and another
-update. The first `q` shows it; the second stops it and quits.
+While it runs, the status bar shows `update prod/sales.orders 41% (w)`. You cannot
+delete the container or disconnect its account. Batches into the container, clones,
+snapshots and other updates wait. The first `q` shows the job; a second `q` stops it
+and quits.
 
-![The progress view of a finished update: 8 of 8 items updated](../images/update-done.png)
+The report has one row per item with its outcome, status code and RU:
 
-The report is one row per item with its outcome (`updated`, `skipped: changed`,
-`skipped: gone`, `skipped: no partition key`, `skipped: no parent`, `failed`,
-`unknown`, `not attempted`), the service's status and its charge, and a status bar
-that splits the charge between the selection and the writes. Past 10,000 items it
-shows every item that was not updated first, and the log names the rest; the totals
-always cover every item.
+![The update report](../images/update-report.png)
 
-![The report of an update in the results pane, one row per item, with the charge split between the selection and the writes](../images/update-report.png)
-
----
-
-[← 7. Transactional Batches](transactions.md) · [Contents](../README.md) · [9. Deleting by Query →](delete.md)
+Outcomes are `updated`, `skipped: changed`, `skipped: gone`,
+`skipped: no partition key`, `skipped: no parent`, `failed`, `unknown` and
+`not attempted`. Above 10,000 items, the report lists items that were not updated
+first.

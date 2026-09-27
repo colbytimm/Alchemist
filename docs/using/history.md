@@ -1,70 +1,49 @@
-# 5. History and Saved Queries
+# History and saved queries
 
-- [5.1. Query history](#51-query-history)
-- [5.2. Saved queries](#52-saved-queries)
-- [5.3. Saved queries on disk](#53-saved-queries-on-disk)
+## History
 
-## 5.1. Query history
+Every query that reaches the account is recorded in
+`~/.local/state/alchemist/history.jsonl`, failed ones included. An entry holds the
+query, the container it ran on, and its statistics. It never holds a key or an
+endpoint.
 
-Every query that reaches the account is appended to `history.jsonl` under
-`$XDG_STATE_HOME/alchemist` (`~/.local/state/alchemist` by default), beside the log
-file: the query as typed, the scope it ran in, and its statistics, never a key or an
-endpoint. Failed queries are recorded too, with the error, since fixing one is the
-usual reason to look back.
-
-`ctrl+o` opens the history of the account the session is on, newest first; switch
-accounts to see another's.
+`ctrl+o` opens the history of the current account, newest first.
 
 | Key | Action |
 |---|---|
-| `/` | filter by query text or scope |
-| `enter` | load the selected query into the editor, with its scope restored |
-| `ctrl+r` | load it and run it at once |
-| `ctrl+s` | save the selected query under a name |
+| `/` | filter by text or container |
+| `enter` | load the query into the editor |
+| `ctrl+r` | load and run it |
+| `ctrl+s` | save it under a name |
 
-`alchemist --history=false` records nothing for that session.
+`--history=false` turns recording off for a session. The file has one JSON object per
+line, so `jq` reads it. It is trimmed to the newest 2,500 entries once it passes 5,000.
 
-The file is one JSON object per line, so `jq . < history.jsonl` reads it. A line a
-session never finished writing is skipped, and the file is trimmed to its newest
-2,500 entries once it passes 5,000.
+## Saved queries
 
-## 5.2. Saved queries
-
-`ctrl+s` saves the query in the editor under a name, for the account the session is
-on. `ctrl+l` lists that account's saved queries by name, with the same keys as
-history, and two more:
+`ctrl+s` saves the editor's query under a name. `ctrl+l` lists the current account's
+saved queries.
 
 | Key | Action |
 |---|---|
-| `/` | filter by name, text or scope |
-| `enter` | load the selected query into the editor |
-| `ctrl+r` | load it and run it |
+| `/` | filter by name, text or container |
+| `enter` | load into the editor |
+| `ctrl+r` | load and run |
 | `r` | rename |
 | `d`, then `y` | delete |
 
-To update a saved query, load it, edit it, press `ctrl+s` (the name is filled in) and
-end the name with `!` to replace it. A name is letters, digits, spaces, `.`, `-` and
-`_`, up to 64 characters.
+To change a saved query, load it, edit it, press `ctrl+s`, and add `!` to the end of
+the name to replace it. Names can use letters, digits, spaces, `.`, `-` and `_`, up to
+64 characters.
 
-## 5.3. Saved queries on disk
-
-Each query is a plain `.sql` file under `queries/<account>/` in the config directory
-(`~/.config/alchemist/queries/prod/open orders.sql`), so `ls`, `cat`, `mv` and `rm`
-work on them, and a `.sql` file dropped there is listed the next time the overlay
-opens. A query saved against the selected container starts with one header line
-recording it, and loading it selects that container again:
+Each query is a `.sql` file in `~/.config/alchemist/queries/<account>/`, so you can
+manage them with ordinary file tools. Files you add there show up in the list. A query
+saved with a container selected starts with a header line, and loading it selects
+that container again:
 
 ```sql
 -- alchemist: scope=sales/orders
 SELECT c.id, c.total FROM c WHERE c.status = "open"
 ```
 
-A query that names its own containers (`FROM sales.orders c`) is saved without one.
-
-`alchemist profile remove <name>` keeps the profile's saved queries and snapshots and
-says where they are, so a profile removed and added again under the same name finds
-them. `--purge` deletes them too.
-
----
-
-[← 4. Results and Export](results.md) · [Contents](../README.md) · [6. Querying Across Containers →](../language/cross-container.md)
+`alchemist profile remove` keeps a profile's saved queries unless you pass `--purge`.
