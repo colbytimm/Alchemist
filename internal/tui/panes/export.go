@@ -56,7 +56,6 @@ type ExportPrompt struct {
 
 func NewExportPrompt(keys []key.Binding) ExportPrompt {
 	hints := help.New()
-	hints.Styles = helpStyles()
 	return ExportPrompt{
 		frame:       frame{title: exportTitle, focused: true},
 		hints:       hints,
@@ -174,12 +173,12 @@ func (p ExportPrompt) Fail(err error) ExportPrompt {
 
 func (p ExportPrompt) View() string {
 	width, _ := p.frame.inner()
-	lines := []string{p.input.View()}
+	lines := []string{inputView(p.input)}
 	lines = append(lines, styleAll(theme.TextStyle(), p.destinationLines(width))...)
 	lines = append(lines, p.formatLine(), "")
 	lines = append(lines, styleAll(theme.HintStyle(), wrapText(exportHint, width))...)
 	lines = append(lines, styleAll(theme.ErrorStyle(), failureLines(p.failure, width))...)
-	return p.frame.renderWithHint(lines, p.hints.ShortHelpView(p.keys))
+	return p.frame.renderWithHint(lines, themedHelp(p.hints).ShortHelpView(p.keys))
 }
 
 // destinationLines spell out where the name as typed resolves to, so a bare

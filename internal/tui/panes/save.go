@@ -55,7 +55,6 @@ type SavePrompt struct {
 
 func NewSavePrompt(keys []key.Binding) SavePrompt {
 	hints := help.New()
-	hints.Styles = helpStyles()
 	return SavePrompt{
 		frame: frame{title: saveTitle, focused: true},
 		hints: hints,
@@ -142,14 +141,14 @@ func (p SavePrompt) Fail(err error) SavePrompt {
 
 func (p SavePrompt) View() string {
 	width, _ := p.frame.inner()
-	lines := []string{p.input.View(), p.field(accountLabel, p.draft.Account)}
+	lines := []string{inputView(p.input), p.field(accountLabel, p.draft.Account)}
 	if !p.renaming {
 		lines = append(lines, p.field(scopeLabel, draftScope(p.draft.Scope)), p.field(queryLabel, firstLine(p.draft.Text)))
 	}
 	lines = append(lines, "")
 	lines = append(lines, styleAll(theme.HintStyle(), wrapText(p.hint(), width))...)
 	lines = append(lines, styleAll(theme.ErrorStyle(), failureLines(p.failure, width))...)
-	return p.frame.renderWithHint(lines, p.hints.ShortHelpView(p.keys))
+	return p.frame.renderWithHint(lines, themedHelp(p.hints).ShortHelpView(p.keys))
 }
 
 // hint leaves the overwrite mark out of a rename, which never replaces.

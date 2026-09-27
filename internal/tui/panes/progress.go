@@ -85,7 +85,6 @@ type CloneProgress struct {
 
 func NewCloneProgress(icons theme.IconSet, keys CloneKeys) CloneProgress {
 	hints := help.New()
-	hints.Styles = helpStyles()
 	return CloneProgress{frame: frame{focused: true}, icons: icons, hints: hints, keys: keys}
 }
 
@@ -118,7 +117,7 @@ func (p CloneProgress) View() string {
 		lines = append(lines, styleAll(theme.HintStyle(), wrapText(notASnapshot, width))...)
 	}
 	lines = append(lines, p.endLines(width)...)
-	return p.frame.renderWithHint(lines, p.hints.ShortHelpView(p.hintKeys()))
+	return p.frame.renderWithHint(lines, themedHelp(p.hints).ShortHelpView(p.hintKeys()))
 }
 
 // bar is drawn only when the size is known and there are items to count:

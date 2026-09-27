@@ -51,7 +51,6 @@ type Saved struct {
 // confirm the one that answers its question before a delete.
 func NewSaved(icons theme.IconSet, keys []key.Binding, confirm key.Binding) Saved {
 	hints := help.New()
-	hints.Styles = helpStyles()
 	return Saved{
 		frame:   frame{title: savedTitle, focused: true},
 		icons:   icons,
@@ -267,8 +266,8 @@ func (s Saved) footer(width int) []string {
 func (s Saved) hintLine() string {
 	q, ok := s.list.selected()
 	if !s.deleting || !ok {
-		return s.hints.ShortHelpView(s.keys)
+		return themedHelp(s.hints).ShortHelpView(s.keys)
 	}
 	question := theme.TextStyle().Render(fmt.Sprintf("delete %q?  ", q.Name))
-	return question + s.hints.ShortHelpView([]key.Binding{s.confirm}) + theme.HintStyle().Render("   "+keepHint)
+	return question + themedHelp(s.hints).ShortHelpView([]key.Binding{s.confirm}) + theme.HintStyle().Render("   "+keepHint)
 }
