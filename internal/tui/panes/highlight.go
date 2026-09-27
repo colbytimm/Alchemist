@@ -31,27 +31,28 @@ type highlighter struct {
 	frame      drawnFrame
 }
 
-// drawnFrame is a whole pane as drawn for an editor's stamp, under the
-// terminal's profile and background at the time.
+// drawnFrame is a whole pane as drawn for an editor's stamp, in the styles
+// and under the terminal's profile and background at the time.
 type drawnFrame struct {
 	stamp   uint64
+	styles  *theme.Styles
 	profile termenv.Profile
 	dark    bool
 	view    string
 }
 
-// frameFor is the frame drawn for stamp, if nothing it depends on has
-// changed since: a spinner tick redraws the screen, not the editor.
-func (h *highlighter) frameFor(stamp uint64) (string, bool) {
+// frameFor is the frame drawn for stamp in styles, if nothing it depends on
+// has changed since: a spinner tick redraws the screen, not the editor.
+func (h *highlighter) frameFor(stamp uint64, styles *theme.Styles) (string, bool) {
 	f := h.frame
-	if f.stamp != stamp || f.profile != lipgloss.ColorProfile() || f.dark != lipgloss.HasDarkBackground() {
+	if f.stamp != stamp || f.styles != styles || f.profile != lipgloss.ColorProfile() || f.dark != lipgloss.HasDarkBackground() {
 		return "", false
 	}
 	return f.view, true
 }
 
-func (h *highlighter) keepFrame(stamp uint64, view string) {
-	h.frame = drawnFrame{stamp: stamp, profile: lipgloss.ColorProfile(), dark: lipgloss.HasDarkBackground(), view: view}
+func (h *highlighter) keepFrame(stamp uint64, styles *theme.Styles, view string) {
+	h.frame = drawnFrame{stamp: stamp, styles: styles, profile: lipgloss.ColorProfile(), dark: lipgloss.HasDarkBackground(), view: view}
 }
 
 // analyze brings the cache up to value. A frame with no edit costs the
@@ -79,9 +80,10 @@ func lineStarts(value string) []int {
 }
 
 // palette is the escape codes of every class and of the squiggle, rendered
-// once for the color profile, background and underline setting they were
-// made under.
+// once for the styles, color profile, background and underline setting they
+// were made under.
 type palette struct {
+	styles    *theme.Styles
 	profile   termenv.Profile
 	dark      bool
 	setting   theme.DiagnosticUnderline
@@ -92,39 +94,42 @@ type palette struct {
 	underline theme.Sequences
 }
 
-var spanStyles = map[query.SpanKind]func() lipgloss.Style{
-	query.SpanKeyword:     theme.SyntaxKeyword,
-	query.SpanOperator:    theme.SyntaxOperator,
-	query.SpanLiteral:     theme.SyntaxLiteral,
-	query.SpanFunction:    theme.SyntaxFunction,
-	query.SpanAlias:       theme.SyntaxAlias,
-	query.SpanParameter:   theme.SyntaxParameter,
-	query.SpanString:      theme.SyntaxString,
-	query.SpanNumber:      theme.SyntaxNumber,
-	query.SpanComment:     theme.SyntaxComment,
-	query.SpanPunctuation: theme.SyntaxPunctuation,
+var spanStyles = map[query.SpanKind]func(*theme.Styles) lipgloss.Style{
+	query.SpanKeyword:     (*theme.Styles).SyntaxKeyword,
+	query.SpanOperator:    (*theme.Styles).SyntaxOperator,
+	query.SpanLiteral:     (*theme.Styles).SyntaxLiteral,
+	query.SpanFunction:    (*theme.Styles).SyntaxFunction,
+	query.SpanAlias:       (*theme.Styles).SyntaxAlias,
+	query.SpanParameter:   (*theme.Styles).SyntaxParameter,
+	query.SpanString:      (*theme.Styles).SyntaxString,
+	query.SpanNumber:      (*theme.Styles).SyntaxNumber,
+	query.SpanComment:     (*theme.Styles).SyntaxComment,
+	query.SpanPunctuation: (*theme.Styles).SyntaxPunctuation,
 }
 
-// currentPalette re-renders only when the terminal's profile or background,
-// or the underline setting, is not the one the palette was made for.
-func (h *highlighter) currentPalette(cursor lipgloss.Style, setting theme.DiagnosticUnderline) palette {
+// currentPalette re-renders only when the styles, the terminal's profile or
+// background, or the underline setting are not the ones the palette was
+// made for.
+func (h *highlighter) currentPalette(styles *theme.Styles, cursor lipgloss.Style, setting theme.DiagnosticUnderline) palette {
 	profile, dark := lipgloss.ColorProfile(), lipgloss.HasDarkBackground()
-	if h.palette.ready && h.palette.profile == profile && h.palette.dark == dark && h.palette.setting == setting {
-		return h.palette
+	p := h.palette
+	if p.ready && p.styles == styles && p.profile == profile && p.dark == dark && p.setting == setting {
+		return p
 	}
 	kinds := make(map[query.SpanKind]theme.Sequences, len(spanStyles))
 	for kind, style := range spanStyles {
-		kinds[kind] = theme.SequencesOf(style())
+		kinds[kind] = theme.SequencesOf(style(styles))
 	}
 	h.palette = palette{
+		styles:    styles,
 		profile:   profile,
 		dark:      dark,
 		setting:   setting,
 		ready:     true,
 		kinds:     kinds,
-		plain:     theme.SequencesOf(theme.TextStyle()),
+		plain:     theme.SequencesOf(styles.TextStyle()),
 		cursor:    theme.SequencesOf(cursor.Inline(true).Reverse(true)),
-		underline: setting.Sequences(theme.DiagnosticError()),
+		underline: setting.Sequences(styles.DiagnosticError()),
 	}
 	return h.palette
 }
@@ -218,6 +223,7 @@ func reverseAfter(params string, reversed bool) bool {
 // paintRequest is one frame to paint: the textarea's view of value with the
 // cursor on cursorLine, and the diagnostics on show.
 type paintRequest struct {
+	styles      *theme.Styles
 	view        string
 	cursorLine  int
 	prompt      lipgloss.Style
@@ -237,7 +243,7 @@ func (h *highlighter) paint(r paintRequest) string {
 	rows := readRows(r.view)
 	painter := rowPainter{
 		highlighter: h,
-		palette:     h.currentPalette(r.cursor, r.underline),
+		palette:     h.currentPalette(r.styles, r.cursor, r.underline),
 		prompt:      r.prompt.Render(editorPrompt),
 		diagnostics: r.diagnostics,
 	}

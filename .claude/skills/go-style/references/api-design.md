@@ -130,8 +130,10 @@ there is nothing to configure.
 ## Globals and `init`
 
 - No mutable package-level state. Dependencies come in through constructors. This
-  repo's `internal/adapter` registry is the one deliberate exception, and it is
-  guarded by `registryMu`.
+  repo makes two deliberate exceptions: the `internal/adapter` registry, guarded by
+  `registryMu`, and the active theme in `internal/theme`, an `atomic.Pointer` that
+  `theme.Use` replaces and every style accessor reads, so a theme switch reaches
+  every pane without a theme threaded through each constructor.
 - Avoid `init()`. It runs before `main` can do anything about failures, in an order
   you do not control, and it cannot return an error. No I/O, no environment reads, no
   goroutines. Adapter registration is wired explicitly in `cmd/`, not via blank imports.

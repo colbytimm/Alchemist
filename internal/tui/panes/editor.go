@@ -24,11 +24,6 @@ const (
 	editorPrompt = "┃ "
 )
 
-var (
-	focusedPromptStyle = lipgloss.NewStyle().Foreground(theme.Gold())
-	blurredPromptStyle = theme.HintStyle()
-)
-
 // Editor is the query buffer with the completion list docked under it. Like
 // the textarea it wraps, its value receiver hides shared pointers, so a
 // caller must keep every Editor it is handed.
@@ -65,7 +60,8 @@ func NewEditor(accept key.Binding) Editor {
 	// The bubble stops enter at 99 lines by default, short of a batch of the
 	// service's 100 operations written one to a line.
 	area.MaxHeight = 0
-	area.FocusedStyle, area.BlurredStyle = editorStyles()
+	area.FocusedStyle = bufferStyle(theme.HintStyle())
+	area.BlurredStyle = area.FocusedStyle
 	// A static cursor stays visible without a blink timer waking the program
 	// twice a second; only the blinking mode returns a command to drive.
 	area.Cursor.SetMode(cursor.CursorStatic)
@@ -78,20 +74,35 @@ func NewEditor(accept key.Binding) Editor {
 	}.restamp()
 }
 
-// editorStyles leave the buffer's text and prompt unstyled: the highlighter
+// bufferStyle leaves the buffer's text and prompt unstyled: the highlighter
 // paints every row the textarea renders, and an empty style costs the
 // textarea nothing per line where a colored one costs a render. Only the
 // placeholder, which the highlighter leaves alone, keeps a color.
-func editorStyles() (focused, blurred textarea.Style) {
-	blurred = textarea.Style{
+func bufferStyle(placeholder lipgloss.Style) textarea.Style {
+	return textarea.Style{
 		Base:        lipgloss.NewStyle(),
 		CursorLine:  lipgloss.NewStyle(),
 		EndOfBuffer: lipgloss.NewStyle(),
-		Placeholder: theme.HintStyle(),
+		Placeholder: placeholder,
 		Prompt:      lipgloss.NewStyle(),
 		Text:        lipgloss.NewStyle(),
 	}
-	return blurred, blurred
+}
+
+// themedArea is the textarea with its placeholder in styles. The textarea
+// draws through a pointer to whichever of its styles was current when it
+// was last focused or blurred, which a copy shares with the original, so
+// the copy is pointed at its own.
+func (e Editor) themedArea(styles *theme.Styles) textarea.Model {
+	area := e.area
+	area.FocusedStyle = bufferStyle(styles.HintStyle())
+	area.BlurredStyle = area.FocusedStyle
+	if area.Focused() {
+		_ = area.Focus() // a static cursor has no blink to drive
+	} else {
+		area.Blur()
+	}
+	return area
 }
 
 // SetDiagnosticUnderline chooses how flagged ranges are drawn; NoUnderline
@@ -212,16 +223,17 @@ func (e Editor) Value() string {
 // bottom rows of the pane; otherwise the diagnostic under the cursor may
 // take the last.
 func (e Editor) View() string {
-	if frame, ok := e.highlight.frameFor(e.stamp); ok {
+	styles := theme.Active()
+	if frame, ok := e.highlight.frameFor(e.stamp, styles); ok {
 		return frame
 	}
-	frame := e.draw()
-	e.highlight.keepFrame(e.stamp, frame)
+	frame := e.draw(styles)
+	e.highlight.keepFrame(e.stamp, styles, frame)
 	return frame
 }
 
-func (e Editor) draw() string {
-	view := e.paint(e.area.View())
+func (e Editor) draw(styles *theme.Styles) string {
+	view := e.paint(styles, e.themedArea(styles).View())
 	width, inner := e.frame.inner()
 	switch {
 	case e.suggestions.Open():
@@ -240,13 +252,14 @@ func (e Editor) bufferLines(view string) []string {
 	return buffer[:min(len(buffer), e.bufferRows())]
 }
 
-func (e Editor) paint(view string) string {
+func (e Editor) paint(styles *theme.Styles, view string) string {
 	e.highlight.analyze(e.value)
-	prompt := blurredPromptStyle
+	prompt := styles.HintStyle()
 	if e.frame.focused {
-		prompt = focusedPromptStyle
+		prompt = styles.AccentStyle()
 	}
 	return e.highlight.paint(paintRequest{
+		styles:      styles,
 		view:        view,
 		cursorLine:  e.area.Line(),
 		prompt:      prompt,

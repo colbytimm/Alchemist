@@ -24,31 +24,6 @@ func withTerminal(t *testing.T, profile termenv.Profile) {
 	})
 }
 
-func TestEverySyntaxRoleIsAPaletteColor(t *testing.T) {
-	palette := []lipgloss.AdaptiveColor{
-		theme.Gold(), theme.Copper(), theme.Verdigris(), theme.Amethyst(),
-		theme.Parchment(), theme.Cinnabar(), theme.Ash(),
-	}
-	roles := map[string]lipgloss.Style{
-		"SyntaxKeyword":     theme.SyntaxKeyword(),
-		"SyntaxOperator":    theme.SyntaxOperator(),
-		"SyntaxLiteral":     theme.SyntaxLiteral(),
-		"SyntaxFunction":    theme.SyntaxFunction(),
-		"SyntaxAlias":       theme.SyntaxAlias(),
-		"SyntaxParameter":   theme.SyntaxParameter(),
-		"SyntaxString":      theme.SyntaxString(),
-		"SyntaxNumber":      theme.SyntaxNumber(),
-		"SyntaxComment":     theme.SyntaxComment(),
-		"SyntaxPunctuation": theme.SyntaxPunctuation(),
-	}
-	for name, style := range roles {
-		color, ok := style.GetForeground().(lipgloss.AdaptiveColor)
-		require.True(t, ok, "%s adapts to light and dark", name)
-		assert.Contains(t, palette, color, name)
-	}
-	assert.Contains(t, palette, theme.DiagnosticError())
-}
-
 func TestKeywordsAndOperatorsShareAColorButNotAWeight(t *testing.T) {
 	assert.Equal(t, theme.SyntaxKeyword().GetForeground(), theme.SyntaxOperator().GetForeground())
 	assert.True(t, theme.SyntaxKeyword().GetBold())
