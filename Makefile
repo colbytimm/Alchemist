@@ -67,8 +67,8 @@ emulator-wait:
 	echo "emulator did not answer on $(EMULATOR_URL)"; exit 1
 
 ## emulator-seed: replace the sales, telemetry and hr databases in the emulator with sample data
-emulator-seed:
-	go run ./test/seed
+emulator-seed: build
+	bin/$(BINARY_NAME) emulator seed --replace
 
 ## emulator-down: stop the Cosmos DB emulator container
 emulator-down:
