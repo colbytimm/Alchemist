@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -34,9 +35,63 @@ func (s failingStore) List(string) (saved.Listing, error) {
 	return saved.Listing{}, s.failList
 }
 
-func newSavedStore(t *testing.T) saved.Dir {
+func newSavedStore(t *testing.T) *prefetchingStore {
 	t.Helper()
-	return saved.Open(filepath.Join(t.TempDir(), saved.DirName))
+	return &prefetchingStore{Dir: saved.Open(filepath.Join(t.TempDir(), saved.DirName))}
+}
+
+// prefetchingStore lists an account inside each write and answers the next
+// List from memory: the reload a write starts is batched with a notice timer,
+// so settle drops it when the disk is slower than timerGrace. Files written
+// behind its back show only after its next write.
+type prefetchingStore struct {
+	saved.Dir
+	mu     sync.Mutex
+	listed map[string]saved.Listing
+}
+
+func (s *prefetchingStore) List(account string) (saved.Listing, error) {
+	s.mu.Lock()
+	listing, ok := s.listed[account]
+	delete(s.listed, account)
+	s.mu.Unlock()
+	if ok {
+		return listing, nil
+	}
+	return s.Dir.List(account)
+}
+
+func (s *prefetchingStore) Create(account string, q saved.Query) error {
+	return s.prefetchAfter(account, s.Dir.Create(account, q))
+}
+
+func (s *prefetchingStore) Replace(account string, q saved.Query) error {
+	return s.prefetchAfter(account, s.Dir.Replace(account, q))
+}
+
+func (s *prefetchingStore) Rename(account, from, to string) error {
+	return s.prefetchAfter(account, s.Dir.Rename(account, from, to))
+}
+
+func (s *prefetchingStore) Remove(account, name string) error {
+	return s.prefetchAfter(account, s.Dir.Remove(account, name))
+}
+
+func (s *prefetchingStore) prefetchAfter(account string, writeErr error) error {
+	if writeErr != nil {
+		return writeErr
+	}
+	listing, err := s.Dir.List(account)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.listed == nil {
+		s.listed = map[string]saved.Listing{}
+	}
+	s.listed[account] = listing
+	return nil
 }
 
 // newSavedModel is a session on the mock account, its catalog loaded and
@@ -50,12 +105,12 @@ func newSavedModel(t *testing.T, conn *recordingConnection, store saved.Store) t
 
 func saveAs(t *testing.T, m tea.Model, name string) tea.Model {
 	t.Helper()
-	return pressWriting(t, pressAll(t, m, keyMsg(tea.KeyCtrlS), keyText(name)), keyMsg(tea.KeyEnter))
+	return pressDisk(t, pressAll(t, m, keyMsg(tea.KeyCtrlS), keyText(name)), keyMsg(tea.KeyEnter))
 }
 
 func openSaved(t *testing.T, m tea.Model) tea.Model {
 	t.Helper()
-	return pressAll(t, m, keyMsg(tea.KeyCtrlL))
+	return pressDisk(t, m, keyMsg(tea.KeyCtrlL))
 }
 
 func create(t *testing.T, store saved.Store, account string, q saved.Query) {
@@ -145,7 +200,7 @@ func TestATakenNameIsRefusedUntilItEndsWithTheReplaceMark(t *testing.T) {
 	assert.Contains(t, view, `"Open Orders" is already saved for mock: end the name with ! to replace it`)
 	assert.Equal(t, "SELECT 1", only(t, store, mock.Name).Text)
 
-	m = pressWriting(t, pressAll(t, m, keyRune('!')), keyMsg(tea.KeyEnter))
+	m = pressDisk(t, pressAll(t, m, keyRune('!')), keyMsg(tea.KeyEnter))
 
 	assert.NotContains(t, plain(m.View()), promptTitle)
 	replaced := only(t, store, mock.Name)
@@ -310,7 +365,7 @@ func TestDThenYDeletesTheQuery(t *testing.T) {
 	m := pressAll(t, openSaved(t, newSavedModel(t, newConnection(t), store)), keyRune('d'))
 
 	assert.Contains(t, plain(m.View()), `delete "alpha"?`)
-	m = pressAll(t, m, keyRune('y'))
+	m = pressDisk(t, m, keyRune('y'))
 
 	assert.Equal(t, "beta", only(t, store, mock.Name).Name)
 	view := plain(m.View())
@@ -341,7 +396,7 @@ func TestRRenamesThroughThePromptAndReturnsToTheOverlay(t *testing.T) {
 	m := pressAll(t, openSaved(t, newSavedModel(t, newConnection(t), store)), keyRune('r'))
 	assert.Contains(t, plain(m.View()), renameTitle)
 
-	m = pressWriting(t, pressAll(t, m, keyMsg(tea.KeyCtrlU), keyText("zulu")), keyMsg(tea.KeyEnter))
+	m = pressDisk(t, pressAll(t, m, keyMsg(tea.KeyCtrlU), keyText("zulu")), keyMsg(tea.KeyEnter))
 
 	assert.Contains(t, plain(m.View()), savedTitle)
 	listing, err := store.List(mock.Name)
@@ -357,8 +412,8 @@ func TestRenameRefusesATakenNameAndTheReplaceMark(t *testing.T) {
 	create(t, store, mock.Name, saved.Query{Name: "beta", Text: "SELECT 2"})
 	m := pressAll(t, openSaved(t, newSavedModel(t, newConnection(t), store)), keyRune('r'), keyMsg(tea.KeyCtrlU))
 
-	taken := pressWriting(t, pressAll(t, m, keyText("beta")), keyMsg(tea.KeyEnter))
-	marked := pressWriting(t, pressAll(t, m, keyText("beta!")), keyMsg(tea.KeyEnter))
+	taken := pressDisk(t, pressAll(t, m, keyText("beta")), keyMsg(tea.KeyEnter))
+	marked := pressDisk(t, pressAll(t, m, keyText("beta!")), keyMsg(tea.KeyEnter))
 
 	assert.Contains(t, plain(taken.View()), `"beta" is already saved for mock`)
 	assert.Contains(t, plain(marked.View()), `"beta!" is not a name that can be saved`)
@@ -440,7 +495,7 @@ func TestCtrlSInHistorySavesTheEntryAndReturnsToHistory(t *testing.T) {
 
 	m = pressAll(t, m, keyMsg(tea.KeyCtrlS))
 	assert.Contains(t, plain(m.View()), "query    SELECT * FROM c WHERE c.amount > 100")
-	m = pressWriting(t, pressAll(t, m, keyText("big orders")), keyMsg(tea.KeyEnter))
+	m = pressDisk(t, pressAll(t, m, keyText("big orders")), keyMsg(tea.KeyEnter))
 
 	assert.Contains(t, plain(m.View()), historyTitle, "the history overlay is back")
 	q := only(t, store, mock.Name)
@@ -480,9 +535,10 @@ func TestAStoreThatCannotWriteSaysSoInThePrompt(t *testing.T) {
 
 func TestSkippedFilesAreCountedInTheOverlay(t *testing.T) {
 	store := newSavedStore(t)
-	create(t, store, mock.Name, saved.Query{Name: "good", Text: "SELECT 1"})
+	require.NoError(t, os.MkdirAll(store.AccountPath(mock.Name), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(store.AccountPath(mock.Name), "bad name?.sql"), []byte("SELECT 1"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(store.AccountPath(mock.Name), "empty.sql"), nil, 0o600))
+	create(t, store, mock.Name, saved.Query{Name: "good", Text: "SELECT 1"})
 
 	view := plain(openSaved(t, newSavedModel(t, newConnection(t), store)).View())
 
@@ -499,9 +555,9 @@ func TestASessionWithNoStoreSaysWhyOnSave(t *testing.T) {
 	assert.Contains(t, plain(m.View()), "no store was configured")
 }
 
-// switchableStore lists from a Dir until told to fail.
+// switchableStore lists from its store until told to fail.
 type switchableStore struct {
-	saved.Dir
+	*prefetchingStore
 	failList *error
 }
 
@@ -509,13 +565,13 @@ func (s switchableStore) List(account string) (saved.Listing, error) {
 	if *s.failList != nil {
 		return saved.Listing{}, *s.failList
 	}
-	return s.Dir.List(account)
+	return s.prefetchingStore.List(account)
 }
 
 func TestCtrlLOpensFromTheEditorAndTypesNothing(t *testing.T) {
 	m := typeQuery(t, newSavedModel(t, newConnection(t), newSavedStore(t)), "SELECT 1")
 
-	m = pressAll(t, m, keyMsg(tea.KeyCtrlL))
+	m = pressDisk(t, m, keyMsg(tea.KeyCtrlL))
 
 	assert.Contains(t, plain(m.View()), savedTitle)
 	m = pressAll(t, m, keyMsg(tea.KeyEscape))
@@ -532,19 +588,19 @@ func TestThePromptHoldsWhileTheSaveIsInFlight(t *testing.T) {
 	m = pressAll(t, m, keyMsg(tea.KeyEscape), keyText("zz"))
 
 	assert.Contains(t, plain(m.View()), promptTitle, "esc waits for the outcome")
-	m = settleWriting(m, write)
+	m = settleDisk(m, write)
 	assert.NotContains(t, plain(m.View()), promptTitle)
 	assert.Equal(t, "q", only(t, store, mock.Name).Name, "nothing typed meanwhile reached the name")
 }
 
 func TestAFailedReloadDoesNotReopenAClosedOverlay(t *testing.T) {
 	var failList error
-	store := switchableStore{Dir: newSavedStore(t), failList: &failList}
+	store := switchableStore{prefetchingStore: newSavedStore(t), failList: &failList}
 	create(t, store, mock.Name, saved.Query{Name: "alpha", Text: "SELECT 1"})
 	create(t, store, mock.Name, saved.Query{Name: "beta", Text: "SELECT 2"})
 	m := pressAll(t, openSaved(t, newSavedModel(t, newConnection(t), store)), keyRune('d'))
 	m, remove := m.Update(keyRune('y'))
-	removed := messages(remove)
+	removed := answers(remove)
 	require.Len(t, removed, 1)
 	m, reload := m.Update(removed[0])
 
@@ -585,7 +641,7 @@ func TestTheOverlayUnderTheRenamePromptFollowsTheAccountAway(t *testing.T) {
 	assert.Contains(t, plain(m.View()), renameTitle, "the prompt stays up")
 	back := pressAll(t, m, keyMsg(tea.KeyEscape))
 	assert.Contains(t, plain(back.View()), "no account connected: ctrl+g to choose one")
-	renamed := pressWriting(t, pressAll(t, m, keyMsg(tea.KeyCtrlU), keyText("beta")), keyMsg(tea.KeyEnter))
+	renamed := pressDisk(t, pressAll(t, m, keyMsg(tea.KeyCtrlU), keyText("beta")), keyMsg(tea.KeyEnter))
 	assert.Equal(t, "beta", only(t, store, "prod").Name, "the rename went to the account it was opened for")
 	assert.Contains(t, plain(renamed.View()), "no account connected: ctrl+g to choose one")
 }
