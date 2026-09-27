@@ -14,7 +14,7 @@ import (
 const (
 	// BlockTarget is how many uncompressed bytes a block collects before it
 	// is compressed: enough similar documents for deflate to find what they
-	// share. See docs/plan/19-snapshots-diff.md for the measurement.
+	// share. Similar JSON measured 6.3× smaller at this size.
 	BlockTarget = 256 << 10
 	packRoll    = 64 << 20
 	seqDigits   = 4

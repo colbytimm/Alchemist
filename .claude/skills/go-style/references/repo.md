@@ -16,7 +16,7 @@ internal/theme/          lipgloss styles, logo, colour profile
 internal/tui/            bubbletea models; interfaces only, no concrete adapter
 internal/<pkg>/test/     external test packages (package <pkg>_test)
 test/integration/        docker-compose for the Cosmos emulator
-docs/plan/               iteration plans, 00–13
+docs/                    the user manual; docs/README.md is its contents
 ```
 
 **The architectural invariant, enforced by `depguard`:** `internal/tui` may import

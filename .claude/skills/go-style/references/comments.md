@@ -104,7 +104,7 @@ to code that has none.
 ## TODOs
 
 ```go
-// TODO(colbytimm): support cross-container joins — see docs/plan/10-cross-container.md.
+// TODO(colbytimm): support a per-key top N in joins — see issue #42.
 ```
 
 Owner or issue link, and what "done" means. A bare `// TODO` is noise.

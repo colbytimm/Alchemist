@@ -109,8 +109,6 @@ func accept(t *testing.T, m tea.Model, prefix, want string) tea.Model {
 	return press(t, m, keyMsg(tea.KeyTab))
 }
 
-// TestIntegrationCompletion is the manual checklist of
-// docs/plan/13-autocomplete.md, driven through the model.
 func TestIntegrationCompletion(t *testing.T) {
 	conn := connectWithRetry(t)
 	seedNested(t)

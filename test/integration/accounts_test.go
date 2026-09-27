@@ -20,8 +20,7 @@ import (
 	"github.com/colbytimm/alchemist/internal/tui"
 )
 
-// TestIntegrationAccounts is the manual checklist of
-// docs/plan/14-multiple-accounts.md: two profiles on the emulator are two
+// TestIntegrationAccounts checks that two profiles on the emulator are two
 // accounts with a history each, and a third that cannot connect leaves the
 // session where it was.
 func TestIntegrationAccounts(t *testing.T) {

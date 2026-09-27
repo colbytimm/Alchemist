@@ -285,8 +285,6 @@ func number(t *testing.T, pattern *regexp.Regexp, rendered string) float64 {
 	return value
 }
 
-// TestIntegrationRunQuery is the manual checklist of
-// docs/plan/05-editor-results.md, driven through the model.
 func TestIntegrationRunQuery(t *testing.T) {
 	conn := connectWithRetry(t)
 	freshFixture(t)
@@ -354,8 +352,6 @@ func TestIntegrationRunQuery(t *testing.T) {
 	})
 }
 
-// TestIntegrationQueryHistory is the manual checklist of
-// docs/plan/07-history.md, driven through the model with a log on disk.
 func TestIntegrationQueryHistory(t *testing.T) {
 	conn := connectWithRetry(t)
 	freshFixture(t)

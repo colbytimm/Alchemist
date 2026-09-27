@@ -14,10 +14,9 @@ import (
 	"github.com/colbytimm/alchemist/internal/benchmark"
 )
 
-// budget is docs/plan/23-syntax-highlighting.md's "The budget, enforced",
-// as its implementation notes settle it. Allocations are held to the
-// baseline because they do not depend on the machine; times only to a
-// ceiling with room for a slow runner, and to ratios within one run.
+// budget holds allocations to the baseline because they do not depend on the
+// machine, and times only to a ceiling with room for a slow runner and to
+// ratios within one run.
 var budget = benchmark.Budget{
 	Tolerance: 0.05,
 	Ceilings: []benchmark.Ceiling{

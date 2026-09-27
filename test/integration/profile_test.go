@@ -21,9 +21,9 @@ func (emptyKeyring) Get(string) (string, error) { return "", config.ErrSecretNot
 func (emptyKeyring) Set(string, string) error   { return nil }
 func (emptyKeyring) Delete(string) error        { return config.ErrSecretNotFound }
 
-// TestIntegrationProfileLaunch is the manual checklist of
-// docs/plan/06-config-profiles.md: a profile in a real config file, its key
-// from the environment, resolves to a connection that reaches the emulator.
+// TestIntegrationProfileLaunch checks that a profile in a real config file,
+// its key from the environment, resolves to a connection that reaches the
+// emulator.
 func TestIntegrationProfileLaunch(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	raw := settings()

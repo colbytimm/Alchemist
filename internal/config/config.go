@@ -1,6 +1,5 @@
 // Package config holds the named connection profiles Alchemist launches
-// with. Profiles live in a TOML file; their secrets never do — see
-// docs/plan/06-config-profiles.md.
+// with. Profiles live in a TOML file; their secrets never do.
 package config
 
 import (

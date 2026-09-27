@@ -103,13 +103,13 @@ func column(t *testing.T, view, text string) int {
 	return 0
 }
 
-func TestTheReadmeListsEveryBinding(t *testing.T) {
-	readme, err := os.ReadFile("../../../README.md")
+func TestTheKeyReferenceListsEveryBinding(t *testing.T) {
+	reference, err := os.ReadFile("../../../docs/reference/keys.md")
 	require.NoError(t, err)
 
 	for _, binding := range bindings(tui.DefaultKeyMap()) {
-		assert.Contains(t, string(readme), binding.Help().Key)
-		assert.Contains(t, string(readme), binding.Help().Desc)
+		assert.Contains(t, string(reference), binding.Help().Key)
+		assert.Contains(t, string(reference), binding.Help().Desc)
 	}
 }
 

@@ -26,7 +26,7 @@ jobs:
 
   # Its own job, so nothing else on the runner competes with the timings.
   # The gate holds allocations to the committed baseline and time only to
-  # ceilings and ratios: see docs/plan/23-syntax-highlighting.md.
+  # ceilings and ratios: see cmd/benchmark-gate.
   benchmarks:
     runs-on: ubuntu-latest
     steps:
