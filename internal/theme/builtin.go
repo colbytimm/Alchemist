@@ -166,7 +166,7 @@ func List(custom Custom) []Entry {
 	return entries
 }
 
-var errNotAThemeFile = errors.New("not a theme: a theme is a .toml file named with letters, digits, - and _")
+var errNotAThemeFile = errors.New("not a theme file: a theme is <name>.toml, named with letters, digits, - and _")
 
 func customEntry(fileName string, custom Custom) Entry {
 	name, isTOML := strings.CutSuffix(fileName, fileExt)

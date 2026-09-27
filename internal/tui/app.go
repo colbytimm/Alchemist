@@ -139,6 +139,20 @@ type Options struct {
 	// Diagnostics is how the editor underlines what it flags; NoUnderline
 	// also stops it looking.
 	Diagnostics theme.DiagnosticUnderline
+	// Themes is what the theme picker lists and saves to; nil lists the
+	// built-in themes and saves nothing.
+	Themes ThemeCatalog
+	// Notice is shown in the status bar once the session starts.
+	Notice string
+}
+
+// ThemeCatalog is every theme there is and the one saved for later
+// launches. cmd/ supplies it, since saving means writing config.toml.
+type ThemeCatalog interface {
+	List() []theme.Entry
+	Find(name string) (theme.Theme, error)
+	Save(name string) error
+	Saved() string
 }
 
 // Management is what a session may do with the catalog beyond browsing it:
@@ -178,6 +192,9 @@ type Model struct {
 	saved        saved.Store
 	// readOnly is the session's switch that makes every account read-only.
 	readOnly bool
+	themes   ThemeCatalog
+	// startNotice is shown in the status bar once the session starts.
+	startNotice string
 
 	connectPane   panes.Connect
 	accountsPane  panes.Accounts
@@ -360,6 +377,8 @@ func New(opts Options) Model {
 		sampleFields:   opts.SampleFields,
 		readOnly:       opts.ReadOnly,
 		diagnostics:    opts.Diagnostics,
+		themes:         opts.Themes,
+		startNotice:    opts.Notice,
 	}
 	m.accounts = newAccountSet(m.sessionAccounts(opts.Accounts), m.blankEntry)
 	m = m.withJobKeys()
@@ -381,11 +400,22 @@ func (m Model) sessionAccounts(accounts []Account) []Account {
 // Init connects the account the session starts on. A first run needs nothing
 // until its form is submitted.
 func (m Model) Init() tea.Cmd {
+	notice := m.showStartNotice()
 	entry, ok := m.accounts.get(m.accounts.active)
 	if !ok {
+		return notice
+	}
+	return tea.Batch(notice, entry.pane.SpinnerTick(), m.launchAccount(entry))
+}
+
+// noticeMsg puts a notice in the status bar.
+type noticeMsg string
+
+func (m Model) showStartNotice() tea.Cmd {
+	if m.startNotice == "" {
 		return nil
 	}
-	return tea.Batch(entry.pane.SpinnerTick(), m.launchAccount(entry))
+	return func() tea.Msg { return noticeMsg(m.startNotice) }
 }
 
 // withManagement rebuilds the bindings from what the active account allows,
@@ -410,6 +440,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case diagnoseMsg:
 		return m.diagnose(msg), nil
+	case noticeMsg:
+		return m.notify(string(msg))
 	case tea.WindowSizeMsg:
 		return m.resize(msg.Width, msg.Height), nil
 	case tea.KeyMsg:
