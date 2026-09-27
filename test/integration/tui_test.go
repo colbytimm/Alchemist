@@ -30,13 +30,11 @@ import (
 
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/adapter/cosmos"
+	"github.com/colbytimm/alchemist/internal/config"
 	"github.com/colbytimm/alchemist/internal/history"
 	"github.com/colbytimm/alchemist/internal/theme"
 	"github.com/colbytimm/alchemist/internal/tui"
 )
-
-// The emulator's fixed, publicly documented account key. Not a secret.
-const wellKnownKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==" // #gitleaks:allow
 
 const (
 	fixtureDatabase  = "alchemist_tui_it"
@@ -65,7 +63,7 @@ func settings() map[string]string {
 	}
 	key := os.Getenv("COSMOS_KEY")
 	if key == "" {
-		key = wellKnownKey
+		key = config.EmulatorKey
 	}
 	return map[string]string{
 		"endpoint":             endpoint,
@@ -392,7 +390,7 @@ func TestIntegrationQueryHistory(t *testing.T) {
 	assert.Len(t, lines, 4, "three runs and the re-run")
 	for i, line := range lines {
 		assert.True(t, json.Valid([]byte(line)), "line %d is not JSON: %s", i+1, line)
-		assert.NotContains(t, line, wellKnownKey, "the log holds no credential")
+		assert.NotContains(t, line, config.EmulatorKey, "the log holds no credential")
 		assert.NotContains(t, line, "localhost", "nor the endpoint, even in a recorded error")
 	}
 }
