@@ -63,6 +63,19 @@ func (e *LoadError) Error() string {
 
 func (e *LoadError) Unwrap() []error { return []error{ErrInvalidTheme, e.Err} }
 
+// Problem is what is wrong with a theme, without its name or file: what the
+// picker and the status bar have room for.
+func Problem(err error) string {
+	var loadErr *LoadError
+	switch {
+	case errors.As(err, &loadErr):
+		return loadErr.Err.Error()
+	case errors.Is(err, ErrUnknownTheme):
+		return ErrUnknownTheme.Error()
+	}
+	return err.Error()
+}
+
 // themeFile is the TOML a theme is written in. Colors is read loosely so
 // every problem in it can be named by role.
 type themeFile struct {
