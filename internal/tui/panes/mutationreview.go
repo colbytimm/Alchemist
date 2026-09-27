@@ -207,7 +207,7 @@ func (r MutationReview) bodyLines(width int) []string {
 		lines = append(lines, "")
 	}
 	for _, warning := range warnings {
-		lines = append(lines, styleAll(warningStyle(), wrapText(warningMark+warning, width))...)
+		lines = append(lines, styleAll(theme.WarningStyle(), wrapText(warningMark+warning, width))...)
 	}
 	return lines
 }
@@ -283,7 +283,7 @@ func changeLine(change mutate.FieldChange, width int) string {
 	case mutate.Unchanged:
 		mark, values, style = "=", string(change.After)+" already", theme.HintStyle()
 	case mutate.NoParent:
-		mark, values, style = "!", "no parent on this item: it is skipped", warningStyle()
+		mark, values, style = "!", "no parent on this item: it is skipped", theme.WarningStyle()
 	}
 	line := "    " + mark + " " + fit(change.Path, changeWidth) + " " + values
 	return style.Render(ansi.Truncate(line, width, "…"))

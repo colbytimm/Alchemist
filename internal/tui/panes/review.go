@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/colbytimm/alchemist/internal/adapter"
@@ -142,7 +141,7 @@ func reviewField(label, value string, width int) []string {
 		if i == 0 {
 			prefix = fit(label, reviewLabelWidth)
 		}
-		lines = append(lines, headerStyle().Render(prefix)+theme.TextStyle().Render(line))
+		lines = append(lines, theme.HeadingStyle().Render(prefix)+theme.TextStyle().Render(line))
 	}
 	return lines
 }
@@ -185,7 +184,7 @@ func (r BatchReview) bodyLines(width int) []string {
 	}
 	for _, warning := range r.draft.Check.Warnings {
 		wrapped := wrapText(warningMark+warning, width)
-		lines = append(lines, styleAll(warningStyle(), wrapped)...)
+		lines = append(lines, styleAll(theme.WarningStyle(), wrapped)...)
 	}
 	return lines
 }
@@ -221,8 +220,4 @@ func (r BatchReview) footerLines(width int) []string {
 	lines := wrapText(reviewConsequence, width)
 	lines = append(lines, reviewPrompt)
 	return append(styleAll(theme.TextStyle(), lines), r.name.view())
-}
-
-func warningStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(theme.Gold())
 }

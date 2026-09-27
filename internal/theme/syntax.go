@@ -10,43 +10,28 @@ import (
 	"github.com/muesli/termenv"
 )
 
-// The editor's token classes. Keywords are bold where operators are not, the
-// one thing telling the two amethyst classes apart.
-var (
-	syntaxKeywordStyle     = lipgloss.NewStyle().Foreground(amethyst).Bold(true)
-	syntaxOperatorStyle    = lipgloss.NewStyle().Foreground(amethyst)
-	syntaxLiteralStyle     = lipgloss.NewStyle().Foreground(copper)
-	syntaxFunctionStyle    = lipgloss.NewStyle().Foreground(gold)
-	syntaxAliasStyle       = lipgloss.NewStyle().Foreground(parchment).Bold(true)
-	syntaxParameterStyle   = lipgloss.NewStyle().Foreground(copper).Italic(true)
-	syntaxStringStyle      = lipgloss.NewStyle().Foreground(verdigris)
-	syntaxNumberStyle      = lipgloss.NewStyle().Foreground(copper)
-	syntaxCommentStyle     = lipgloss.NewStyle().Foreground(ash).Italic(true)
-	syntaxPunctuationStyle = lipgloss.NewStyle().Foreground(ash)
-)
+func SyntaxKeyword() lipgloss.Style { return Active().SyntaxKeyword() }
 
-func SyntaxKeyword() lipgloss.Style { return syntaxKeywordStyle }
+func SyntaxOperator() lipgloss.Style { return Active().SyntaxOperator() }
 
-func SyntaxOperator() lipgloss.Style { return syntaxOperatorStyle }
+func SyntaxLiteral() lipgloss.Style { return Active().SyntaxLiteral() }
 
-func SyntaxLiteral() lipgloss.Style { return syntaxLiteralStyle }
+func SyntaxFunction() lipgloss.Style { return Active().SyntaxFunction() }
 
-func SyntaxFunction() lipgloss.Style { return syntaxFunctionStyle }
+func SyntaxAlias() lipgloss.Style { return Active().SyntaxAlias() }
 
-func SyntaxAlias() lipgloss.Style { return syntaxAliasStyle }
+func SyntaxParameter() lipgloss.Style { return Active().SyntaxParameter() }
 
-func SyntaxParameter() lipgloss.Style { return syntaxParameterStyle }
+func SyntaxString() lipgloss.Style { return Active().SyntaxString() }
 
-func SyntaxString() lipgloss.Style { return syntaxStringStyle }
+func SyntaxNumber() lipgloss.Style { return Active().SyntaxNumber() }
 
-func SyntaxNumber() lipgloss.Style { return syntaxNumberStyle }
+func SyntaxComment() lipgloss.Style { return Active().SyntaxComment() }
 
-func SyntaxComment() lipgloss.Style { return syntaxCommentStyle }
-
-func SyntaxPunctuation() lipgloss.Style { return syntaxPunctuationStyle }
+func SyntaxPunctuation() lipgloss.Style { return Active().SyntaxPunctuation() }
 
 // DiagnosticError is the color of the squiggle under a flagged range.
-func DiagnosticError() lipgloss.AdaptiveColor { return cinnabar }
+func DiagnosticError() lipgloss.AdaptiveColor { return Active().DiagnosticError() }
 
 // Sequences are the escape codes a style writes before and after its text,
 // so many runs can be painted without rendering each through lipgloss.

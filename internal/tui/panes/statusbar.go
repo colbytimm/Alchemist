@@ -237,7 +237,7 @@ func (s StatusBar) fields(breakdown func(map[string]float64) string) []string {
 	}
 	fields = append(fields, theme.TextStyle().Render(s.scopeLabel()))
 	if s.job != "" {
-		fields = append(fields, chargeStyle().Render(s.job))
+		fields = append(fields, theme.SuccessStyle().Render(s.job))
 	}
 	if s.notice != "" {
 		fields = append(fields, theme.SuccessStyle().Render(s.notice))
@@ -254,7 +254,7 @@ func (s StatusBar) fields(breakdown func(map[string]float64) string) []string {
 	}
 	fields = append(fields,
 		theme.TextStyle().Render(s.rowsLabel()),
-		chargeStyle().Render(s.chargeLabel(breakdown)),
+		theme.SuccessStyle().Render(s.chargeLabel(breakdown)),
 		theme.TextStyle().Render(s.elapsedLabel()),
 	)
 	if s.progress.Running {
@@ -340,10 +340,4 @@ func (s StatusBar) elapsedLabel() string {
 		return pending + " elapsed"
 	}
 	return s.progress.Stats.Elapsed.Truncate(time.Millisecond).String()
-}
-
-// chargeStyle colors the request charge, the one statistic Cosmos users read
-// at a glance.
-func chargeStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(theme.Verdigris())
 }

@@ -114,7 +114,7 @@ func (p MutationProgress) bar(width int) string {
 	}
 	cells := max(width-percentWidth, 1)
 	full := int(fraction * float64(cells))
-	return chargeStyle().Render(strings.Repeat(p.icons.BarFull, full)) +
+	return theme.SuccessStyle().Render(strings.Repeat(p.icons.BarFull, full)) +
 		theme.HintStyle().Render(strings.Repeat(p.icons.BarEmpty, cells-full)) +
 		theme.TextStyle().Render(fmt.Sprintf(" %3d%%", int(fraction*100)))
 }
@@ -203,7 +203,7 @@ func (p MutationProgress) endLines(width int) []string {
 	var lines []string
 	if s.Warning != "" {
 		lines = append(lines, "")
-		lines = append(lines, styleAll(warningStyle(), wrapText(s.Warning, width))...)
+		lines = append(lines, styleAll(theme.WarningStyle(), wrapText(s.Warning, width))...)
 	}
 	if s.End == MutationRunning {
 		return lines

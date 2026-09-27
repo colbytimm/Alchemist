@@ -14,6 +14,7 @@ dictionaryDefinitions: []
 ignorePaths:
   - .git/**
   - "**/testdata/fuzz/**"
+  - "**/testdata/golden/**"
   - go.mod
   - go.sum
 
