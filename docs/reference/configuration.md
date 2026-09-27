@@ -75,3 +75,5 @@ On Windows, `~` is your user profile folder, `%USERPROFILE%`.
 | `~/.local/share/alchemist/snapshots/` | [snapshots](../data/snapshots.md) |
 
 Keys are stored in the OS keychain under the service `alchemist`.
+
+Uninstalling Alchemist leaves these files and the keychain entries in place.

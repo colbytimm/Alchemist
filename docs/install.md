@@ -77,6 +77,32 @@ The `.deb` and `.rpm` suggest `gnome-keyring` but do not install it.
 
 ## Windows
 
+Install with winget:
+
+```powershell
+winget install --id ColbyTimm.Alchemist -e
+```
+
+winget downloads the zip for your machine, x64 or arm64, and puts `alchemist` on
+your `PATH`. Open a new terminal, then run `alchemist`.
+
+Upgrade to the latest release:
+
+```powershell
+winget upgrade --id ColbyTimm.Alchemist -e
+```
+
+Always give `--id ColbyTimm.Alchemist -e`. `winget install alchemist` also matches an
+unrelated package named Alchemist.
+
+Install with winget or with the MSI, not both. Each puts its own copy of `alchemist`
+on your `PATH`.
+
+A new release reaches winget after Microsoft reviews it, which can take a few days.
+Until then, the MSI and the zip on the releases page are newer.
+
+### The MSI and the zip
+
 Download `alchemist_<version>_windows_amd64.msi` and run it. It installs
 `C:\Program Files\Alchemist\alchemist.exe` and adds that folder to the system `PATH`.
 Open a new terminal, then run `alchemist`.
@@ -126,6 +152,7 @@ Each archive has an SPDX software bill of materials next to it, named
 | `.deb` | `sudo apt remove alchemist` |
 | `.rpm` | `sudo dnf remove alchemist` |
 | `.apk` | `sudo apk del alchemist` |
+| winget | `winget uninstall --id ColbyTimm.Alchemist -e` |
 | MSI | remove Alchemist in Settings, Apps, or run `msiexec /x alchemist_<version>_windows_amd64.msi` |
 | zip | delete `alchemist.exe` |
 
