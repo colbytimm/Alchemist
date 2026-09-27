@@ -60,6 +60,7 @@ archives:
         formats: [zip]
     files:
       - LICENSE
+      - THIRD_PARTY_NOTICES.md
       - README.md
 
 nfpms:

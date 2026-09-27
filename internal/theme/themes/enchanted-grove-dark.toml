@@ -1,0 +1,57 @@
+# Enchanted Grove Dark, adapted for Alchemist from the VS Code theme
+# Enchanted Grove Dark in M Tech Themes 0.14.7 by M Tech. A dark theme:
+# every role has one color for light and dark terminals.
+#
+# Read from "themes/Enchanted Grove Dark.json" in
+# https://github.com/ChrisMcKee1/mtech-pro-vscode-themes at commit 997d8a1,
+# and mapped to Alchemist's roles by the rule in docs/using/themes.md. muted
+# is colors.disabledForeground, accent colors.tab.activeBorder, selected
+# colors.list.highlightForeground. No exceptions to the rule.
+#
+# MIT License
+#
+# Copyright (c) 2017-2024 M Tech
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+[about]
+title = "Enchanted Grove Dark"
+author = "M Tech"
+source = "https://github.com/ChrisMcKee1/mtech-pro-vscode-themes"
+license = "MIT"
+background = "#2A3D2B"
+
+[colors]
+text = "#FFFFFF"
+muted = "#a3c9bb"
+accent = "#7A9A42"
+selected = "#7FC76A"
+success = "#56B56A"
+warning = "#ebcb8b"
+error = "#BF616A"
+keyword = "#E88787"
+operator = "#E88787"
+literal = "#B8A3FF"
+function = "#A3C5F0"
+alias = "#FFFFFF"
+parameter = "#FFB366"
+string = "#7AB87A"
+number = "#FFB366"
+comment = "#c4d0ba"
+punctuation = "#E8F5E8"
