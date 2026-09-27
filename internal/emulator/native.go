@@ -13,6 +13,7 @@ func WindowsEmulatorPath() (string, bool) {
 		return "", false
 	}
 	path := filepath.Join(os.Getenv("ProgramFiles"), "Azure Cosmos DB Emulator", "Microsoft.Azure.Cosmos.Emulator.exe")
+	// #nosec G703 -- the path is only checked for existence, never opened.
 	if _, err := os.Stat(path); err != nil {
 		return "", false
 	}
