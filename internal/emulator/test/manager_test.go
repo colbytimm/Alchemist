@@ -142,6 +142,17 @@ func TestStartRefusesATakenPortBeforeRunning(t *testing.T) {
 	assert.NotContains(t, exec.verbs(), "pull")
 }
 
+func TestStartRefusesAPortThatCannotExist(t *testing.T) {
+	for _, port := range []int{-1, 65536} {
+		exec := newFakeExec()
+
+		_, err := manager(exec).Start(context.Background(), emulator.StartOptions{Port: port})
+
+		require.ErrorContains(t, err, "give a port from 1 to 65535")
+		assert.Empty(t, exec.calls)
+	}
+}
+
 func TestStopLeavesTheData(t *testing.T) {
 	exec := newFakeExec().on("container inspect", inspected("running", true, 8081, "sha256:aaa"))
 

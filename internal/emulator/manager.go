@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const maxPort = 65535
+
 // Probe makes one attempt at a request that only a ready emulator answers.
 type Probe func(ctx context.Context) error
 
@@ -48,6 +50,9 @@ type StartOptions struct {
 // returns the host port it publishes. It does not wait for the emulator to
 // answer: that is Wait.
 func (m Manager) Start(ctx context.Context, o StartOptions) (int, error) {
+	if o.Port < 0 || o.Port > maxPort {
+		return 0, fmt.Errorf("emulator: port %d: give a port from 1 to %d", o.Port, maxPort)
+	}
 	c, err := m.Runtime.Inspect(ctx)
 	if err != nil {
 		return 0, err
