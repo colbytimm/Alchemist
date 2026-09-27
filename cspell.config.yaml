@@ -49,12 +49,14 @@ words:
   - GOBIN
   - INSTALLDIR
   - lipo
+  - LOCALAPPDATA
   - msibuild
   - msiexec
   - msitools
   - nfpm
   - nfpms
   - notlike
+  - notmatch
   - osslsigncode
   - readpass
   - sboms
