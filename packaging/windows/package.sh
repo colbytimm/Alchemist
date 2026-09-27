@@ -12,6 +12,10 @@ readonly wxs=packaging/windows/alchemist.wxs
 readonly msi="dist/alchemist_${version}_windows_${arch}.msi"
 
 main() {
+	if signing_enabled; then
+		decode_certificate
+	fi
+	sign_file "$exe"
 	# wixl is not known to build arm64 MSIs; Windows on Arm uses the zip.
 	[[ "$arch" == amd64 ]] || return 0
 	if ! command -v wixl >/dev/null 2>&1; then
@@ -19,6 +23,32 @@ main() {
 		return 0
 	fi
 	build_msi
+	sign_file "$msi"
+}
+
+signing_enabled() {
+	[[ -n "${WINDOWS_SIGN_PFX:-}" && "$is_snapshot" == false ]]
+}
+
+certificate=""
+
+decode_certificate() {
+	certificate="$(mktemp)"
+	trap 'rm -f "$certificate"' EXIT
+	base64 --decode <<<"$WINDOWS_SIGN_PFX" >"$certificate"
+}
+
+# Signs in place with Authenticode. The timestamp keeps the signature valid
+# after the certificate expires.
+sign_file() {
+	local file="$1"
+	signing_enabled || return 0
+	osslsigncode sign \
+		-pkcs12 "$certificate" -readpass <(printf '%s' "${WINDOWS_SIGN_PASSWORD:-}") \
+		-n Alchemist -i https://github.com/colbytimm/Alchemist \
+		-h sha256 -ts http://timestamp.digicert.com \
+		-in "$file" -out "$file.signed"
+	mv "$file.signed" "$file"
 }
 
 skip_msi_without_wixl() {

@@ -26,6 +26,7 @@ builds:
       - windows
     hooks:
       post:
+        # Signs the .exe when WINDOWS_SIGN_PFX is set, and builds the amd64 MSI.
         - cmd: packaging/windows/package.sh "{{ .Path }}" "{{ .Arch }}" "{{ .Version }}" "{{ .IsSnapshot }}"
           output: true
 
@@ -34,6 +35,21 @@ universal_binaries:
       - alchemist
     replace: true
     mod_timestamp: "{{ .CommitTimestamp }}"
+
+# --snapshot does not skip this pipe: the switch itself keeps snapshots unsigned.
+# A bare binary cannot be stapled; Gatekeeper checks the ticket online on first run.
+notarize:
+  macos:
+    - enabled: '{{ and (not .IsSnapshot) (isEnvSet "MACOS_SIGN_P12") }}'
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        wait: true
+        timeout: 20m
 
 # Homebrew (#35) and winget (#36) read these names: one archive per OS and arch.
 archives:

@@ -43,6 +43,7 @@ words:
   # Release packaging, signing and installers
   - anchore
   - archs
+  - Authenticode
   - bindir
   - GOBIN
   - INSTALLDIR
@@ -54,6 +55,7 @@ words:
   - nfpms
   - notlike
   - osslsigncode
+  - readpass
   - sboms
   - syft
   - TARGETDIR
