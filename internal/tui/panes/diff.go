@@ -68,7 +68,6 @@ type Diff struct {
 
 func NewDiff(icons theme.IconSet, keys []key.Binding) Diff {
 	hints := help.New()
-	hints.Styles = helpStyles()
 	return Diff{
 		frame: frame{title: diffTitle, focused: true},
 		icons: icons,

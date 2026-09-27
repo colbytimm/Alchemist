@@ -55,7 +55,6 @@ type BatchReview struct {
 
 func NewBatchReview(keys []key.Binding) BatchReview {
 	hints := help.New()
-	hints.Styles = helpStyles()
 	return BatchReview{frame: frame{title: reviewTitle, focused: true}, hints: hints, keys: keys}
 }
 
@@ -114,7 +113,7 @@ func (r BatchReview) View() string {
 	lines = append(lines, visible...)
 	lines = append(lines, "")
 	lines = append(lines, r.footerLines(width)...)
-	return r.frame.renderWithHint(lines, r.hints.ShortHelpView(r.keys))
+	return r.frame.renderWithHint(lines, themedHelp(r.hints).ShortHelpView(r.keys))
 }
 
 // bodyHeight is what is left for the scrolling list once the header, the

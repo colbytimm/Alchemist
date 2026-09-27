@@ -73,7 +73,6 @@ func NewCatalog(icons theme.IconSet) Catalog {
 		icons: icons,
 		spinner: spinner.New(
 			spinner.WithSpinner(spinner.Spinner{Frames: icons.SpinnerFrames, FPS: spinnerFPS}),
-			spinner.WithStyle(theme.SpinnerStyle()),
 		),
 		children: map[string][]adapter.Node{},
 		expanded: map[string]bool{},
@@ -469,7 +468,7 @@ func (c Catalog) lines() ([]string, int) {
 
 	var lines []string
 	if c.loading[rootKey] {
-		lines = append(lines, theme.HintStyle().Render(c.clip(c.spinner.View()+" "+loadingLabel)))
+		lines = append(lines, theme.HintStyle().Render(c.clip(spinnerView(c.spinner)+" "+loadingLabel)))
 	}
 	if err := c.failures[rootKey]; err != nil {
 		lines = append(lines, c.errorLines(0, err)...)
@@ -492,7 +491,7 @@ func (c Catalog) nodeLine(node adapter.Node, selected bool) string {
 	// Only a load the user asked for gets a spinner; a prefetch settling a
 	// chevron would otherwise light up every row on screen at once.
 	if key := pathKey(node.Path); c.expanded[key] && c.loading[key] {
-		text += " " + c.spinner.View()
+		text += " " + spinnerView(c.spinner)
 	}
 	text = c.clip(text)
 	if selected {

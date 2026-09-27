@@ -27,7 +27,6 @@ type GroupDiff struct {
 
 func NewGroupDiff(icons theme.IconSet, keys []key.Binding) GroupDiff {
 	hints := help.New()
-	hints.Styles = helpStyles()
 	return GroupDiff{frame: frame{title: diffTitle, focused: true}, icons: icons, hints: hints, keys: keys}
 }
 
@@ -80,7 +79,7 @@ func (g GroupDiff) View() string {
 	if len(g.changes) == 0 {
 		lines = []string{theme.HintStyle().Render("no containers")}
 	}
-	return g.frame.renderWithHint(lines, g.hints.ShortHelpView(g.keys))
+	return g.frame.renderWithHint(lines, themedHelp(g.hints).ShortHelpView(g.keys))
 }
 
 func (g GroupDiff) describe(change snapshot.GroupChange) string {

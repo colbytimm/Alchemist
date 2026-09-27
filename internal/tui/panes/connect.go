@@ -90,7 +90,6 @@ func NewConnect(icons theme.IconSet, form ConnectForm) Connect {
 		escape: "quit",
 		spinner: spinner.New(
 			spinner.WithSpinner(spinner.Spinner{Frames: icons.SpinnerFrames, FPS: spinnerFPS}),
-			spinner.WithStyle(theme.SpinnerStyle()),
 		),
 		skipVerify: form.SkipVerify,
 		storeKey:   form.StoreKey,
@@ -125,8 +124,6 @@ func newInput(placeholder, value string) textinput.Model {
 	input := textinput.New()
 	input.Prompt = ""
 	input.Placeholder = placeholder
-	input.PlaceholderStyle = theme.HintStyle()
-	input.TextStyle = theme.TextStyle()
 	// A static cursor stays visible without a blink timer waking the program
 	// twice a second.
 	input.Cursor.SetMode(cursor.CursorStatic)
@@ -268,7 +265,7 @@ func (c Connect) row(field connectField) string {
 		label = theme.SelectedStyle()
 	}
 	if field < textFieldCount {
-		return label.Width(labelWidth).Render(fieldLabels[field]) + c.inputs[field].View()
+		return label.Width(labelWidth).Render(fieldLabels[field]) + inputView(c.inputs[field])
 	}
 	return label.Render(c.checkbox(field) + " " + fieldLabels[field])
 }
@@ -289,7 +286,7 @@ func (c Connect) checkbox(field connectField) string {
 func (c Connect) status(width int) string {
 	switch {
 	case c.connecting:
-		return c.spinner.View() + " " + theme.TextStyle().Render(connectingText)
+		return spinnerView(c.spinner) + " " + theme.TextStyle().Render(connectingText)
 	case c.failure != "":
 		return theme.ErrorStyle().Width(width).Render(c.icons.Failure + " " + c.failure)
 	}

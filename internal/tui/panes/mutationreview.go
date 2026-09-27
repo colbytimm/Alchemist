@@ -61,7 +61,6 @@ type MutationReview struct {
 
 func NewMutationReview(keys []key.Binding) MutationReview {
 	hints := help.New()
-	hints.Styles = helpStyles()
 	return MutationReview{frame: frame{title: "Review update", focused: true}, hints: hints, keys: keys}
 }
 
@@ -130,7 +129,7 @@ func (r MutationReview) View() string {
 	lines = append(lines, visible...)
 	lines = append(lines, "")
 	lines = append(lines, r.footerLines(width)...)
-	return r.frame.renderWithHint(lines, r.hints.ShortHelpView(r.keys))
+	return r.frame.renderWithHint(lines, themedHelp(r.hints).ShortHelpView(r.keys))
 }
 
 // sections splits the review into the header that stays in view and the

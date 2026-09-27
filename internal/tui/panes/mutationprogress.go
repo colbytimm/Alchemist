@@ -59,7 +59,6 @@ type MutationProgress struct {
 
 func NewMutationProgress(icons theme.IconSet, keys MutationKeys) MutationProgress {
 	hints := help.New()
-	hints.Styles = helpStyles()
 	return MutationProgress{frame: frame{focused: true}, icons: icons, hints: hints, keys: keys}
 }
 
@@ -88,7 +87,7 @@ func (p MutationProgress) View() string {
 	applied := s.Kind.Applied()
 	lines = append(lines, styleAll(theme.HintStyle(), wrapText(fmt.Sprintf(stayWritten, applied, applied), width))...)
 	lines = append(lines, p.endLines(width)...)
-	return p.frame.renderWithHint(lines, p.hints.ShortHelpView(p.hintKeys()))
+	return p.frame.renderWithHint(lines, themedHelp(p.hints).ShortHelpView(p.hintKeys()))
 }
 
 func (p MutationProgress) phase() string {

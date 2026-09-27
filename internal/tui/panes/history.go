@@ -52,7 +52,6 @@ type History struct {
 // NewHistory builds the overlay; keys are the bindings its hint line shows.
 func NewHistory(icons theme.IconSet, keys []key.Binding) History {
 	hints := help.New()
-	hints.Styles = helpStyles()
 	return History{
 		frame: frame{title: historyTitle, focused: true},
 		icons: icons,
@@ -128,7 +127,7 @@ func (h History) View() string {
 	bodyHeight := max(height-chromeLines, 0)
 	lines := []string{h.list.filterLine()}
 	lines = append(lines, padBody(h.rows(width, bodyHeight), bodyHeight)...)
-	lines = append(lines, h.hints.ShortHelpView(h.keys))
+	lines = append(lines, themedHelp(h.hints).ShortHelpView(h.keys))
 	return h.frame.render(strings.Join(lines, "\n"))
 }
 

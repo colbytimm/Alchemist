@@ -64,7 +64,6 @@ type Accounts struct {
 // NewAccounts builds the switcher; keys are the bindings its hint line shows.
 func NewAccounts(icons theme.IconSet, keys []key.Binding) Accounts {
 	hints := help.New()
-	hints.Styles = helpStyles()
 	return Accounts{
 		frame: frame{title: accountsTitle, focused: true},
 		icons: icons,
@@ -73,7 +72,6 @@ func NewAccounts(icons theme.IconSet, keys []key.Binding) Accounts {
 		list:  newFilterList(accountsFilterHint, matchesAccount),
 		spinner: spinner.New(
 			spinner.WithSpinner(spinner.Spinner{Frames: icons.SpinnerFrames, FPS: spinnerFPS}),
-			spinner.WithStyle(theme.SpinnerStyle()),
 		),
 	}
 }
@@ -165,7 +163,7 @@ func (a Accounts) View() string {
 	bodyHeight := max(height-chromeLines, 0)
 	lines := []string{a.list.filterLine()}
 	lines = append(lines, padBody(a.body(width, bodyHeight), bodyHeight)...)
-	lines = append(lines, a.hints.ShortHelpView(a.keys))
+	lines = append(lines, themedHelp(a.hints).ShortHelpView(a.keys))
 	return a.frame.render(strings.Join(lines, "\n"))
 }
 
@@ -228,7 +226,7 @@ func (a Accounts) row(row AccountRow, columns accountColumns, width int, selecte
 func (a Accounts) glyph(row AccountRow) string {
 	switch {
 	case row.State == AccountConnecting:
-		return a.spinner.View() + " "
+		return spinnerView(a.spinner) + " "
 	case row.Name == a.current:
 		return theme.SuccessStyle().Render(a.icons.Success) + " "
 	case row.State == AccountFailed:

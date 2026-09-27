@@ -353,7 +353,7 @@ func (f CloneForm) fieldView(field formField) string {
 	case field.choosing():
 		return choiceView(f.icons, field)
 	}
-	return field.input.View()
+	return inputView(field.input)
 }
 
 func (f CloneForm) sourceLines() []string {

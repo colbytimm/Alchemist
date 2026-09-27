@@ -44,13 +44,11 @@ type Info struct {
 // NewInfo builds the overlay; keys are the bindings its hint line shows.
 func NewInfo(icons theme.IconSet, keys []key.Binding) Info {
 	hints := help.New()
-	hints.Styles = helpStyles()
 	return Info{
 		frame: frame{title: infoTitle, focused: true},
 		icons: icons,
 		spinner: spinner.New(
 			spinner.WithSpinner(spinner.Spinner{Frames: icons.SpinnerFrames, FPS: spinnerFPS}),
-			spinner.WithStyle(theme.SpinnerStyle()),
 		),
 		hints:   hints,
 		keys:    keys,
@@ -155,7 +153,7 @@ func (v Info) View() string {
 	lines := v.lines(width)
 	offset := clampScroll(v.offset, len(lines), height-hintLines)
 	end := min(offset+height-hintLines, len(lines))
-	return v.frame.renderWithHint(lines[offset:end], v.hints.ShortHelpView(v.keys))
+	return v.frame.renderWithHint(lines[offset:end], themedHelp(v.hints).ShortHelpView(v.keys))
 }
 
 func (v Info) scroll(delta int) Info {
@@ -174,7 +172,7 @@ func (v Info) lines(width int) []string {
 	lines = append(lines, "")
 	switch {
 	case v.loading:
-		lines = append(lines, theme.HintStyle().Render(v.spinner.View()+" "+inspectingLabel))
+		lines = append(lines, theme.HintStyle().Render(spinnerView(v.spinner)+" "+inspectingLabel))
 	case v.failure != "":
 		lines = append(lines, styleAll(theme.ErrorStyle(), wrapText(v.icons.Failure+" "+v.failure, width))...)
 	}

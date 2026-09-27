@@ -31,7 +31,6 @@ type Help struct {
 func NewHelp(sections []HelpSection) Help {
 	model := help.New()
 	model.ShowAll = true
-	model.Styles = helpStyles()
 	return Help{frame: frame{title: helpTitle, focused: true}, model: model, sections: sections}
 }
 
@@ -83,6 +82,6 @@ func (h Help) View() string {
 func (h Help) column(section HelpSection) string {
 	return lipgloss.JoinVertical(lipgloss.Left,
 		theme.HeadingStyle().Render(section.Title),
-		h.model.FullHelpView([][]key.Binding{section.Keys}),
+		themedHelp(h.model).FullHelpView([][]key.Binding{section.Keys}),
 	)
 }
