@@ -1,23 +1,5 @@
 # Writing queries
 
-## Highlighting
-
-| Token | Examples | Color |
-|---|---|---|
-| Clause keyword | `SELECT`, `FROM`, `WHERE`, `ORDER BY`, `JOIN`, `VALUE` | amethyst, bold |
-| Operator word | `AND`, `OR`, `NOT`, `IN`, `LIKE`, `BETWEEN`, `EXISTS` | amethyst |
-| Literal | `true`, `null`, `undefined` | copper |
-| Function | `STARTSWITH(`, `COUNT(`, `udf.discount(` | gold |
-| Alias | the `c` in `FROM c` and `c.total` | parchment, bold |
-| Parameter | `@minTotal` | copper, italic |
-| String, number | `'west'`, `1.5e3` | verdigris, copper |
-| Comment | `-- note` | ash, italic |
-| Punctuation | `( ) , . = < + ??` | ash |
-
-Property names stay uncolored. Batches, updates and deletes also color their own
-keywords (`BEGIN BATCH`, `PARTITION`, `COMMIT`, `UPDATE`, `SET`, `UNSET`, `DELETE`).
-Colors adapt to light and dark terminals.
-
 ## Error hints
 
 The editor underlines mistakes it can find in the text. With the cursor on one, the
@@ -48,7 +30,7 @@ final say: a query with no hints can fail when it runs.
 
 ### Terminal support
 
-Hints are drawn as a curly red underline. kitty, WezTerm, iTerm2, Ghostty, foot, GNOME
+Hints are drawn as a curly underline. kitty, WezTerm, iTerm2, Ghostty, foot, GNOME
 Terminal and Windows Terminal support it. Other terminals show a plain underline or
 none, and the hint line still explains the problem.
 
@@ -61,9 +43,8 @@ pass `--diagnostics` for one session:
 | `underline` | plain underline |
 | `off` | no checking |
 
-Use `underline` over SSH, or in an older terminal that shows curly underlines as dim
-text or a colored background. With `NO_COLOR` set, the editor has no color and every
-underline is plain.
+Use `underline` over SSH, or in an older terminal that does not draw curly underlines
+correctly.
 
 tmux passes curly underlines through with these lines in `.tmux.conf`:
 

@@ -13,8 +13,8 @@ Alchemist is in early development. There are no release builds yet.
 
 - Request charge (RU) for every query, cross-partition queries by default, and paging
   with continuation tokens.
-- An editor with syntax highlighting, error hints, and autocomplete for databases,
-  containers, functions and fields.
+- An editor with error hints, and autocomplete for databases, containers, functions
+  and fields.
 - Joins and unions across containers, run on the client.
 - Transactional batches, and `UPDATE` and `DELETE` by query, each reviewed before
   anything is written.
@@ -87,7 +87,7 @@ SELECT o.id, o.total FROM sales.orders o WHERE o.status = "open"
 
 | Section | Covers |
 |---|---|
-| [Working in the editor](docs/README.md#working-in-the-editor) | highlighting, autocomplete, results, export, history, saved queries |
+| [Working in the editor](docs/README.md#working-in-the-editor) | error hints, autocomplete, results, export, history, saved queries |
 | [The query language](docs/README.md#the-query-language) | joins across containers, batches, updates and deletes by query |
 | [Accounts and data](docs/README.md#accounts-and-data) | profiles, read-only accounts, catalog management, cloning, snapshots |
 | [Reference](docs/README.md#reference) | keys, statements, commands, configuration |

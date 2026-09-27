@@ -59,7 +59,6 @@ endpoint = "https://myaccount.documents.azure.com:443/"
 | `ALCHEMIST_<NAME>_KEY` | key for profile `<name>` (upper-cased, dashes as underscores), used when the keychain has none |
 | `COSMOS_CONNECTION_STRING` | connection string, used only for the profile whose endpoint it names |
 | `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` | move the config, state and data directories |
-| `NO_COLOR` | turn off editor colors |
 
 See [keys](../data/profiles.md#keys) for the lookup order.
 
