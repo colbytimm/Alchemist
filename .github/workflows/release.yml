@@ -11,8 +11,11 @@ jobs:
   gates:
     uses: ./.github/workflows/gates.yml
 
+  packages:
+    uses: ./.github/workflows/packages.yml
+
   release:
-    needs: gates
+    needs: [gates, packages]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -27,6 +30,7 @@ jobs:
           # Published binaries are built from a clean module and build cache:
           # a cache is writable by any earlier run on the default branch.
           cache: false
+      - run: sudo apt-get update && sudo apt-get install -y msitools wixl osslsigncode
       - run: make release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

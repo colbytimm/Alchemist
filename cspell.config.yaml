@@ -42,13 +42,17 @@ words:
   - Smulx
   # Release packaging, signing and installers
   - anchore
+  - archs
   - bindir
   - GOBIN
   - INSTALLDIR
+  - lipo
   - msibuild
+  - msiexec
   - msitools
   - nfpm
   - nfpms
+  - notlike
   - osslsigncode
   - sboms
   - syft
