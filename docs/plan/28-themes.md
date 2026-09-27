@@ -1,4 +1,4 @@
-# Iteration 28: Themes
+# Iteration 28 — Themes
 
 <!-- cspell:words Areeb Avinash Codemos Ferreira Polaire RRGGBB Rayrarpa Reddy Wallacy draculla forbidigo fstest iareebahmad mtech omitempty vscodethemes walcew -->
 

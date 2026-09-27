@@ -168,6 +168,11 @@ The TUI converts errors into messages rendered in the Assay pane.
 | 21 | [21-update-by-query.md](21-update-by-query.md) | Bulk update by query: `UPDATE db.container a SET … [UNSET …] WHERE …` simulated client-side — read-only dry run, review with typed confirmation, background job of per-item conditional patches, per-item report; introduces the shared select-then-write engine | 14, 17, 18 | Done |
 | 22 | [22-delete-by-query.md](22-delete-by-query.md) | Delete by query: `DELETE FROM db.container a WHERE …` on 21's engine, each delete conditional on the item's ETag, confirmed by container name plus item count | 21 | Done |
 | 23 | [23-syntax-highlighting.md](23-syntax-highlighting.md) | Live syntax highlighting while typing, every color from theme roles, and red curly-underline diagnostics for what Alchemist does not recognize; bounded by a typing-performance budget enforced in CI | 8, 13, 17 | Done |
+| 24 | [24-installable-packages.md](24-installable-packages.md) | Installable packages: universal macOS archive, Linux .deb/.rpm/.apk, Windows .zip and .msi; signing and notarization when secrets exist; SBOMs, checksums and provenance | 9 | Planned |
+| 25 | [25-homebrew.md](25-homebrew.md) | `brew install colbytimm/tap/alchemist` on macOS and Linux: a goreleaser-published cask in a tap, checked in CI | 9, 24 | Planned |
+| 26 | [26-winget.md](26-winget.md) | `winget install ColbyTimm.Alchemist`: portable zip manifests opened as PRs to winget-pkgs on each release, validated in CI | 9, 24 | Planned |
+| 27 | [27-emulator-command.md](27-emulator-command.md) | `alchemist emulator start/stop/status/seed/logs/remove`: runs the Cosmos DB emulator through Docker or Podman, waits until it serves requests, writes the `emulator` profile | 6, 14 | Planned |
+| 28 | [28-themes.md](28-themes.md) | Color themes: today's palette stays the default; built-in themes adapted from VS Code; custom TOML themes in `~/.config/alchemist/themes`; `--theme` and `theme =` | 8, 23 | Planned |
 
 Iterations 3 and 4 are parallelizable — both depend only on the interfaces from 2.
 
