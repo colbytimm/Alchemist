@@ -100,6 +100,7 @@ words:
   - errcheck
   - errname
   - errorlint
+  - forbidigo
   - goarch
   - gocognit
   - gocritic
@@ -144,6 +145,14 @@ words:
   - reanchor
   - toks
   - unpinnable
+  # Theme authors, sources and the color format themes are written in
+  - Areeb
+  - Ferreira
+  - iareebahmad
+  - Rayrarpa
+  - RRGGBB
+  - vscodethemes
+  - Wallacy
   # Concatenated-initialism examples in the naming reference
   - DBURL
   - XMLAPI
@@ -168,6 +177,8 @@ ignoreWords:
   - custome
   # Words typed part-way in the autocomplete tests, and the fixture they name.
   - SELE
+  # A mistyped theme name in the unknown-theme tests.
+  - drakula
   - STARTSW
   - CUSTOMERI
   - stomer
