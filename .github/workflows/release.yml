@@ -64,6 +64,13 @@ jobs:
           MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
           WINDOWS_SIGN_PFX: ${{ secrets.WINDOWS_SIGN_PFX }}
           WINDOWS_SIGN_PASSWORD: ${{ secrets.WINDOWS_SIGN_PASSWORD }}
+          WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+      # Also after a failed winget PR, so it can be opened by hand from these files.
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: winget-manifests
+          path: dist/winget/**
       - uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
@@ -74,3 +81,29 @@ jobs:
             dist/*.rpm
             dist/*.apk
             dist/checksums.txt
+
+  # The winget-pkgs PR is already open when this runs: it reports a problem
+  # before Microsoft's pipeline does, rather than preventing one.
+  winget-install:
+    needs: release
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: winget-manifests
+          path: winget
+      - shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $manifest = (Get-ChildItem winget -Recurse -Filter *.installer.yaml).DirectoryName
+          winget settings --enable LocalManifestFiles
+          winget validate --manifest $manifest
+          winget install --manifest $manifest --accept-source-agreements --accept-package-agreements --disable-interactivity
+          # A step does not see a PATH change made during the job, so run the link itself.
+          $version = & "$env:LOCALAPPDATA\Microsoft\WinGet\Links\alchemist.exe" --version
+          if ($version -notmatch [regex]::Escape($env:TAG)) { throw "installed $version, tagged $env:TAG" }
+          winget uninstall --id ColbyTimm.Alchemist -e --disable-interactivity

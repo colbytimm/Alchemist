@@ -37,6 +37,7 @@ jobs:
             dist/*.apk
             dist/*.sbom.json
             dist/checksums.txt
+            dist/winget/**
 
   linux:
     needs: build
