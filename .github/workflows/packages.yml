@@ -38,6 +38,7 @@ jobs:
             dist/*.sbom.json
             dist/checksums.txt
             dist/winget/**
+            dist/homebrew/Casks/alchemist.rb
 
   linux:
     needs: build

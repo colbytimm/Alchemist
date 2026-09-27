@@ -65,6 +65,10 @@ words:
   - winget
   - wixl
   - xattr
+  # Homebrew
+  - linuxbrew
+  - postflight
+  - untap
   # Cosmos DB REST and SQL vocabulary
   - colls
   - documentdb

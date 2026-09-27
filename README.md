@@ -22,10 +22,17 @@ Alchemist is in early development.
 - Snapshots of a container on disk, with diffs between them.
 - Query history, saved queries, and export to JSON or CSV.
 - Several accounts in one session. Accounts are read-only unless you allow writes.
+- Installs with Homebrew on macOS and Linux, and winget on Windows.
 
 ## Quick start
 
 ### Install
+
+On macOS and Linux, install with [Homebrew](https://brew.sh):
+
+```sh
+brew install colbytimm/tap/alchemist
+```
 
 Download the file for your platform from the
 [releases page](https://github.com/colbytimm/Alchemist/releases):

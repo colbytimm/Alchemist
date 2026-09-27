@@ -27,3 +27,21 @@ jobs:
         run: |
           $manifest = (Get-ChildItem winget -Recurse -Filter *.installer.yaml).DirectoryName
           winget validate --manifest $manifest
+
+  brew:
+    needs: packages
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: packages
+          path: dist
+      # ubuntu-latest has Homebrew installed but not on its PATH.
+      - if: runner.os == 'Linux'
+        run: echo /home/linuxbrew/.linuxbrew/bin >> "$GITHUB_PATH"
+      - run: make brew-check

@@ -76,4 +76,4 @@ On Windows, `~` is your user profile folder, `%USERPROFILE%`.
 
 Keys are stored in the OS keychain under the service `alchemist`.
 
-Uninstalling Alchemist leaves these files and the keychain entries in place.
+Uninstalling Alchemist, with Homebrew, winget or otherwise, leaves these files and the keychain entries in place.

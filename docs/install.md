@@ -11,6 +11,39 @@ has these files. `<version>` is the release without its `v`, such as `0.3.0`.
 
 `<arch>` is `amd64` or `arm64`. The commands below set `VERSION` once and use it.
 
+## Homebrew
+
+On macOS and Linux, install from the project's tap:
+
+```sh
+brew install colbytimm/tap/alchemist
+```
+
+Always use the full name, `colbytimm/tap/alchemist`. A bare `alchemist` could match
+a different package in Homebrew's own repositories.
+
+| Task | Command |
+|---|---|
+| Upgrade | `brew update && brew upgrade alchemist` |
+| Uninstall | `brew uninstall --cask alchemist` |
+| Remove the tap | `brew untap colbytimm/tap` |
+
+The tap holds stable releases only. A release candidate is on the
+[releases page](https://github.com/colbytimm/Alchemist/releases) and not in the tap.
+
+On Linux, you need [Homebrew on Linux](https://docs.brew.sh/Homebrew-on-Linux).
+Alchemist installs as a cask, and older Homebrew versions install casks only on
+macOS. Run `brew update` first.
+
+On macOS, Homebrew marks each download with the quarantine flag, so Gatekeeper
+checks it on first run. Gatekeeper refuses a binary that is not notarized. For such
+a release, the cask removes the flag from `alchemist` after it installs. A notarized
+release keeps the flag. Either way, the cask checks the SHA-256 of every download.
+
+Uninstalling keeps your settings, history, saved queries and snapshots. The cask has
+no zap step, so `brew uninstall --zap` keeps them too.
+[Configuration](reference/configuration.md#files) lists where they are.
+
 ## macOS
 
 Download the archive, extract the binary, and move it to a directory on your `PATH`:
@@ -148,6 +181,7 @@ Each archive has an SPDX software bill of materials next to it, named
 
 | Installed from | Command |
 |---|---|
+| Homebrew | `brew uninstall --cask alchemist` |
 | macOS archive | `sudo rm /usr/local/bin/alchemist` |
 | `.deb` | `sudo apt remove alchemist` |
 | `.rpm` | `sudo dnf remove alchemist` |

@@ -125,6 +125,28 @@ winget:
           name: winget-pkgs
           branch: master
 
+homebrew_casks:
+  - repository:
+      owner: colbytimm
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    # Without the token (a fork) the cask is still written to dist/ but not pushed.
+    skip_upload: '{{ if isEnvSet "HOMEBREW_TAP_TOKEN" }}auto{{ else }}true{{ end }}'
+    commit_msg_template: "alchemist {{ .Tag }}"
+    description: Keyboard-driven terminal IDE for Azure Cosmos DB
+    homepage: https://github.com/colbytimm/Alchemist
+    # Overrides a safety: Homebrew quarantines cask downloads, and Gatekeeper refuses
+    # a binary that is not notarized. The cask pins each archive's SHA-256 instead.
+    # The condition matches notarize.macos, so a notarized release keeps the quarantine.
+    hooks:
+      post:
+        install: |-
+          {{- if not (and (not .IsSnapshot) (isEnvSet "MACOS_SIGN_P12")) }}
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/alchemist"]
+          end
+          {{- end }}
+
 sboms:
   - artifacts: archive
 
