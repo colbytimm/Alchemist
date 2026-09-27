@@ -125,6 +125,7 @@ func (f frame) renderWithHints(lines, hints []string) string {
 // packHints packs the enabled keys into as few lines of width as they
 // take, so none is cut off at the edge of a narrow terminal.
 func packHints(hints help.Model, keys []key.Binding, width int) []string {
+	hints = themedHelp(hints)
 	hints.Width = 0
 	var lines []string
 	var line []key.Binding

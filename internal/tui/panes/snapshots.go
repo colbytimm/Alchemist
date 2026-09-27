@@ -95,10 +95,8 @@ type Snapshots struct {
 
 func NewSnapshots(icons theme.IconSet, keys SnapshotsKeys) Snapshots {
 	hints := help.New()
-	hints.Styles = helpStyles()
 	note := newInput("", "")
 	note.Prompt = notePrompt
-	note.PromptStyle = theme.HintStyle()
 	return Snapshots{frame: frame{title: snapshotsTitle, focused: true}, icons: icons, hints: hints, keys: keys, note: note}
 }
 
@@ -394,7 +392,7 @@ func windowText(d time.Duration) string {
 func (s Snapshots) footerLines(width int) []string {
 	switch s.state {
 	case snapshotsNaming:
-		return []string{s.note.View()}
+		return []string{promptedInputView(s.note)}
 	case snapshotsConfirmingDelete:
 		id, _ := s.Selected()
 		return []string{theme.ErrorStyle().Render(fit("Delete snapshot "+id+"? Its data goes when no other snapshot needs it.", width))}

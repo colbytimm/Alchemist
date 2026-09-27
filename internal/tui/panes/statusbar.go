@@ -109,7 +109,6 @@ func NewStatusBar(icons theme.IconSet, account string) StatusBar {
 		icons: icons,
 		spinner: spinner.New(
 			spinner.WithSpinner(spinner.Spinner{Frames: icons.SpinnerFrames, FPS: spinnerFPS}),
-			spinner.WithStyle(theme.SpinnerStyle()),
 		),
 		account: account,
 	}
@@ -258,7 +257,7 @@ func (s StatusBar) fields(breakdown func(map[string]float64) string) []string {
 		theme.TextStyle().Render(s.elapsedLabel()),
 	)
 	if s.progress.Running {
-		fields = append(fields, s.spinner.View())
+		fields = append(fields, spinnerView(s.spinner))
 	}
 	return fields
 }

@@ -34,7 +34,6 @@ type ItemDiff struct {
 
 func NewItemDiff(icons theme.IconSet, keys []key.Binding) ItemDiff {
 	hints := help.New()
-	hints.Styles = helpStyles()
 	return ItemDiff{frame: frame{title: itemDiffTitle, focused: true}, icons: icons, hints: hints, keys: keys}
 }
 
@@ -89,7 +88,7 @@ func (d ItemDiff) View() string {
 	end := min(d.offset+bodyHeight, len(d.lines))
 	body := padBody(d.lines[d.offset:end], bodyHeight)
 	body = append(body, theme.HintStyle().Render(fit(d.footer, width)))
-	return d.frame.render(strings.Join(append(body, d.hints.ShortHelpView(d.keys)), "\n"))
+	return d.frame.render(strings.Join(append(body, themedHelp(d.hints).ShortHelpView(d.keys)), "\n"))
 }
 
 // render marks each line of a line diff, folding the long runs of lines

@@ -6,8 +6,6 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-
-	"github.com/colbytimm/alchemist/internal/theme"
 )
 
 const filterPrompt = "/ "
@@ -28,7 +26,6 @@ type filterList[T any] struct {
 func newFilterList[T any](hint string, matches func(item T, needle string) bool) filterList[T] {
 	filter := newInput(hint, "")
 	filter.Prompt = filterPrompt
-	filter.PromptStyle = theme.HintStyle()
 	return filterList[T]{filter: filter, matches: matches}
 }
 
@@ -115,7 +112,7 @@ func (l filterList[T]) matching() []T {
 }
 
 func (l filterList[T]) filterLine() string {
-	return l.filter.View()
+	return promptedInputView(l.filter)
 }
 
 // padBody makes lines exactly height long, so the hint line under them stays

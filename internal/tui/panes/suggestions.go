@@ -47,7 +47,6 @@ type Suggestions struct {
 
 func newSuggestions(accept key.Binding) Suggestions {
 	hints := help.New()
-	hints.Styles = helpStyles()
 	return Suggestions{keys: append([]key.Binding{accept}, suggestionHints...), hints: hints}
 }
 
@@ -154,7 +153,7 @@ func (s Suggestions) rowLine(item complete.Suggestion, nameWidth int, selected b
 // selection's place at the right edge. The count survives a narrow pane;
 // the keys are cut to make room for it.
 func (s Suggestions) hintLine(width int) string {
-	left := s.hints.ShortHelpView(s.keys)
+	left := themedHelp(s.hints).ShortHelpView(s.keys)
 	if s.note != "" {
 		left = theme.HintStyle().Render(s.note)
 	}
