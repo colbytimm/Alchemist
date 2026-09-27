@@ -11,6 +11,7 @@ The examples use the sample data from `make emulator-seed`. `sales.orders` means
 - [Writing queries](using/editor.md): error hints, autocomplete
 - [Results and export](using/results.md)
 - [History and saved queries](using/history.md)
+- [Themes](using/themes.md)
 
 ## The query language
 

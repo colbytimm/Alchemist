@@ -87,7 +87,7 @@ SELECT o.id, o.total FROM sales.orders o WHERE o.status = "open"
 
 | Section | Covers |
 |---|---|
-| [Working in the editor](docs/README.md#working-in-the-editor) | error hints, autocomplete, results, export, history, saved queries |
+| [Working in the editor](docs/README.md#working-in-the-editor) | error hints, autocomplete, results, export, history, saved queries, themes |
 | [The query language](docs/README.md#the-query-language) | joins across containers, batches, updates and deletes by query |
 | [Accounts and data](docs/README.md#accounts-and-data) | profiles, read-only accounts, catalog management, cloning, snapshots |
 | [Reference](docs/README.md#reference) | keys, statements, commands, configuration |
