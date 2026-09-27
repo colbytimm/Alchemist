@@ -40,6 +40,9 @@ words:
   - Ghostty
   - Setulc
   - Smulx
+  # Container runtimes, and the emulator image's own words
+  - nerdctl
+  - pgcosmos
   # Cosmos DB REST and SQL vocabulary
   - colls
   - documentdb

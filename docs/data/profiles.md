@@ -7,7 +7,7 @@ endpoints, never keys. The connect form creates profiles, and so do the `profile
 commands:
 
 ```sh
-alchemist profile add emulator --endpoint https://localhost:8081 --insecure-skip-verify
+alchemist emulator start
 alchemist profile add prod --endpoint https://myaccount.documents.azure.com:443/ --default
 alchemist profile list
 alchemist profile set-key prod
@@ -15,10 +15,18 @@ alchemist profile set-read-only prod false
 alchemist profile remove emulator
 ```
 
-`profile add` asks for the key and stores it in the OS keychain (Keychain on macOS,
-Secret Service on Linux, Credential Manager on Windows). `profile remove` deletes the
-profile and its key, and keeps its saved queries and snapshots unless you pass
-`--purge`.
+`alchemist emulator start` adds the `emulator` profile for the
+[local emulator](emulator.md). `profile add` asks for the key and stores it in the OS
+keychain (Keychain on macOS, Secret Service on Linux, Credential Manager on Windows).
+`profile remove` deletes the profile and its key, and keeps its saved queries and
+snapshots unless you pass `--purge`.
+
+For an emulator you run yourself, `--well-known-key` uses the emulator's published key
+and asks for none. It works only for an endpoint on this machine:
+
+```sh
+alchemist profile add local --endpoint http://localhost:8081 --well-known-key
+```
 
 You can also edit the file directly:
 
@@ -27,8 +35,8 @@ default_profile = "emulator"
 
 [profiles.emulator]
 adapter = "cosmos"
-endpoint = "https://localhost:8081"
-insecure_skip_verify = true
+endpoint = "http://localhost:8081"
+well_known_key = true
 database = "sales"
 
 [profiles.prod]
@@ -62,16 +70,18 @@ naming another account in `FROM` is refused.
 
 Alchemist looks for a profile's key in this order:
 
-1. the OS keychain (service `alchemist`, account `<name>`)
-2. `ALCHEMIST_<NAME>_KEY`, with the profile name upper-cased and dashes as underscores
+1. the emulator's published key, for a profile with `well_known_key = true`
+2. the OS keychain (service `alchemist`, account `<name>`)
+3. `ALCHEMIST_<NAME>_KEY`, with the profile name upper-cased and dashes as underscores
    (`my-emulator` becomes `ALCHEMIST_MY_EMULATOR_KEY`)
-3. `COSMOS_CONNECTION_STRING`, used only for the profile whose endpoint matches the
+4. `COSMOS_CONNECTION_STRING`, used only for the profile whose endpoint matches the
    account in the string
-4. the connect form
+5. the connect form
 
 On machines without a keychain, such as containers and CI runners, set the environment
 variable. `alchemist profile list` shows where each key comes from, never the key
-itself.
+itself. `alchemist profile set-key` on a `well_known_key` profile turns the setting off,
+so the key you enter is the one used.
 
 ## Read-only accounts
 

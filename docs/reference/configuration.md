@@ -17,6 +17,7 @@ It never holds a key.
 | `adapter` | | `cosmos` for an Azure Cosmos DB account |
 | `endpoint` | | the account endpoint URL |
 | `insecure_skip_verify` | `false` | skip TLS verification, for the emulator's self-signed certificate |
+| `well_known_key` | `false` | connect with the [emulator's](../data/emulator.md) published key; only for an endpoint on this machine |
 | `database` | | database to open in the catalog on start |
 | `page_size` | adapter default | rows per result page |
 | `max_join_rows` | `10000` | rows a [join](../language/cross-container.md#limits) may hold in memory |
@@ -35,8 +36,8 @@ snapshot_dir = "/mnt/big/alchemist-snapshots"
 
 [profiles.emulator]
 adapter = "cosmos"
-endpoint = "https://localhost:8081"
-insecure_skip_verify = true
+endpoint = "http://localhost:8081"
+well_known_key = true
 database = "sales"
 page_size = 100
 max_join_rows = 5000
@@ -58,6 +59,7 @@ endpoint = "https://myaccount.documents.azure.com:443/"
 |---|---|
 | `ALCHEMIST_<NAME>_KEY` | key for profile `<name>` (upper-cased, dashes as underscores), used when the keychain has none |
 | `COSMOS_CONNECTION_STRING` | connection string, used only for the profile whose endpoint it names |
+| `ALCHEMIST_CONTAINER_RUNTIME` | `docker` or `podman`, for [`alchemist emulator`](cli.md#alchemist-emulator) when `--runtime` is not given |
 | `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` | move the config, state and data directories |
 
 See [keys](../data/profiles.md#keys) for the lookup order.
@@ -72,4 +74,6 @@ See [keys](../data/profiles.md#keys) for the lookup order.
 | `~/.local/state/alchemist/` | log file |
 | `~/.local/share/alchemist/snapshots/` | [snapshots](../data/snapshots.md) |
 
-Keys are stored in the OS keychain under the service `alchemist`.
+Keys are stored in the OS keychain under the service `alchemist`. The emulator's data
+is in the Docker or Podman volume `alchemist-cosmos-emulator-data`, not under these
+directories.
