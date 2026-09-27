@@ -114,6 +114,24 @@ endpoint = "https://myaccount.documents.azure.com:443/"
 	assert.Equal(t, []string{"emulator", "prod"}, cfg.Names())
 }
 
+func TestSaveWritesTheWellKnownKeySettingAndNoKey(t *testing.T) {
+	store := tempStore(t)
+	want, err := config.Config{}.Add(config.Profile{
+		Name: "emulator", Adapter: "cosmos", Endpoint: "http://localhost:8081", WellKnownKey: true,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, store.Save(want))
+
+	text, err := os.ReadFile(store.Path)
+	require.NoError(t, err)
+	assert.Contains(t, string(text), "well_known_key = true")
+	assert.NotContains(t, string(text), config.EmulatorKey)
+	got, err := store.Load()
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+}
+
 func TestLoadRejectsBrokenFilesByName(t *testing.T) {
 	const validProfile = "[profiles.a]\nadapter = \"cosmos\"\nendpoint = \"https://x\"\n"
 	tests := []struct {
@@ -127,6 +145,11 @@ func TestLoadRejectsBrokenFilesByName(t *testing.T) {
 		{name: "missing endpoint", text: "[profiles.a]\nadapter = \"cosmos\"\n", wantErr: config.ErrInvalidConfig},
 		{name: "missing adapter", text: "[profiles.a]\nendpoint = \"https://x\"\n", wantErr: config.ErrInvalidConfig},
 		{name: "default names a missing profile", text: "default_profile = \"b\"\n" + validProfile, wantErr: config.ErrProfileNotFound},
+		{
+			name:    "well-known key off this machine",
+			text:    "[profiles.a]\nadapter = \"cosmos\"\nendpoint = \"https://x.documents.azure.com:443/\"\nwell_known_key = true\n",
+			wantErr: config.ErrInvalidConfig,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

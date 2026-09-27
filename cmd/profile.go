@@ -124,6 +124,8 @@ func (a *addFlags) bind(flags *pflag.FlagSet) {
 	flags.StringVar(&a.profile.Endpoint, "endpoint", "", "account endpoint URL")
 	flags.BoolVar(&a.profile.InsecureSkipVerify, "insecure-skip-verify", false,
 		"skip TLS verification (for the Cosmos emulator's self-signed certificate)")
+	flags.BoolVar(&a.profile.WellKnownKey, "well-known-key", false,
+		"connect with the emulator's published key, and ask for none (local endpoints only)")
 	flags.StringVar(&a.profile.Database, "database", "", "database to open in the catalog on start")
 	flags.IntVar(&a.profile.PageSize, "page-size", 0, "rows per result page (the adapter's default when 0)")
 	flags.IntVar(&a.profile.MaxJoinRows, "max-join-rows", 0,
@@ -166,6 +168,9 @@ func (a addFlags) run(cmd *cobra.Command, keyring config.Keyring) error {
 		return err
 	}
 	name := a.profile.Name
+	if a.profile.WellKnownKey {
+		return say(cmd, "added profile %s; it connects with the emulator's well-known key", name)
+	}
 	key, err := newPrompter(cmd).secret("Key for profile " + name + " (leave empty to skip): ")
 	if err != nil {
 		return err
@@ -193,11 +198,12 @@ func newProfileSetKeyCmd(keyring config.Keyring) *cobra.Command {
 }
 
 func setKey(cmd *cobra.Command, keyring config.Keyring, name string) error {
-	_, cfg, err := loadConfig()
+	store, cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
-	if _, err := cfg.Profile(name); err != nil {
+	profile, err := cfg.Profile(name)
+	if err != nil {
 		return err
 	}
 	key, err := newPrompter(cmd).secret("Key for profile " + name + ": ")
@@ -210,7 +216,18 @@ func setKey(cmd *cobra.Command, keyring config.Keyring, name string) error {
 	if err := keyring.Set(name, key); err != nil {
 		return err
 	}
-	return say(cmd, "key for profile %s stored in the keychain", name)
+	if !profile.WellKnownKey {
+		return say(cmd, "key for profile %s stored in the keychain", name)
+	}
+	// A stored key is never read while well_known_key is set.
+	profile.WellKnownKey = false
+	if cfg, err = cfg.Put(profile); err != nil {
+		return err
+	}
+	if err := store.Save(cfg); err != nil {
+		return err
+	}
+	return say(cmd, "profile %s now uses the key you entered", name)
 }
 
 func newProfileSetReadOnlyCmd() *cobra.Command {

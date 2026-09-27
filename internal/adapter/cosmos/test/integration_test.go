@@ -26,10 +26,8 @@ import (
 
 	"github.com/colbytimm/alchemist/internal/adapter"
 	"github.com/colbytimm/alchemist/internal/adapter/cosmos"
+	"github.com/colbytimm/alchemist/internal/config"
 )
-
-// The emulator's fixed, publicly documented account key. Not a secret.
-const wellKnownKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==" // #gitleaks:allow
 
 const (
 	itDatabase  = "alchemist_it"
@@ -52,7 +50,7 @@ func settings() map[string]string {
 	}
 	key := os.Getenv("COSMOS_KEY")
 	if key == "" {
-		key = wellKnownKey
+		key = config.EmulatorKey
 	}
 	return map[string]string{
 		"endpoint":             endpoint,

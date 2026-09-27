@@ -47,6 +47,42 @@ func TestProfileAddWithoutAKeyNamesTheFallbacks(t *testing.T) {
 	assert.Contains(t, listed, "none")
 }
 
+func TestProfileAddWithTheWellKnownKeyAsksForNoKey(t *testing.T) {
+	h := newHarness(t)
+
+	_, err := h.run(enteredKey+"\n", "profile", "add", "local", "--endpoint", "http://localhost:8081", "--well-known-key")
+	require.NoError(t, err)
+	listed, err := h.run("", "profile", "list")
+	require.NoError(t, err)
+
+	assert.Empty(t, h.keyring.secrets, "the input must not have been read as a key")
+	assert.Contains(t, listed, config.SourceWellKnown)
+	assert.NotContains(t, listed, config.EmulatorKey)
+}
+
+func TestProfileAddRefusesTheWellKnownKeyOffThisMachine(t *testing.T) {
+	_, err := newHarness(t).run("", "profile", "add", "prod",
+		"--endpoint", "https://myaccount.documents.azure.com:443/", "--well-known-key")
+
+	require.ErrorIs(t, err, config.ErrInvalidConfig)
+}
+
+func TestProfileSetKeyStopsUsingTheWellKnownKey(t *testing.T) {
+	h := newHarness(t)
+	_, err := h.run("", "profile", "add", "local", "--endpoint", "http://localhost:8081", "--well-known-key")
+	require.NoError(t, err)
+
+	out, err := h.run(enteredKey+"\n", "profile", "set-key", "local")
+	require.NoError(t, err)
+	listed, err := h.run("", "profile", "list")
+	require.NoError(t, err)
+
+	assert.Contains(t, out, "profile local now uses the key you entered")
+	assert.Equal(t, enteredKey, h.keyring.secrets["local"])
+	assert.Contains(t, listed, config.SourceKeychain)
+	assert.NotContains(t, listed, config.SourceWellKnown)
+}
+
 func TestProfileAddWritesNothingForAnUnknownAdapter(t *testing.T) {
 	h := newHarness(t)
 
