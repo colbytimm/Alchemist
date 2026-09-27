@@ -24,6 +24,14 @@ var adaptedPalettes = map[string][]string{
 		"#FFFFFF", "#a3c9bb", "#7A9A42", "#7FC76A", "#56B56A", "#ebcb8b", "#BF616A", "#E88787", "#E88787",
 		"#B8A3FF", "#A3C5F0", "#FFFFFF", "#FFB366", "#7AB87A", "#FFB366", "#c4d0ba", "#E8F5E8",
 	},
+	"synthwave-84": {
+		"#ffffff", "#848bbd", "#ff7edb", "#f97e72", "#72f1b8", "#fede5d", "#fe4450", "#fede5d", "#fede5d",
+		"#f97e72", "#36f9f6", "#ff7edb", "#ff7edb", "#ff8b39", "#f97e72", "#848bbd", "#ffffff",
+	},
+	"red": {
+		"#F8F8F8", "#cc9999", "#cc3333", "#ff4444", "#41a83e", "#CCA700", "#F14C4C", "#f12727", "#f12727",
+		"#994646", "#ffb454", "#fb9a4b", "#fb9a4b", "#cd8d8d", "#994646", "#e7c0c0", "#F8F8F8",
+	},
 }
 
 func TestAdaptedThemesMatchTheMappingTable(t *testing.T) {
@@ -52,7 +60,9 @@ func TestEveryAdaptedThemeIsCredited(t *testing.T) {
 }
 
 func TestOnlyLicensedThemesShip(t *testing.T) {
-	assert.ElementsMatch(t, []string{"alchemist", "jarvis-hud", "dracula-at-midnight", "enchanted-grove-dark"}, theme.BuiltinNames())
+	assert.ElementsMatch(t, []string{
+		"alchemist", "jarvis-hud", "dracula-at-midnight", "enchanted-grove-dark", "synthwave-84", "red",
+	}, theme.BuiltinNames())
 }
 
 func mustFindTheme(t *testing.T, name string) theme.Theme {
