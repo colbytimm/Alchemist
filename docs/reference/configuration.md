@@ -6,6 +6,7 @@ It never holds a key.
 
 | Setting | Meaning |
 |---|---|
+| `theme` | the [theme](../using/themes.md) every launch opens in; `ctrl+t` in the app and `alchemist theme use` set it |
 | `default_profile` | the profile `alchemist` connects to when none is named |
 | `snapshot_dir` | where snapshots are stored; `--snapshot-dir` overrides it |
 | `[profiles.<name>]` | one table per profile |
@@ -30,6 +31,7 @@ It never holds a key.
 Example:
 
 ```toml
+theme = "dracula-at-midnight"
 default_profile = "emulator"
 snapshot_dir = "/mnt/big/alchemist-snapshots"
 
@@ -67,6 +69,7 @@ See [keys](../data/profiles.md#keys) for the lookup order.
 | Path | Contents |
 |---|---|
 | `~/.config/alchemist/config.toml` | profiles and settings |
+| `~/.config/alchemist/themes/*.toml` | [custom themes](../using/themes.md#writing-your-own-theme) |
 | `~/.config/alchemist/queries/<account>/*.sql` | [saved queries](../using/history.md#saved-queries) |
 | `~/.local/state/alchemist/history.jsonl` | [query history](../using/history.md#history) |
 | `~/.local/state/alchemist/` | log file |

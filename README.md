@@ -22,6 +22,8 @@ Alchemist is in early development. There are no release builds yet.
 - Snapshots of a container on disk, with diffs between them.
 - Query history, saved queries, and export to JSON or CSV.
 - Several accounts in one session. Accounts are read-only unless you allow writes.
+- Color themes: the default, three built in, and your own. `ctrl+t` switches theme in
+  the app and keeps it.
 
 ## Quick start
 

@@ -20,6 +20,7 @@ opens the connect form.
 | `--sample-fields=false` | do not [sample containers](../using/editor.md#field-sampling) for field names |
 | `--read-only` | refuse writes on every account for this session |
 | `--diagnostics <style>` | `curly`, `underline` or `off`; overrides the profile |
+| `--theme <name>` | [theme](../using/themes.md) for this launch only; the saved theme is untouched |
 | `--snapshot-dir <dir>` | where snapshots are stored; applies to every command |
 
 ## alchemist profile
@@ -58,6 +59,25 @@ Options for `add`:
 | `--sample-fields=false` | do not sample containers for field names |
 | `--read-only[=false]` | refuse or allow writes; by default only local endpoints allow them |
 | `--default` | make this the default profile |
+
+## alchemist theme
+
+Lists, saves and prints [themes](../using/themes.md).
+
+```
+alchemist theme list
+alchemist theme use <name>
+alchemist theme show <name>
+```
+
+| Command | Effect |
+|---|---|
+| `list` | list every built-in and custom theme with its title, author, and `built-in` or its path; `*` marks the saved theme, and a custom theme that does not load shows why |
+| `use` | check the theme loads, then save it as `theme` in `config.toml`; every launch opens in it from then on |
+| `show` | print a theme's file, comments included, to copy and edit |
+
+`use` creates `config.toml` if there is none, and keeps every profile and setting in
+it. A theme that does not load is refused, and `config.toml` is left as it was.
 
 ## alchemist snapshot
 
