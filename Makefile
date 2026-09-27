@@ -143,7 +143,12 @@ syft:
 release-snapshot: syft
 	PATH="$(TOOLS_BIN):$$PATH" $(GORELEASER) release --snapshot --clean
 
-## release: publish a GitHub Release for the current tag (needs GITHUB_TOKEN, wixl and osslsigncode)
+## brew-check: install the cask from dist/ with Homebrew and run it (after release-snapshot)
+.PHONY: brew-check
+brew-check:
+	test/homebrew/check.sh
+
+## release: publish a GitHub Release for the current tag (needs GITHUB_TOKEN, wixl and osslsigncode; HOMEBREW_TAP_TOKEN is optional)
 release: syft
 	PATH="$(TOOLS_BIN):$$PATH" $(GORELEASER) release --clean
 
