@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/colbytimm/alchemist/internal/adapter/mock"
+	"github.com/colbytimm/alchemist/internal/emulator"
 	"github.com/colbytimm/alchemist/internal/tui"
 )
 
@@ -60,6 +61,63 @@ func TestEmulatorSeedWithoutReplaceRefusesExistingDatabases(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "sales and telemetry exist: pass --replace to drop and recreate them")
 	assert.Empty(t, out)
+}
+
+// withoutContainerRuntimes leaves PATH with neither docker nor podman.
+func withoutContainerRuntimes(t *testing.T) {
+	t.Helper()
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv(emulator.RuntimeEnvVar, "")
+}
+
+func TestEmulatorStartWithoutARuntimeSaysWhatToInstall(t *testing.T) {
+	h := newHarness(t)
+	withoutContainerRuntimes(t)
+
+	_, err := h.run("", "emulator", "start")
+
+	require.ErrorIs(t, err, emulator.ErrNoRuntime)
+	assert.Contains(t, err.Error(), "install Docker Desktop")
+	assert.Contains(t, err.Error(), "Podman")
+}
+
+func TestEmulatorStatusReportsWhatItCanWithoutARuntime(t *testing.T) {
+	h := newHarness(t)
+	withoutContainerRuntimes(t)
+	h.addLocalMockProfile(t, "emulator")
+
+	out, err := h.run("", "emulator", "status")
+
+	require.NoError(t, err)
+	assert.Contains(t, out, "found neither docker nor podman on PATH")
+	assert.Contains(t, out, "http://localhost:8081: ready")
+	assert.Contains(t, out, "emulator (key: well-known)")
+}
+
+func TestEmulatorStatusWithoutAProfile(t *testing.T) {
+	h := newHarness(t)
+	withoutContainerRuntimes(t)
+
+	out, err := h.run("", "emulator", "status")
+
+	require.NoError(t, err)
+	assert.Contains(t, out, "none: run alchemist emulator start")
+}
+
+func TestEmulatorRuntimeCommandsRefuseAnUnknownRuntime(t *testing.T) {
+	for _, command := range []string{"start", "stop", "status", "logs", "remove"} {
+		t.Run(command, func(t *testing.T) {
+			h := newHarness(t)
+
+			_, err := h.run("", "emulator", command, "--runtime", "nerdctl")
+
+			if command == "status" {
+				require.NoError(t, err, "status reports the refusal on its runtime line")
+				return
+			}
+			require.ErrorIs(t, err, emulator.ErrUnknownRuntime)
+		})
+	}
 }
 
 func TestEmulatorSeedRefusesARemoteProfileBeforeConnecting(t *testing.T) {

@@ -151,6 +151,16 @@ func TestStopLeavesTheData(t *testing.T) {
 	assert.Equal(t, []string{"container inspect", "stop"}, exec.verbs())
 }
 
+func TestStopLeavesAStoppedContainerAlone(t *testing.T) {
+	exec := newFakeExec().on("container inspect", inspected("exited", true, 8081, "sha256:aaa"))
+
+	found, err := manager(exec).Stop(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, "exited", found.State)
+	assert.Equal(t, []string{"container inspect"}, exec.verbs())
+}
+
 func TestStopRefusesAContainerItDidNotCreate(t *testing.T) {
 	exec := newFakeExec().on("container inspect", inspected("running", false, 8081, "sha256:aaa"))
 

@@ -2,6 +2,7 @@ package emulator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -44,10 +45,11 @@ func (e *ExitedError) Error() string {
 // the log's status line only explain a wait that fails.
 func (m Manager) Wait(ctx context.Context, endpoint string, timeout time.Duration) error {
 	started := time.Now()
+	deadline := started.Add(timeout)
 	lastProgress := started
 	var lastStatus string
 	for {
-		answer := m.attempt(ctx)
+		answer := m.Probe.Within(ctx, m.attemptBudget(deadline))
 		if answer == nil {
 			return nil
 		}
@@ -61,12 +63,11 @@ func (m Manager) Wait(ctx context.Context, endpoint string, timeout time.Duratio
 		if line, ok := m.Runtime.StatusLine(ctx); ok {
 			lastStatus = line
 		}
-		waited := time.Since(started)
-		if waited >= timeout {
+		if time.Until(deadline) <= m.PollInterval {
 			return &NotReadyError{Endpoint: endpoint, Waited: timeout, LastAnswer: answer.Error(), LastStatus: lastStatus}
 		}
 		if time.Since(lastProgress) >= m.ProgressInterval {
-			m.showProgress(waited, lastStatus)
+			m.showProgress(time.Since(started), lastStatus)
 			lastProgress = time.Now()
 		}
 		select {
@@ -77,10 +78,30 @@ func (m Manager) Wait(ctx context.Context, endpoint string, timeout time.Duratio
 	}
 }
 
-func (m Manager) attempt(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, m.AttemptTimeout)
+// attemptBudget keeps an attempt inside the wait's deadline, but never shorter
+// than a poll, so a late timer cannot leave it no time at all.
+func (m Manager) attemptBudget(deadline time.Time) time.Duration {
+	return max(min(m.AttemptTimeout, time.Until(deadline)), m.PollInterval)
+}
+
+// Within makes one attempt and gives up on it after timeout, even when the
+// probe does not: the Cosmos SDK reads the account's properties under a
+// deadline of its own, about a minute against a container that accepts
+// connections and never answers. The abandoned attempt ends on that deadline.
+func (p Probe) Within(ctx context.Context, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return m.Probe(ctx)
+	answer := make(chan error, 1)
+	go func() { answer <- p(ctx) }()
+	select {
+	case err := <-answer:
+		return err
+	case <-ctx.Done():
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return fmt.Errorf("emulator: no answer within %s", timeout)
+		}
+		return ctx.Err()
+	}
 }
 
 func (m Manager) showProgress(waited time.Duration, status string) {

@@ -81,6 +81,19 @@ func TestWaitFailsAtOnceWhenTheContainerExits(t *testing.T) {
 	assert.Equal(t, 2, *calls)
 }
 
+func TestProbeWithinGivesUpOnAProbeThatIgnoresItsDeadline(t *testing.T) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	stuck := emulator.Probe(func(context.Context) error {
+		<-release
+		return nil
+	})
+
+	err := stuck.Within(context.Background(), 10*time.Millisecond)
+
+	require.EqualError(t, err, "emulator: no answer within 10ms")
+}
+
 func TestWaitStopsWhenCancelled(t *testing.T) {
 	exec := newFakeExec().on("container inspect", inspected("running", true, 8081, "sha256:aaa"))
 	probe, _ := probeFailing(1 << 30)
