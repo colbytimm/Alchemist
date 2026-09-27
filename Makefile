@@ -143,7 +143,7 @@ syft:
 release-snapshot: syft
 	PATH="$(TOOLS_BIN):$$PATH" $(GORELEASER) release --snapshot --clean
 
-## release: publish a GitHub Release for the current tag (needs GITHUB_TOKEN, wixl and osslsigncode)
+## release: publish a GitHub Release for the current tag (needs GITHUB_TOKEN, wixl and osslsigncode; WINGET_GITHUB_TOKEN also opens the winget PR)
 release: syft
 	PATH="$(TOOLS_BIN):$$PATH" $(GORELEASER) release --clean
 
