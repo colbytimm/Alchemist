@@ -1,0 +1,59 @@
+# JARVIS HUD, adapted for Alchemist from the VS Code theme JARVIS HUD by
+# Mohammad Areeb Ahmad. A dark theme: every role has one color for light and
+# dark terminals.
+#
+# Read from "registry/Areeb Ahmad (iareebahmad)/JARVIS HUD (jarvis-hud)/
+# JARVIS HUD.json" in https://github.com/AvinashReddy3108/CodemosModern-Themes-Registry,
+# a mirror of vscodethemes.com's files, at commit adea5dc; no source
+# repository was found. Mapped to Alchemist's roles by the rule in
+# docs/using/themes.md. muted is colors.descriptionForeground, accent
+# colors.progressBar.background, selected
+# colors.list.activeSelectionForeground. No exceptions to the rule.
+#
+# MIT License
+#
+# Copyright (c) 2026 Mohammad Areeb Ahmad
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+[about]
+title = "JARVIS HUD"
+author = "Mohammad Areeb Ahmad"
+source = "https://github.com/AvinashReddy3108/CodemosModern-Themes-Registry"
+license = "MIT"
+background = "#04090e"
+
+[colors]
+text = "#c5ccd6"
+muted = "#7d8794"
+accent = "#00d9ff"
+selected = "#00e5ff"
+success = "#5ce6a6"
+warning = "#ffb454"
+error = "#ff4d5e"
+keyword = "#00e5ff"
+operator = "#9fa9b7"
+literal = "#ff6ec7"
+function = "#ffc94d"
+alias = "#dfe4ea"
+parameter = "#8ef2c4"
+string = "#cfe88a"
+number = "#ff8c42"
+comment = "#59636e"
+punctuation = "#6b7480"

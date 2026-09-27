@@ -1,0 +1,58 @@
+# Dracula at Midnight, adapted for Alchemist from the VS Code theme
+# Dracula At Midnight 3.0.0 by Wallacy Santos Ferreira, after Dracula Theme.
+# A dark theme: every role has one color for light and dark terminals.
+#
+# Read from src/themes/DraculaAtMidnight.ts in
+# https://github.com/walcew/dracula-at-midnight at commit 55202ae, and
+# mapped to Alchemist's roles by the rule in docs/using/themes.md. muted is
+# colors.editorLineNumber.foreground, accent colors.focusBorder, selected
+# colors.list.highlightForeground. No exceptions to the rule.
+#
+# The MIT License (MIT)
+#
+# Copyright (c) 2016 Dracula Theme
+# Copyright (c) 2025 Wallacy Santos Ferreira (current maintainer)
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+[about]
+title = "Dracula at Midnight"
+author = "Wallacy Santos Ferreira"
+source = "https://github.com/walcew/dracula-at-midnight"
+license = "MIT"
+background = "#1f1f1f"
+
+[colors]
+text = "#F8F8F2"
+muted = "#9d9d9d"
+accent = "#FF79C6"
+selected = "#8BE9FD"
+success = "#50FA7B"
+warning = "#8BE9FD"
+error = "#FF5555"
+keyword = "#FF79C6"
+operator = "#FF79C6"
+literal = "#FFB86C"
+function = "#8BE9FD"
+alias = "#F8F8F2"
+parameter = "#FFB86C"
+string = "#F1FA8C"
+number = "#FFB86C"
+comment = "#9d9d9d"
+punctuation = "#F8F8F2"
