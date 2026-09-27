@@ -70,8 +70,9 @@ Alchemist looks for a profile's key in this order:
 4. the connect form
 
 On machines without a keychain, such as containers and CI runners, set the environment
-variable. `alchemist profile list` shows where each key comes from, never the key
-itself.
+variable. On Linux, the keychain is any Secret Service provider on a D-Bus session
+bus; see [the keychain on Linux](../install.md#the-keychain-on-linux).
+`alchemist profile list` shows where each key comes from, never the key itself.
 
 ## Read-only accounts
 

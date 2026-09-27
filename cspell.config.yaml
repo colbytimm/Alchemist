@@ -45,6 +45,7 @@ words:
   - archs
   - Authenticode
   - bindir
+  - codesign
   - GOBIN
   - INSTALLDIR
   - lipo
@@ -61,6 +62,7 @@ words:
   - TARGETDIR
   - winget
   - wixl
+  - xattr
   # Cosmos DB REST and SQL vocabulary
   - colls
   - documentdb
