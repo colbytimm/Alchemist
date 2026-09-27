@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Built by wixl (msitools), which supports a subset of WiX 3. It has no
+  Environment element, so package.sh adds the PATH entry to the built MSI.
+  UpgradeCode is the product identity that upgrades and winget track: never change it.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*"
+           Name="Alchemist"
+           Language="1033"
+           Version="$(var.Version)"
+           Manufacturer="Colby Timm"
+           UpgradeCode="E541E9BE-7E54-4B38-9D37-9F1F072B4719">
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Description="A keyboard-driven terminal IDE for Azure Cosmos DB." />
+
+    <!-- MSI versions are numeric, so an rc and its final share one: the final must replace the rc. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of Alchemist is already installed." />
+
+    <Media Id="1" Cabinet="alchemist.cab" EmbedCab="yes" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="Alchemist">
+          <Component Id="Executable" Guid="*" Win64="yes">
+            <File Id="AlchemistExe" Name="alchemist.exe" Source="$(var.Binary)" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id="Main" Level="1">
+      <ComponentRef Id="Executable" />
+    </Feature>
+  </Product>
+</Wix>
