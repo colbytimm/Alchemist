@@ -176,3 +176,17 @@ func TestASpaceTheTextareaRedrawsStillColors(t *testing.T) {
 
 	assert.Contains(t, view, theme.SyntaxKeyword().Render("SELECT"))
 }
+
+func TestTheEditorRedrawsInANewThemeWithoutAnEdit(t *testing.T) {
+	editor := panes.NewEditor(accept).SetSize(editorWidth, paneHeight).SetValue(highlightedQuery).Blur()
+	before := editor.View()
+	jarvis, err := theme.Find("jarvis-hud", theme.Custom{})
+	require.NoError(t, err)
+
+	theme.Use(jarvis)
+	t.Cleanup(func() { theme.Use(theme.Default()) })
+	after := editor.View()
+
+	assert.NotEqual(t, before, after)
+	assert.Contains(t, after, theme.SyntaxKeyword().Render("SELECT"))
+}

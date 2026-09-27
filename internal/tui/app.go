@@ -91,6 +91,7 @@ const (
 	overlayItemDiff
 	overlayMutationReview
 	overlayMutationProgress
+	overlayThemes
 )
 
 // runState is how far the current query has got.
@@ -214,6 +215,7 @@ type Model struct {
 	cloneProgress panes.CloneProgress
 	statusBar     panes.StatusBar
 	help          panes.Help
+	themePicker   panes.ThemePicker
 
 	// snapshotRoot is where snapshots are kept; empty turns them off.
 	snapshotRoot   string
@@ -358,6 +360,7 @@ func New(opts Options) Model {
 		}),
 		statusBar:      panes.NewStatusBar(opts.Icons, ""),
 		help:           panes.NewHelp(keys.HelpSections()),
+		themePicker:    panes.NewThemePicker(opts.Icons, append(keys.ThemeKeys(), keys.Close)),
 		mutationReview: panes.NewMutationReview(append(keys.MutationReviewKeys(), keys.Scroll, keys.Close)),
 		mutationProgress: panes.NewMutationProgress(opts.Icons, panes.MutationKeys{
 			Hide: keys.HideClone, Stop: keys.StopClone, Resume: keys.ResumeClone, Report: keys.ShowReport,
@@ -442,6 +445,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.diagnose(msg), nil
 	case noticeMsg:
 		return m.notify(string(msg))
+	case themeSavedMsg:
+		return m.finishThemeSave(msg)
 	case tea.WindowSizeMsg:
 		return m.resize(msg.Width, msg.Height), nil
 	case tea.KeyMsg:
@@ -598,6 +603,8 @@ func (m Model) layout() string {
 		return m.mutationReview.View()
 	case overlayMutationProgress:
 		return m.mutationProgress.View()
+	case overlayThemes:
+		return m.themePicker.View()
 	}
 	right := lipgloss.JoinVertical(lipgloss.Left, m.editor.View(), m.results.View())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, m.catalogPane().View(), right)
@@ -720,6 +727,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.openSavedOrRefuse()
 	case key.Matches(msg, m.keys.Accounts):
 		return m.openAccounts()
+	case key.Matches(msg, m.keys.Themes):
+		return m.openThemes(), nil
 	}
 	return m.handleFocusedKey(msg)
 }
@@ -787,6 +796,8 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleMutationReviewKey(msg)
 	case overlayMutationProgress:
 		return m.handleMutationProgressKey(msg)
+	case overlayThemes:
+		return m.handleThemesKey(msg)
 	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
@@ -1380,6 +1391,7 @@ func (m Model) resize(width, height int) Model {
 	m.itemDiffPane = m.itemDiffPane.SetSize(width, height)
 	m.mutationReview = m.mutationReview.SetSize(width, height)
 	m.mutationProgress = m.mutationProgress.SetSize(width, height)
+	m.themePicker = m.themePicker.SetSize(width, height)
 	return m
 }
 
