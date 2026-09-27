@@ -98,5 +98,15 @@ func (s *Styles) SyntaxComment() lipgloss.Style { return s.syntax[Comment] }
 
 func (s *Styles) SyntaxPunctuation() lipgloss.Style { return s.syntax[Punctuation] }
 
+// BackgroundStyle paints the source theme's editor background, which only
+// the picker's preview does; false when the theme names none.
+func (s *Styles) BackgroundStyle() (lipgloss.Style, bool) {
+	background := s.theme.About().Background
+	if background == "" {
+		return lipgloss.Style{}, false
+	}
+	return lipgloss.NewStyle().Background(lipgloss.Color(background)), true
+}
+
 // DiagnosticError is the color of the squiggle under a flagged range.
 func (s *Styles) DiagnosticError() lipgloss.AdaptiveColor { return s.theme.Color(Error) }

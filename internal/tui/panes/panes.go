@@ -97,15 +97,21 @@ func (f frame) inner() (width, height int) {
 
 // render draws content inside f, clipping whatever does not fit.
 func (f frame) render(content string) string {
+	return f.renderIn(theme.Active(), content)
+}
+
+// renderIn is render with the border in styles, which need not be the
+// active ones.
+func (f frame) renderIn(styles *theme.Styles, content string) string {
 	if f.width < minFrameWidth || f.height < minFrameHeight {
 		return ""
 	}
 	width, height := f.inner()
-	border := f.borderStyle()
+	border := f.borderStyle(styles)
 	clipped := lipgloss.NewStyle().MaxWidth(width).MaxHeight(height).Render(content)
 	body := border.BorderTop(false).Width(width).Height(height).Render(clipped)
 	edge := lipgloss.NewStyle().Foreground(border.GetBorderTopForeground())
-	return edge.Render(f.topEdge()) + "\n" + body
+	return edge.Render(f.topEdge(border)) + "\n" + body
 }
 
 // renderWithHint draws lines inside f, padded so hint lands on its last line.
@@ -146,19 +152,22 @@ func packHints(hints help.Model, keys []key.Binding, width int) []string {
 	return lines
 }
 
-func (f frame) borderStyle() lipgloss.Style {
+func (f frame) borderStyle(styles *theme.Styles) lipgloss.Style {
 	if f.focused {
-		return theme.FocusedBorderStyle()
+		return styles.FocusedBorderStyle()
 	}
-	return theme.BlurredBorderStyle()
+	return styles.BlurredBorderStyle()
 }
 
 // topEdge draws the title into the top border, which lipgloss cannot do: it
 // only renders a border of uniform runes.
-func (f frame) topEdge() string {
-	border, _, _, _, _ := f.borderStyle().GetBorder()
+func (f frame) topEdge(style lipgloss.Style) string {
+	border, _, _, _, _ := style.GetBorder()
 	available := f.width - borderCells - 1 // the corners, plus one leading dash
-	label := ansi.Truncate(" "+f.title+" ", available, "…")
+	label := ""
+	if f.title != "" {
+		label = ansi.Truncate(" "+f.title+" ", available, "…")
+	}
 	return border.TopLeft + border.Top + label +
 		strings.Repeat(border.Top, available-lipgloss.Width(label)) + border.TopRight
 }
