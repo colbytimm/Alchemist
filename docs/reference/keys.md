@@ -16,6 +16,7 @@ are typed as text. `ctrl+c` always quits.
 | `ctrl+s` | anywhere, history | save query |
 | `ctrl+l` | anywhere | open saved |
 | `ctrl+g` | anywhere | accounts |
+| `ctrl+t` | anywhere, the editor included | themes |
 | `?` | anywhere | help |
 | `esc` | anywhere | close |
 | `q` | anywhere but a text field | quit |
@@ -100,6 +101,17 @@ are typed as text. `ctrl+c` always quits.
 | `enter` | snapshots, note prompt | take |
 | `enter` | diff | fields |
 | `tab` | diff | all/added/removed/modified |
+
+## Theme picker
+
+| Key | Where | Action |
+|---|---|---|
+| `↑/↓` | theme picker | choose; only the preview changes |
+| `enter` | theme picker | use and save |
+| `esc`, `ctrl+t` | theme picker | close without changing anything |
+
+In the editor, `ctrl+t` opens the picker instead of the textarea's transpose characters.
+See [themes](../using/themes.md).
 
 ## Account switcher
 
