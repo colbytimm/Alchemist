@@ -92,15 +92,12 @@ func newEmulatorStartCmd(keyring config.Keyring) *cobra.Command {
 			"  alchemist emulator start --pull",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !cmd.Flags().Changed("port") {
-				options.Port = 0
-			}
 			return startEmulator(cmd, keyring, runtime, options, timeout)
 		},
 	}
 	runtime.bind(cmd.Flags())
-	cmd.Flags().IntVar(&options.Port, "port", emulator.DefaultPort,
-		"host port to publish the emulator on, on 127.0.0.1 only (default: the container's port, else 8081)")
+	cmd.Flags().IntVar(&options.Port, "port", 0,
+		fmt.Sprintf("host port to publish the emulator on, on 127.0.0.1 only (default: the container's port, else %d)", emulator.DefaultPort))
 	cmd.Flags().DurationVar(&timeout, "timeout", defaultStartTimeout, "how long to wait for the emulator to answer")
 	cmd.Flags().BoolVar(&options.Recreate, "recreate", false, "delete and create the container again, keeping its data")
 	cmd.Flags().BoolVar(&options.Pull, "pull", false, "pull a newer image, and recreate the container when there is one")
