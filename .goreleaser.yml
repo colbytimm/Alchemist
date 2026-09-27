@@ -95,6 +95,36 @@ nfpms:
       - src: README.md
         dst: /usr/share/doc/alchemist/README.md
 
+winget:
+  - name: alchemist
+    package_identifier: ColbyTimm.Alchemist
+    package_name: Alchemist
+    publisher: Colby Timm
+    publisher_url: https://github.com/colbytimm
+    author: Colby Timm
+    copyright: Copyright (c) 2026 Colby Timm
+    short_description: A terminal IDE for Azure Cosmos DB.
+    description: >-
+      A keyboard-driven terminal IDE for Azure Cosmos DB (NoSQL API). Browse
+      databases, write SQL, and page through results in one screen.
+    homepage: https://github.com/colbytimm/Alchemist
+    license: MIT
+    license_url: https://github.com/colbytimm/Alchemist/blob/main/LICENSE
+    release_notes_url: https://github.com/colbytimm/Alchemist/releases/tag/{{ .Tag }}
+    tags: [azure, cosmos-db, database, sql, terminal, tui]
+    # A fork, or a release without the secret, skips the winget PR and still succeeds.
+    skip_upload: '{{ if isEnvSet "WINGET_GITHUB_TOKEN" }}auto{{ else }}true{{ end }}'
+    repository:
+      owner: colbytimm
+      name: winget-pkgs
+      token: "{{ .Env.WINGET_GITHUB_TOKEN }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
+
 homebrew_casks:
   - repository:
       owner: colbytimm

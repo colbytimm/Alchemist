@@ -150,7 +150,7 @@ release-snapshot: syft
 brew-check:
 	test/homebrew/check.sh
 
-## release: publish a GitHub Release for the current tag (needs GITHUB_TOKEN, wixl and osslsigncode; HOMEBREW_TAP_TOKEN is optional)
+## release: publish a GitHub Release for the current tag (needs GITHUB_TOKEN, wixl and osslsigncode; HOMEBREW_TAP_TOKEN pushes the cask; WINGET_GITHUB_TOKEN opens the winget PR)
 release: syft
 	PATH="$(TOOLS_BIN):$$PATH" $(GORELEASER) release --clean
 
