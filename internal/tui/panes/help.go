@@ -35,9 +35,9 @@ func NewHelp(sections []HelpSection) Help {
 	return Help{frame: frame{title: helpTitle, focused: true}, model: model, sections: sections}
 }
 
-// helpStyles replaces the bubble's near-invisible greys with the palette.
+// helpStyles replaces the bubble's near-invisible greys with the theme's roles.
 func helpStyles() help.Styles {
-	keyStyle := lipgloss.NewStyle().Foreground(theme.Gold())
+	keyStyle := theme.AccentStyle()
 	return help.Styles{
 		Ellipsis:       theme.HintStyle(),
 		ShortKey:       keyStyle,
@@ -82,7 +82,7 @@ func (h Help) View() string {
 // column at once it has no place for a title above them.
 func (h Help) column(section HelpSection) string {
 	return lipgloss.JoinVertical(lipgloss.Left,
-		headerStyle().Render(section.Title),
+		theme.HeadingStyle().Render(section.Title),
 		h.model.FullHelpView([][]key.Binding{section.Keys}),
 	)
 }

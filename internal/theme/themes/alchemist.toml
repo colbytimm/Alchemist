@@ -1,0 +1,27 @@
+# Alchemist's default theme. Its colors adapt to light and dark terminals.
+# To start your own theme from it:
+#   alchemist theme show alchemist > ~/.config/alchemist/themes/mine.toml
+
+[about]
+title = "Alchemist"
+source = "https://github.com/colbytimm/Alchemist"
+license = "MIT"
+
+[colors]
+text = { light = "#5C4B37", dark = "#E8DCC8" } # parchment
+muted = { light = "#8A8378", dark = "#6B655B" } # ash
+accent = { light = "#D4A017", dark = "#F5C542" } # gold
+selected = { light = "#B87333", dark = "#D48F52" } # copper
+success = { light = "#2E8B84", dark = "#5FD3CE" } # verdigris
+warning = { light = "#D4A017", dark = "#F5C542" } # gold
+error = { light = "#C0392B", dark = "#E74C3C" } # cinnabar
+keyword = { light = "#6C3FA0", dark = "#9B6FD0" } # amethyst
+operator = { light = "#6C3FA0", dark = "#9B6FD0" } # amethyst
+literal = { light = "#B87333", dark = "#D48F52" } # copper
+function = { light = "#D4A017", dark = "#F5C542" } # gold
+alias = { light = "#5C4B37", dark = "#E8DCC8" } # parchment
+parameter = { light = "#B87333", dark = "#D48F52" } # copper
+string = { light = "#2E8B84", dark = "#5FD3CE" } # verdigris
+number = { light = "#B87333", dark = "#D48F52" } # copper
+comment = { light = "#8A8378", dark = "#6B655B" } # ash
+punctuation = { light = "#8A8378", dark = "#6B655B" } # ash

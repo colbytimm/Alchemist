@@ -206,7 +206,7 @@ func sectionLines(sections []adapter.Section, width int) []string {
 		if i > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, headerStyle().Render(indent+section.Title))
+		lines = append(lines, theme.HeadingStyle().Render(indent+section.Title))
 		lines = append(lines, propertyLines(section, width)...)
 	}
 	return lines

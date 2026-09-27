@@ -297,7 +297,7 @@ func (r Results) headerLine(columns, widths []int) string {
 	for n, i := range columns {
 		cells = append(cells, fit(r.columns[i], widths[n]))
 	}
-	return headerStyle().Render(strings.Join(cells, columnGap))
+	return theme.HeadingStyle().Render(strings.Join(cells, columnGap))
 }
 
 func (r Results) rowLine(row []string, columns, widths []int, style lipgloss.Style) string {
@@ -306,10 +306,6 @@ func (r Results) rowLine(row []string, columns, widths []int, style lipgloss.Sty
 		cells = append(cells, fit(cell(row, i), widths[n]))
 	}
 	return style.Render(strings.Join(cells, columnGap))
-}
-
-func headerStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(theme.Gold()).Bold(true)
 }
 
 func columnWidths(columns []string, rows [][]string) []int {
