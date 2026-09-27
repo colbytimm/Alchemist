@@ -1,0 +1,59 @@
+# Red, adapted for Alchemist from the Red theme that ships with Visual Studio
+# Code. A dark theme: every role has one color for light and dark terminals.
+#
+# Read from extensions/theme-red/themes/Red-color-theme.json in
+# https://github.com/microsoft/vscode at commit e7bb375, and mapped to
+# Alchemist's roles by the rule in docs/using/themes.md. muted is
+# colors.pickerGroup.foreground, accent colors.progressBar.background,
+# selected colors.list.highlightForeground. Exceptions: the token colors end
+# in ff, fully opaque, so the ff is dropped rather than the key skipped. The
+# theme sets no editorWarning.foreground or editorError.foreground, so
+# warning and error are VS Code's dark defaults, the colors it draws them in.
+#
+# MIT License
+#
+# Copyright (c) 2015 - present Microsoft Corporation
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+[about]
+title = "Red"
+author = "Microsoft"
+source = "https://github.com/microsoft/vscode/tree/main/extensions/theme-red"
+license = "MIT"
+background = "#390000"
+
+[colors]
+text = "#F8F8F8"
+muted = "#cc9999"
+accent = "#cc3333"
+selected = "#ff4444"
+success = "#41a83e"
+warning = "#CCA700"
+error = "#F14C4C"
+keyword = "#f12727"
+operator = "#f12727"
+literal = "#994646"
+function = "#ffb454"
+alias = "#fb9a4b"
+parameter = "#fb9a4b"
+string = "#cd8d8d"
+number = "#994646"
+comment = "#e7c0c0"
+punctuation = "#F8F8F8"
