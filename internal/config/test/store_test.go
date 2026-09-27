@@ -79,8 +79,8 @@ snapshot_dir = "/mnt/big/snapshots"
 
 [profiles.emulator]
 adapter = "cosmos"
-endpoint = "https://localhost:8081"
-insecure_skip_verify = true      # emulator self-signed cert only
+endpoint = "http://localhost:8081"
+well_known_key = true            # the emulator's published key
 database = "sales"               # optional default scope
 page_size = 100
 max_join_rows = 5000
@@ -99,16 +99,16 @@ endpoint = "https://myaccount.documents.azure.com:443/"
 	profile, err := cfg.Profile("")
 	require.NoError(t, err)
 	assert.Equal(t, config.Profile{
-		Name:               "emulator",
-		Adapter:            "cosmos",
-		Endpoint:           "https://localhost:8081",
-		InsecureSkipVerify: true,
-		Database:           "sales",
-		PageSize:           100,
-		MaxJoinRows:        5000,
-		Writers:            8,
-		SnapshotMaxItems:   10000000,
-		MaxMutationItems:   50000,
+		Name:             "emulator",
+		Adapter:          "cosmos",
+		Endpoint:         "http://localhost:8081",
+		WellKnownKey:     true,
+		Database:         "sales",
+		PageSize:         100,
+		MaxJoinRows:      5000,
+		Writers:          8,
+		SnapshotMaxItems: 10000000,
+		MaxMutationItems: 50000,
 	}, profile)
 	assert.Equal(t, "/mnt/big/snapshots", cfg.SnapshotDir)
 	assert.Equal(t, []string{"emulator", "prod"}, cfg.Names())

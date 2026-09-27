@@ -40,6 +40,9 @@ words:
   - Ghostty
   - Setulc
   - Smulx
+  # Container runtimes, and the emulator image's own words
+  - nerdctl
+  - pgcosmos
   # Release packaging, signing and installers
   - anchore
   - archs
