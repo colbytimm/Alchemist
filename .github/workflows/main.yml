@@ -11,22 +11,6 @@ jobs:
   gates:
     uses: ./.github/workflows/gates.yml
 
-  snapshot:
+  packages:
     needs: gates
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          # goreleaser derives the snapshot version from the latest tag.
-          fetch-depth: 0
-      - uses: ./.github/actions/setup-go
-        with:
-          cache-name: snapshot
-      - run: make release-snapshot
-      - uses: actions/upload-artifact@v6
-        with:
-          name: snapshot-archives
-          path: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/checksums.txt
+    uses: ./.github/workflows/packages.yml

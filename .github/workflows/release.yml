@@ -11,12 +11,38 @@ jobs:
   gates:
     uses: ./.github/workflows/gates.yml
 
+  packages:
+    uses: ./.github/workflows/packages.yml
+
   release:
-    needs: gates
+    needs: [gates, packages]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
+      # Opt-in, so the upstream can release before it has certificates and a
+      # fork never trips it.
+      - name: Require every signing secret
+        if: vars.REQUIRE_SIGNED_RELEASES == 'true'
+        env:
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+          WINDOWS_SIGN_PFX: ${{ secrets.WINDOWS_SIGN_PFX }}
+          WINDOWS_SIGN_PASSWORD: ${{ secrets.WINDOWS_SIGN_PASSWORD }}
+        run: |
+          missing=0
+          for name in MACOS_SIGN_P12 MACOS_SIGN_PASSWORD MACOS_NOTARY_ISSUER_ID MACOS_NOTARY_KEY_ID MACOS_NOTARY_KEY WINDOWS_SIGN_PFX WINDOWS_SIGN_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::REQUIRE_SIGNED_RELEASES is true but secret $name is not set"
+              missing=1
+            fi
+          done
+          exit "$missing"
       - uses: actions/checkout@v6
         with:
           # The changelog is built from the commits since the previous tag.
@@ -27,6 +53,24 @@ jobs:
           # Published binaries are built from a clean module and build cache:
           # a cache is writable by any earlier run on the default branch.
           cache: false
+      - run: sudo apt-get update && sudo apt-get install -y msitools wixl osslsigncode
       - run: make release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+          WINDOWS_SIGN_PFX: ${{ secrets.WINDOWS_SIGN_PFX }}
+          WINDOWS_SIGN_PASSWORD: ${{ secrets.WINDOWS_SIGN_PASSWORD }}
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.msi
+            dist/*.deb
+            dist/*.rpm
+            dist/*.apk
+            dist/checksums.txt

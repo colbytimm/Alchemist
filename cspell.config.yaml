@@ -40,6 +40,29 @@ words:
   - Ghostty
   - Setulc
   - Smulx
+  # Release packaging, signing and installers
+  - anchore
+  - archs
+  - Authenticode
+  - bindir
+  - codesign
+  - GOBIN
+  - INSTALLDIR
+  - lipo
+  - msibuild
+  - msiexec
+  - msitools
+  - nfpm
+  - nfpms
+  - notlike
+  - osslsigncode
+  - readpass
+  - sboms
+  - syft
+  - TARGETDIR
+  - winget
+  - wixl
+  - xattr
   # Cosmos DB REST and SQL vocabulary
   - colls
   - documentdb

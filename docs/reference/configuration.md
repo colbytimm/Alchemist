@@ -64,6 +64,8 @@ See [keys](../data/profiles.md#keys) for the lookup order.
 
 ## Files
 
+On Windows, `~` is your user profile folder, `%USERPROFILE%`.
+
 | Path | Contents |
 |---|---|
 | `~/.config/alchemist/config.toml` | profiles and settings |
