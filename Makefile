@@ -75,8 +75,10 @@ emulator-down:
 	docker compose -f test/integration/docker-compose.yml down -v
 
 ## test-integration: run integration tests against the emulator
+# -p 1: the vNext emulator keys offers by a number that databases and containers draw
+# from separate counters, so one package's container can take over another's database offer.
 test-integration:
-	go test -tags integration -count=1 -timeout 10m ./internal/adapter/cosmos/test/... ./test/integration/...
+	go test -tags integration -count=1 -p 1 -timeout 10m ./internal/adapter/cosmos/test/... ./test/integration/...
 
 ## test-coverage: run unit tests, writing coverage.out
 test-coverage:
@@ -143,7 +145,12 @@ syft:
 release-snapshot: syft
 	PATH="$(TOOLS_BIN):$$PATH" $(GORELEASER) release --snapshot --clean
 
-## release: publish a GitHub Release for the current tag (needs GITHUB_TOKEN, wixl and osslsigncode)
+## brew-check: install the cask from dist/ with Homebrew and run it (after release-snapshot)
+.PHONY: brew-check
+brew-check:
+	test/homebrew/check.sh
+
+## release: publish a GitHub Release for the current tag (needs GITHUB_TOKEN, wixl and osslsigncode; HOMEBREW_TAP_TOKEN is optional)
 release: syft
 	PATH="$(TOOLS_BIN):$$PATH" $(GORELEASER) release --clean
 
