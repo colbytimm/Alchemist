@@ -75,8 +75,10 @@ emulator-down:
 	docker compose -f test/integration/docker-compose.yml down -v
 
 ## test-integration: run integration tests against the emulator
+# -p 1: the vNext emulator keys offers by a number that databases and containers draw
+# from separate counters, so one package's container can take over another's database offer.
 test-integration:
-	go test -tags integration -count=1 -timeout 10m ./internal/adapter/cosmos/test/... ./test/integration/...
+	go test -tags integration -count=1 -p 1 -timeout 10m ./internal/adapter/cosmos/test/... ./test/integration/...
 
 ## test-coverage: run unit tests, writing coverage.out
 test-coverage:
