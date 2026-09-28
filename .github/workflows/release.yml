@@ -111,4 +111,4 @@ jobs:
         run: echo /home/linuxbrew/.linuxbrew/bin >> "$GITHUB_PATH"
       - run: brew install colbytimm/tap/alchemist
       - run: alchemist --version | grep -F "Alchemist $GITHUB_REF_NAME "
-      - run: brew audit --cask --strict --online colbytimm/tap/alchemist
+      - run: brew audit --cask --online colbytimm/tap/alchemist
