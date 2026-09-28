@@ -22,7 +22,7 @@ Alchemist is in early development.
 - Snapshots of a container on disk, with diffs between them.
 - Query history, saved queries, and export to JSON or CSV.
 - Several accounts in one session. Accounts are read-only unless you allow writes.
-- Installs with Homebrew on macOS and Linux.
+- Installs with Homebrew on macOS and Linux, and winget on Windows.
 
 ## Quick start
 
@@ -41,7 +41,10 @@ Download the file for your platform from the
 |---|---|---|
 | macOS | `alchemist_<version>_darwin_universal.tar.gz` | `tar -xzf` it and move `alchemist` to a directory on your `PATH` |
 | Linux | the `.deb`, `.rpm` or `.apk` for your architecture | `sudo apt install ./<file>.deb`, `sudo dnf install ./<file>.rpm` or `sudo apk add --allow-untrusted ./<file>.apk` |
-| Windows | `alchemist_<version>_windows_amd64.msi`, or the `.zip` | run the MSI, then open a new terminal |
+| Windows | none, winget downloads it | `winget install --id ColbyTimm.Alchemist -e`, then open a new terminal |
+| Windows, without winget | `alchemist_<version>_windows_amd64.msi`, or the `.zip` | run the MSI, then open a new terminal |
+
+On Windows, install with winget or the MSI, not both.
 
 [Installing](docs/install.md) covers every file, the keychain on Linux, verifying a
 download, uninstalling and building from source.
