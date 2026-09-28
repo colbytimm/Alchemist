@@ -11,12 +11,14 @@ cmd/                     cobra wiring; concrete adapters constructed and injecte
 internal/adapter/        the backend-agnostic contract (Adapter, Connection, Catalog, Cursor)
 internal/adapter/mock/   in-memory adapter used by tests and demos
 internal/adapter/cosmos/ azcosmos implementation, split by concept
+internal/emulator/       drives the emulator container through the docker or podman CLI
+internal/sample/         the sample databases alchemist emulator seed creates
 internal/query/          query planner and client-side cross-container engine
 internal/theme/          lipgloss styles, logo, colour profile
 internal/tui/            bubbletea models; interfaces only, no concrete adapter
 internal/<pkg>/test/     external test packages (package <pkg>_test)
-test/integration/        docker-compose for the Cosmos emulator
-docs/                    the user manual; docs/README.md is its contents
+test/integration/        end-to-end tests against the emulator (make emulator-up)
+docs/                    the user manual; README.md links every page
 ```
 
 **The architectural invariant, enforced by `depguard`:** `internal/tui` may import
@@ -59,9 +61,9 @@ make fmt                 gofmt -s -w . && goimports -local
 make lint                golangci-lint v2.4.0 (pinned, via go run)
 make test                go test ./...
 make build               -> bin/alchemist with version ldflags
-make emulator-up         docker compose up the Cosmos emulator
-make test-integration    go test -tags integration ./internal/adapter/cosmos/test/...
-make emulator-down
+make emulator-up         alchemist emulator start: run the emulator and wait for it
+make test-integration    go test -tags integration ./internal/adapter/cosmos/test/... ./test/integration/...
+make emulator-down       alchemist emulator remove --data
 make coverage-html       coverage over ./app ./cmd ./internal
 make security            gosec + govulncheck + gitleaks
 make help                lists targets

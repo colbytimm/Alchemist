@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -74,13 +75,14 @@ func TestLoadMissingFileIsAnEmptyConfig(t *testing.T) {
 func TestLoadParsesTheDocumentedExample(t *testing.T) {
 	store := tempStore(t)
 	writeConfig(t, store, `
+theme = "dracula-at-midnight"
 default_profile = "emulator"
 snapshot_dir = "/mnt/big/snapshots"
 
 [profiles.emulator]
 adapter = "cosmos"
-endpoint = "https://localhost:8081"
-insecure_skip_verify = true      # emulator self-signed cert only
+endpoint = "http://localhost:8081"
+well_known_key = true            # the emulator's published key
 database = "sales"               # optional default scope
 page_size = 100
 max_join_rows = 5000
@@ -99,19 +101,83 @@ endpoint = "https://myaccount.documents.azure.com:443/"
 	profile, err := cfg.Profile("")
 	require.NoError(t, err)
 	assert.Equal(t, config.Profile{
-		Name:               "emulator",
-		Adapter:            "cosmos",
-		Endpoint:           "https://localhost:8081",
-		InsecureSkipVerify: true,
-		Database:           "sales",
-		PageSize:           100,
-		MaxJoinRows:        5000,
-		Writers:            8,
-		SnapshotMaxItems:   10000000,
-		MaxMutationItems:   50000,
+		Name:             "emulator",
+		Adapter:          "cosmos",
+		Endpoint:         "http://localhost:8081",
+		WellKnownKey:     true,
+		Database:         "sales",
+		PageSize:         100,
+		MaxJoinRows:      5000,
+		Writers:          8,
+		SnapshotMaxItems: 10000000,
+		MaxMutationItems: 50000,
 	}, profile)
 	assert.Equal(t, "/mnt/big/snapshots", cfg.SnapshotDir)
+	assert.Equal(t, "dracula-at-midnight", cfg.Theme)
 	assert.Equal(t, []string{"emulator", "prod"}, cfg.Names())
+}
+
+func TestTheThemeSurvivesSaveThenLoad(t *testing.T) {
+	store := tempStore(t)
+	cfg := twoProfiles(t)
+	cfg.Theme = "jarvis-hud"
+
+	require.NoError(t, store.Save(cfg))
+	got, err := store.Load()
+
+	require.NoError(t, err)
+	assert.Equal(t, cfg, got)
+}
+
+func TestTheThemeIsWrittenAtTheTop(t *testing.T) {
+	store := tempStore(t)
+	cfg := twoProfiles(t)
+	cfg.Theme = "jarvis-hud"
+
+	require.NoError(t, store.Save(cfg))
+
+	text, err := os.ReadFile(store.Path)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(string(text), `theme = "jarvis-hud"`), string(text))
+}
+
+func TestLoadNeverJudgesTheTheme(t *testing.T) {
+	store := tempStore(t)
+	writeConfig(t, store, `theme = "no such theme, not even a file name"`)
+
+	cfg, err := store.Load()
+
+	require.NoError(t, err)
+	assert.Equal(t, "no such theme, not even a file name", cfg.Theme)
+}
+
+func TestSaveProfileKeepsTheTheme(t *testing.T) {
+	store := tempStore(t)
+	require.NoError(t, store.Save(config.Config{Theme: "jarvis-hud"}))
+
+	require.NoError(t, config.SaveProfile(store, newFakeKeyring(), prodProfile(), ""))
+
+	cfg, err := store.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "jarvis-hud", cfg.Theme)
+}
+
+func TestSaveWritesTheWellKnownKeySettingAndNoKey(t *testing.T) {
+	store := tempStore(t)
+	want, err := config.Config{}.Add(config.Profile{
+		Name: "emulator", Adapter: "cosmos", Endpoint: "http://localhost:8081", WellKnownKey: true,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, store.Save(want))
+
+	text, err := os.ReadFile(store.Path)
+	require.NoError(t, err)
+	assert.Contains(t, string(text), "well_known_key = true")
+	assert.NotContains(t, string(text), config.EmulatorKey)
+	got, err := store.Load()
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
 }
 
 func TestLoadRejectsBrokenFilesByName(t *testing.T) {
@@ -127,6 +193,11 @@ func TestLoadRejectsBrokenFilesByName(t *testing.T) {
 		{name: "missing endpoint", text: "[profiles.a]\nadapter = \"cosmos\"\n", wantErr: config.ErrInvalidConfig},
 		{name: "missing adapter", text: "[profiles.a]\nendpoint = \"https://x\"\n", wantErr: config.ErrInvalidConfig},
 		{name: "default names a missing profile", text: "default_profile = \"b\"\n" + validProfile, wantErr: config.ErrProfileNotFound},
+		{
+			name:    "well-known key off this machine",
+			text:    "[profiles.a]\nadapter = \"cosmos\"\nendpoint = \"https://x.documents.azure.com:443/\"\nwell_known_key = true\n",
+			wantErr: config.ErrInvalidConfig,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

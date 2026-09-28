@@ -68,17 +68,13 @@ func scrolledToEnd(t *testing.T) panes.Editor {
 	return editor
 }
 
-func colored(color lipgloss.AdaptiveColor, text string) string {
-	return lipgloss.NewStyle().Foreground(color).Render(text)
-}
-
 func TestABlurredEditorLooksAsItDidBeforeFocusedHighlighting(t *testing.T) {
 	view := panes.NewEditor(accept).SetSize(editorWidth, paneHeight).SetValue(highlightedQuery).Blur().View()
 
-	assert.Contains(t, view, colored(theme.Verdigris(), "'two"), "a string is colored on every line it covers")
-	assert.Contains(t, view, colored(theme.Verdigris(), "lines'"))
-	assert.Contains(t, view, colored(theme.Copper(), "1.5"))
-	assert.Contains(t, view, colored(theme.Amethyst(), "AND"))
+	assert.Contains(t, view, theme.SyntaxString().Render("'two"), "a string is colored on every line it covers")
+	assert.Contains(t, view, theme.SyntaxString().Render("lines'"))
+	assert.Contains(t, view, theme.SyntaxNumber().Render("1.5"))
+	assert.Contains(t, view, theme.SyntaxOperator().Render("AND"))
 	assert.Contains(t, view, theme.SyntaxKeyword().Render("SELECT"), "only bolder")
 }
 
@@ -171,12 +167,26 @@ func TestHighlightingKeepsTheScrollPosition(t *testing.T) {
 func TestAScrolledEditorStillColorsWhatItShows(t *testing.T) {
 	view := scrolledToEnd(t).Blur().View()
 
-	assert.Contains(t, view, colored(theme.Copper(), "29"))
-	assert.Contains(t, view, colored(theme.Amethyst(), "OR"))
+	assert.Contains(t, view, theme.SyntaxNumber().Render("29"))
+	assert.Contains(t, view, theme.SyntaxOperator().Render("OR"))
 }
 
 func TestASpaceTheTextareaRedrawsStillColors(t *testing.T) {
 	view := panes.NewEditor(accept).SetSize(editorWidth, paneHeight).SetValue("SELECT * FROM c").Blur().View()
 
 	assert.Contains(t, view, theme.SyntaxKeyword().Render("SELECT"))
+}
+
+func TestTheEditorRedrawsInANewThemeWithoutAnEdit(t *testing.T) {
+	editor := panes.NewEditor(accept).SetSize(editorWidth, paneHeight).SetValue(highlightedQuery).Blur()
+	before := editor.View()
+	jarvis, err := theme.Find("jarvis-hud", theme.Custom{})
+	require.NoError(t, err)
+
+	theme.Use(jarvis)
+	t.Cleanup(func() { theme.Use(theme.Default()) })
+	after := editor.View()
+
+	assert.NotEqual(t, before, after)
+	assert.Contains(t, after, theme.SyntaxKeyword().Render("SELECT"))
 }

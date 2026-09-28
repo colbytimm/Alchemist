@@ -14,6 +14,7 @@ dictionaryDefinitions: []
 ignorePaths:
   - .git/**
   - "**/testdata/fuzz/**"
+  - "**/testdata/golden/**"
   - go.mod
   - go.sum
 
@@ -40,6 +41,9 @@ words:
   - Ghostty
   - Setulc
   - Smulx
+  # Container runtimes, and the emulator image's own words
+  - nerdctl
+  - pgcosmos
   # Release packaging, signing and installers
   - anchore
   - archs
@@ -49,12 +53,14 @@ words:
   - GOBIN
   - INSTALLDIR
   - lipo
+  - LOCALAPPDATA
   - msibuild
   - msiexec
   - msitools
   - nfpm
   - nfpms
   - notlike
+  - notmatch
   - osslsigncode
   - readpass
   - sboms
@@ -94,6 +100,7 @@ words:
   - errcheck
   - errname
   - errorlint
+  - forbidigo
   - goarch
   - gocognit
   - gocritic
@@ -138,6 +145,16 @@ words:
   - reanchor
   - toks
   - unpinnable
+  # Theme authors, sources and the color format themes are written in
+  - Areeb
+  - Ferreira
+  - iareebahmad
+  - Rayrarpa
+  - Robb
+  - RRGGBB
+  - synthwave
+  - vscodethemes
+  - Wallacy
   # Concatenated-initialism examples in the naming reference
   - DBURL
   - XMLAPI
@@ -162,6 +179,8 @@ ignoreWords:
   - custome
   # Words typed part-way in the autocomplete tests, and the fixture they name.
   - SELE
+  # A mistyped theme name in the unknown-theme tests.
+  - drakula
   - STARTSW
   - CUSTOMERI
   - stomer

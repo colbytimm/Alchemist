@@ -367,7 +367,7 @@ func (f Form) failureText() string {
 // can be changed does not read as one that cannot.
 func (f Form) fieldView(field formField) string {
 	if !field.choosing() {
-		return field.input.View()
+		return inputView(field.input)
 	}
 	return choiceView(f.icons, field)
 }

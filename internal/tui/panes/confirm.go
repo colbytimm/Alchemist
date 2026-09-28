@@ -26,7 +26,6 @@ type nameField struct {
 func newNameField(expected string) nameField {
 	input := newInput("", "")
 	input.Prompt = confirmPrompt
-	input.PromptStyle = theme.HintStyle()
 	input.Focus()
 	return nameField{input: input, expected: expected}
 }
@@ -49,7 +48,7 @@ func (f nameField) matches() bool {
 }
 
 func (f nameField) view() string {
-	return f.input.View()
+	return promptedInputView(f.input)
 }
 
 // Confirm asks for a name back before something irreversible runs. Like the

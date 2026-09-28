@@ -91,6 +91,7 @@ const (
 	overlayItemDiff
 	overlayMutationReview
 	overlayMutationProgress
+	overlayThemes
 )
 
 // runState is how far the current query has got.
@@ -139,6 +140,20 @@ type Options struct {
 	// Diagnostics is how the editor underlines what it flags; NoUnderline
 	// also stops it looking.
 	Diagnostics theme.DiagnosticUnderline
+	// Themes is what the theme picker lists and saves to; nil lists the
+	// built-in themes and saves nothing.
+	Themes ThemeCatalog
+	// Notice is shown in the status bar once the session starts.
+	Notice string
+}
+
+// ThemeCatalog is every theme there is and the one saved for later
+// launches. cmd/ supplies it, since saving means writing config.toml.
+type ThemeCatalog interface {
+	List() []theme.Entry
+	Find(name string) (theme.Theme, error)
+	Save(name string) error
+	Saved() string
 }
 
 // Management is what a session may do with the catalog beyond browsing it:
@@ -178,6 +193,9 @@ type Model struct {
 	saved        saved.Store
 	// readOnly is the session's switch that makes every account read-only.
 	readOnly bool
+	themes   ThemeCatalog
+	// startNotice is shown in the status bar once the session starts.
+	startNotice string
 
 	connectPane   panes.Connect
 	accountsPane  panes.Accounts
@@ -197,6 +215,7 @@ type Model struct {
 	cloneProgress panes.CloneProgress
 	statusBar     panes.StatusBar
 	help          panes.Help
+	themePicker   panes.ThemePicker
 
 	// snapshotRoot is where snapshots are kept; empty turns them off.
 	snapshotRoot   string
@@ -341,6 +360,7 @@ func New(opts Options) Model {
 		}),
 		statusBar:      panes.NewStatusBar(opts.Icons, ""),
 		help:           panes.NewHelp(keys.HelpSections()),
+		themePicker:    panes.NewThemePicker(opts.Icons, append(keys.ThemeKeys(), keys.Close)),
 		mutationReview: panes.NewMutationReview(append(keys.MutationReviewKeys(), keys.Scroll, keys.Close)),
 		mutationProgress: panes.NewMutationProgress(opts.Icons, panes.MutationKeys{
 			Hide: keys.HideClone, Stop: keys.StopClone, Resume: keys.ResumeClone, Report: keys.ShowReport,
@@ -360,6 +380,8 @@ func New(opts Options) Model {
 		sampleFields:   opts.SampleFields,
 		readOnly:       opts.ReadOnly,
 		diagnostics:    opts.Diagnostics,
+		themes:         opts.Themes,
+		startNotice:    opts.Notice,
 	}
 	m.accounts = newAccountSet(m.sessionAccounts(opts.Accounts), m.blankEntry)
 	m = m.withJobKeys()
@@ -381,11 +403,22 @@ func (m Model) sessionAccounts(accounts []Account) []Account {
 // Init connects the account the session starts on. A first run needs nothing
 // until its form is submitted.
 func (m Model) Init() tea.Cmd {
+	notice := m.showStartNotice()
 	entry, ok := m.accounts.get(m.accounts.active)
 	if !ok {
+		return notice
+	}
+	return tea.Batch(notice, entry.pane.SpinnerTick(), m.launchAccount(entry))
+}
+
+// noticeMsg puts a notice in the status bar.
+type noticeMsg string
+
+func (m Model) showStartNotice() tea.Cmd {
+	if m.startNotice == "" {
 		return nil
 	}
-	return tea.Batch(entry.pane.SpinnerTick(), m.launchAccount(entry))
+	return func() tea.Msg { return noticeMsg(m.startNotice) }
 }
 
 // withManagement rebuilds the bindings from what the active account allows,
@@ -410,6 +443,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case diagnoseMsg:
 		return m.diagnose(msg), nil
+	case noticeMsg:
+		return m.notify(string(msg))
+	case themeSavedMsg:
+		return m.finishThemeSave(msg)
 	case tea.WindowSizeMsg:
 		return m.resize(msg.Width, msg.Height), nil
 	case tea.KeyMsg:
@@ -566,6 +603,8 @@ func (m Model) layout() string {
 		return m.mutationReview.View()
 	case overlayMutationProgress:
 		return m.mutationProgress.View()
+	case overlayThemes:
+		return m.themePicker.View()
 	}
 	right := lipgloss.JoinVertical(lipgloss.Left, m.editor.View(), m.results.View())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, m.catalogPane().View(), right)
@@ -688,6 +727,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.openSavedOrRefuse()
 	case key.Matches(msg, m.keys.Accounts):
 		return m.openAccounts()
+	case key.Matches(msg, m.keys.Themes):
+		return m.openThemes(), nil
 	}
 	return m.handleFocusedKey(msg)
 }
@@ -755,6 +796,8 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleMutationReviewKey(msg)
 	case overlayMutationProgress:
 		return m.handleMutationProgressKey(msg)
+	case overlayThemes:
+		return m.handleThemesKey(msg)
 	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
@@ -1348,6 +1391,7 @@ func (m Model) resize(width, height int) Model {
 	m.itemDiffPane = m.itemDiffPane.SetSize(width, height)
 	m.mutationReview = m.mutationReview.SetSize(width, height)
 	m.mutationProgress = m.mutationProgress.SetSize(width, height)
+	m.themePicker = m.themePicker.SetSize(width, height)
 	return m
 }
 

@@ -1,0 +1,62 @@
+# SynthWave '84, adapted for Alchemist from the VS Code theme SynthWave '84
+# 0.1.20 by Robb Owen. A dark theme: every role has one color for light and
+# dark terminals.
+#
+# Read from themes/synthwave-color-theme.json in
+# https://github.com/robb0wen/synthwave-vscode at commit ecfa2fe, and mapped
+# to Alchemist's roles by the rule in docs/using/themes.md. muted is token
+# comment, accent colors.textLink.activeForeground, selected
+# colors.list.highlightForeground. Exceptions: the theme sets no
+# editor.foreground, so text and punctuation are colors.foreground. success
+# is colors.gitDecoration.untrackedResourceForeground, the added color
+# without its alpha channel. warning is token keyword: the theme's
+# editorWarning.foreground has an alpha channel and is the same mint as
+# success, so a warning would not read as one.
+#
+# MIT License
+#
+# Copyright (c) 2019 Robb Owen
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+[about]
+title = "SynthWave '84"
+author = "Robb Owen"
+source = "https://github.com/robb0wen/synthwave-vscode"
+license = "MIT"
+background = "#262335"
+
+[colors]
+text = "#ffffff"
+muted = "#848bbd"
+accent = "#ff7edb"
+selected = "#f97e72"
+success = "#72f1b8"
+warning = "#fede5d"
+error = "#fe4450"
+keyword = "#fede5d"
+operator = "#fede5d"
+literal = "#f97e72"
+function = "#36f9f6"
+alias = "#ff7edb"
+parameter = "#ff7edb"
+string = "#ff8b39"
+number = "#f97e72"
+comment = "#848bbd"
+punctuation = "#ffffff"

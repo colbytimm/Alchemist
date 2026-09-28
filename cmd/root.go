@@ -70,7 +70,7 @@ func NewRootCmd(keyring config.Keyring) *cobra.Command {
 	session.bind(cmd.Flags())
 	cmd.PersistentFlags().String(snapshotDirFlag, "",
 		"keep snapshots here instead of snapshot_dir in config.toml or $XDG_DATA_HOME/alchemist/snapshots")
-	cmd.AddCommand(newProfileCmd(keyring), newSnapshotCmd(keyring))
+	cmd.AddCommand(newProfileCmd(keyring), newSnapshotCmd(keyring), newThemeCmd(), newEmulatorCmd(keyring))
 	cmd.SetVersionTemplate(fmt.Sprintf("%s {{.Version}}\n", app.Name))
 	cmd.CompletionOptions.DisableDefaultCmd = true
 	return cmd
@@ -85,6 +85,7 @@ type sessionFlags struct {
 	sampleFields bool
 	readOnly     bool
 	diagnostics  string
+	theme        string
 }
 
 func (s *sessionFlags) bind(flags *pflag.FlagSet) {
@@ -100,6 +101,8 @@ func (s *sessionFlags) bind(flags *pflag.FlagSet) {
 		"refuse every write this session could make, on every account, whatever its profile allows")
 	flags.StringVar(&s.diagnostics, "diagnostics", "",
 		"underline what the editor flags: curly, underline, or off (default: the profile's diagnostics, else curly)")
+	flags.StringVar(&s.theme, "theme", "",
+		"color theme for this launch only: a built-in or a file in the config directory's themes folder (default: the saved theme, else alchemist)")
 }
 
 // run resolves what to connect to before touching the filesystem, so an
@@ -110,6 +113,11 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 		return err
 	}
 	diagnostics, err := s.diagnosticUnderline(launch)
+	if err != nil {
+		return err
+	}
+	themes, themesErr := defaultThemes()
+	choice, err := s.selectTheme(launch, themes.Custom)
 	if err != nil {
 		return err
 	}
@@ -126,7 +134,16 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 	// past the point where anything could act on it.
 	defer func() { _ = logFile.Close() }()
 
-	logger.Info("session started", "account", launch.name)
+	logger.Info("session started", "account", launch.name, "theme", choice.theme.Name())
+	theme.Use(choice.theme)
+	if choice.reason != nil {
+		logger.Warn("saved theme not loaded", "theme", choice.saved, "error", choice.reason)
+	}
+	var catalog tui.ThemeCatalog = themes
+	if themesErr != nil {
+		logger.Warn("themes chosen in the app are not saved this session", "error", themesErr)
+		catalog = nil
+	}
 	snapshots, err := snapshotRoot(cmd)
 	if err != nil {
 		logger.Warn("snapshots are off for this session", "error", err)
@@ -149,6 +166,8 @@ func (s sessionFlags) run(cmd *cobra.Command, args []string, keyring config.Keyr
 			ReadOnly:     s.readOnly,
 			Snapshots:    snapshots,
 			Diagnostics:  diagnostics,
+			Themes:       catalog,
+			Notice:       choice.notice(),
 		}),
 		tea.WithAltScreen(),
 		tea.WithContext(cmd.Context()),
@@ -205,6 +224,8 @@ type launch struct {
 	form     panes.ConnectForm
 	// diagnostics is the launch profile's setting, empty without one.
 	diagnostics string
+	// theme is the saved theme, empty without one.
+	theme string
 }
 
 // resolveLaunch picks the account: --adapter names an adapter to run with no
@@ -250,6 +271,11 @@ func adapterLaunch(ctx context.Context, name string, keyring config.Keyring) (la
 		return session, nil
 	}
 	profiles := Profiles{Store: store, Keyring: keyring}
+	// A config that cannot be read leaves the session in the default theme,
+	// as it leaves it without profiles until one is added.
+	if cfg, err := store.Load(); err == nil {
+		session.theme = cfg.Theme
+	}
 	session.open = adapterOpener(name, profiles.Open)
 	session.connect = profiles.Connect
 	session.list = func() ([]tui.Account, error) {
@@ -290,6 +316,7 @@ func profileLaunch(name string, profiles Profiles) (launch, error) {
 			open:    profiles.Open,
 			connect: profiles.Connect,
 			form:    panes.ConnectForm{Profile: name, StoreKey: true},
+			theme:   cfg.Theme,
 		}, nil
 	}
 	if err != nil {
@@ -302,6 +329,7 @@ func profileLaunch(name string, profiles Profiles) (launch, error) {
 		open:        profiles.Open,
 		connect:     profiles.Connect,
 		diagnostics: profile.Diagnostics,
+		theme:       cfg.Theme,
 	}, nil
 }
 

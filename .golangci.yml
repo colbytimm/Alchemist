@@ -8,6 +8,7 @@ linters:
     - errcheck
     - errname
     - errorlint
+    - forbidigo
     - gocognit
     - gocritic
     - godot
@@ -31,6 +32,10 @@ linters:
           deny:
             - pkg: github.com/colbytimm/alchemist/internal/adapter/cosmos
               desc: internal/tui must depend only on the adapter interfaces; concrete adapters are wired in cmd/
+    forbidigo:
+      forbid:
+        - pattern: ^lipgloss\.(Color|AdaptiveColor|CompleteColor|CompleteAdaptiveColor|ANSIColor)$
+          msg: take a style from internal/theme, whose roles follow the theme in use
     gocognit:
       min-complexity: 30
     revive:
@@ -46,6 +51,9 @@ linters:
           - errcheck
           - gosec
           - unparam
+      - path: internal/theme/
+        linters:
+          - forbidigo
     generated: lax
 
 formatters:

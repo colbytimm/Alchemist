@@ -1,0 +1,27 @@
+# Red, an original Alchemist theme for dark terminals.
+
+[about]
+title = "Red"
+author = "Alchemist"
+source = "https://github.com/colbytimm/Alchemist"
+license = "MIT"
+background = "#3f141c"
+
+[colors]
+text = "#e6d6d6"
+muted = "#9a8286"
+accent = "#c9627a"
+selected = "#e0b88e"
+success = "#8fc2a2"
+warning = "#e0b35a"
+error = "#f0566e"
+keyword = "#c086d2"
+operator = "#6fb0a0"
+literal = "#d6b492"
+function = "#66ad99"
+alias = "#c9627a"
+parameter = "#e0b88e"
+string = "#b4c28e"
+number = "#d6b492"
+comment = "#b3a1a5"
+punctuation = "#d8c8ca"

@@ -68,6 +68,8 @@ func newHarness(t *testing.T) harness {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("COSMOS_CONNECTION_STRING", "")
+	// A launch makes its theme the active one, which outlives the test.
+	t.Cleanup(func() { theme.Use(theme.Default()) })
 	return harness{keyring: newFakeKeyring()}
 }
 

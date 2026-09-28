@@ -31,6 +31,10 @@ var profileNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // Config is the whole config file.
 type Config struct {
+	// Theme is the theme every launch opens in. It is kept as written: a
+	// theme that no longer loads must not stop the file loading, and must
+	// come back once its file is fixed.
+	Theme          string `toml:"theme,omitempty"`
 	DefaultProfile string `toml:"default_profile,omitempty"`
 	// SnapshotDir moves the snapshot store off its default under
 	// $XDG_DATA_HOME, for a home directory with no room for it.
@@ -45,8 +49,11 @@ type Profile struct {
 	Adapter            string `toml:"adapter"`
 	Endpoint           string `toml:"endpoint"`
 	InsecureSkipVerify bool   `toml:"insecure_skip_verify,omitempty"`
-	Database           string `toml:"database,omitempty"`
-	PageSize           int    `toml:"page_size,omitzero"`
+	// WellKnownKey connects with EmulatorKey instead of a stored key; only
+	// a local endpoint may set it.
+	WellKnownKey bool   `toml:"well_known_key,omitempty"`
+	Database     string `toml:"database,omitempty"`
+	PageSize     int    `toml:"page_size,omitzero"`
 	// MaxJoinRows caps the rows a cross-container join holds in memory,
 	// across all the sides it holds.
 	MaxJoinRows int `toml:"max_join_rows,omitzero"`
@@ -220,6 +227,8 @@ func (p Profile) validate() error {
 		return fmt.Errorf("profile %q: adapter is required: %w", p.Name, ErrInvalidConfig)
 	case p.Endpoint == "":
 		return fmt.Errorf("profile %q: endpoint is required: %w", p.Name, ErrInvalidConfig)
+	case p.WellKnownKey && !IsLocalEndpoint(p.Endpoint):
+		return fmt.Errorf("profile %q: well_known_key is only for an emulator on this machine: %w", p.Name, ErrInvalidConfig)
 	case p.PageSize < 0:
 		return fmt.Errorf("profile %q: page_size must be positive: %w", p.Name, ErrInvalidConfig)
 	case p.MaxJoinRows < 0:

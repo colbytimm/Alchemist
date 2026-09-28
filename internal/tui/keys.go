@@ -65,6 +65,9 @@ type KeyMap struct {
 	DeleteQuery    key.Binding
 	Confirm        key.Binding
 	Accounts       key.Binding
+	Themes         key.Binding
+	UseTheme       key.Binding
+	ChooseTheme    key.Binding
 	Switch         key.Binding
 	AddAccount     key.Binding
 	Disconnect     key.Binding
@@ -303,6 +306,21 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+g"),
 			key.WithHelp("ctrl+g", "accounts"),
 		),
+		// ctrl+t is the textarea's transpose-characters; the picker takes it
+		// before the editor sees the key, as ctrl+r is taken to run.
+		Themes: key.NewBinding(
+			key.WithKeys("ctrl+t"),
+			key.WithHelp("ctrl+t", "themes"),
+		),
+		UseTheme: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "use and save"),
+		),
+		// ChooseTheme only advertises the picker's arrows: Up and Down move it.
+		ChooseTheme: key.NewBinding(
+			key.WithKeys("up", "down", "k", "j"),
+			key.WithHelp("↑/↓", "choose"),
+		),
 		Switch: key.NewBinding(
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "switch"),
@@ -385,6 +403,12 @@ func (k KeyMap) AccountsKeys() []key.Binding {
 	return []key.Binding{k.Switch, k.AddAccount, k.Disconnect}
 }
 
+// ThemeKeys are the bindings only the theme picker answers to. Its hint
+// line shows Close beside them.
+func (k KeyMap) ThemeKeys() []key.Binding {
+	return []key.Binding{k.ChooseTheme, k.UseTheme}
+}
+
 // ExportKeys are the bindings only the export prompt answers to.
 func (k KeyMap) ExportKeys() []key.Binding {
 	return []key.Binding{k.Save, k.Format}
@@ -440,7 +464,7 @@ func (k KeyMap) InfoKeys() []key.Binding {
 func (k KeyMap) globalKeys() []key.Binding {
 	return []key.Binding{
 		k.NextPane, k.PrevPane, k.FocusEditor, k.Run,
-		k.History, k.SaveQuery, k.Saved, k.Accounts, k.Help, k.Close, k.Quit,
+		k.History, k.SaveQuery, k.Saved, k.Accounts, k.Themes, k.Help, k.Close, k.Quit,
 	}
 }
 
