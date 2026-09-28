@@ -1,0 +1,24 @@
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    # "/" covers only .github/workflows; composite actions are listed by path.
+    directories:
+      - /
+      - /.github/actions/setup-go
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"

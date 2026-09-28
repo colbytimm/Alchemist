@@ -41,6 +41,7 @@ words:
   - Ghostty
   - Setulc
   - Smulx
+  - gomod
   # Container runtimes, and the emulator image's own words
   - nerdctl
   - pgcosmos
