@@ -163,4 +163,9 @@ jobs:
       - shell: pwsh
         run: |
           $manifest = (Get-ChildItem winget -Recurse -Filter *.installer.yaml).DirectoryName
-          winget validate --manifest $manifest
+          # winget validate exits 1 on warnings too, and the runner's winget warns on a
+          # manifest schema newer than it knows. Only its verdict decides.
+          $result = winget validate --manifest $manifest | Out-String
+          $result
+          if ($result -notmatch 'Manifest validation succeeded') { exit 1 }
+          exit 0

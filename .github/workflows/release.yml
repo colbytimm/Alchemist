@@ -118,10 +118,13 @@ jobs:
           path: winget
       - shell: pwsh
         run: |
-          $PSNativeCommandUseErrorActionPreference = $true
           $manifest = (Get-ChildItem winget -Recurse -Filter *.installer.yaml).DirectoryName
+          # Before exit codes turn into errors: winget validate exits 1 on warnings too.
+          $result = winget validate --manifest $manifest | Out-String
+          $result
+          if ($result -notmatch 'Manifest validation succeeded') { throw 'winget validate failed' }
+          $PSNativeCommandUseErrorActionPreference = $true
           winget settings --enable LocalManifestFiles
-          winget validate --manifest $manifest
           winget install --manifest $manifest --accept-source-agreements --accept-package-agreements --disable-interactivity
           # A step does not see a PATH change made during the job, so run the link itself.
           $version = & "$env:LOCALAPPDATA\Microsoft\WinGet\Links\alchemist.exe" --version
