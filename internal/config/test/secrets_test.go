@@ -144,6 +144,17 @@ func TestResolveKeepsAnUnreachableKeychainDiagnosable(t *testing.T) {
 	assert.ErrorIs(t, err, errNoKeychain)
 }
 
+func TestWellKnownKeyComesFirst(t *testing.T) {
+	t.Setenv("ALCHEMIST_EMULATOR_KEY", "from-env")
+	profile := config.Profile{Name: "emulator", Adapter: "cosmos", Endpoint: "http://localhost:8081", WellKnownKey: true}
+	keyring := &fakeKeyring{secrets: map[string]string{"emulator": "from-keychain"}}
+
+	got, err := config.SecretResolver{Keyring: keyring}.Resolve(profile)
+
+	require.NoError(t, err)
+	assert.Equal(t, config.Secret{Key: config.EmulatorKey, Source: config.SourceWellKnown}, got)
+}
+
 const prodConnectionString = "AccountEndpoint=https://myaccount.documents.azure.com:443/;AccountKey=y;"
 
 func TestAConnectionStringServesOnlyTheAccountItNames(t *testing.T) {

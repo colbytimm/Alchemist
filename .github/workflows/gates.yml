@@ -57,7 +57,7 @@ jobs:
       - uses: ./.github/actions/setup-go
         with:
           cache-name: integration
-      - run: make emulator-up emulator-wait
+      - run: make emulator-up
       - run: make test-integration
       - if: failure()
         run: docker logs alchemist-cosmos-emulator

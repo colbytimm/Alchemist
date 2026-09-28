@@ -22,6 +22,14 @@ const EnvConnectionStringVar = "COSMOS_CONNECTION_STRING"
 // read from the environment is named by its variable instead.
 const SourceKeychain = "keychain"
 
+// SourceWellKnown is the Secret.Source of EmulatorKey, for a profile that sets
+// well_known_key.
+const SourceWellKnown = "well-known"
+
+// EmulatorKey is the Cosmos DB emulator's fixed account key, published in
+// Microsoft's documentation. It is not a secret.
+const EmulatorKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==" // #gitleaks:allow
+
 var ErrSecretNotFound = errors.New("secret not found")
 
 // Keyring stores one secret per profile. Get and Delete return
@@ -81,8 +89,9 @@ func EnvKeyVar(profile string) string {
 	return "ALCHEMIST_" + strings.ToUpper(strings.ReplaceAll(profile, "-", "_")) + "_KEY"
 }
 
-// SecretResolver finds a profile's secret: the keychain first, then the
-// profile's own environment variable, then EnvConnectionStringVar.
+// SecretResolver finds a profile's secret: EmulatorKey for a profile that
+// sets well_known_key, else the keychain, then the profile's own environment
+// variable, then EnvConnectionStringVar.
 type SecretResolver struct {
 	Keyring Keyring
 }
@@ -91,6 +100,9 @@ type SecretResolver struct {
 // be reached is skipped rather than fatal, and is named in the error when
 // nothing else is found either.
 func (r SecretResolver) Resolve(profile Profile) (Secret, error) {
+	if profile.WellKnownKey {
+		return Secret{Key: EmulatorKey, Source: SourceWellKnown}, nil
+	}
 	key, keychainErr := r.Keyring.Get(profile.Name)
 	if keychainErr == nil {
 		return Secret{Key: key, Source: SourceKeychain}, nil
