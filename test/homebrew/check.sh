@@ -19,9 +19,9 @@ main() {
 	mkdir -p "$(dirname "$tapped_cask")"
 	cp "$generated_cask" "$tapped_cask"
 
-	brew style "$cask"
-	# Offline: a snapshot's release URLs do not exist.
-	brew audit --cask --strict "$cask"
+	# Not brew style or --strict: they hold casks to homebrew-cask's layout rules,
+	# and goreleaser writes this one. Offline: a snapshot's release URLs do not exist.
+	brew audit --cask "$cask"
 
 	point_urls_at_dist "$tapped_cask"
 	brew install --cask "$cask"
