@@ -45,11 +45,11 @@ jobs:
             fi
           done
           exit "$missing"
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # The changelog is built from the commits since the previous tag.
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           # Published binaries are built from a clean module and build cache:
@@ -70,7 +70,7 @@ jobs:
           WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
       # Also after a failed winget PR, so it can be opened by hand from these files.
       - if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: winget-manifests
           path: dist/winget/**
@@ -84,7 +84,7 @@ jobs:
           fi
       # A failed tap push still leaves the cask here, to commit to the tap by hand.
       - if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: homebrew-cask
           path: dist/homebrew/Casks/alchemist.rb

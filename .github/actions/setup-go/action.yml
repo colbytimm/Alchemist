@@ -13,7 +13,7 @@ runs:
   using: composite
   steps:
     - id: go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version-file: go.mod
         # setup-go keys its cache on go.sum alone and shares it across jobs;
