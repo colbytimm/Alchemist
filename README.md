@@ -68,23 +68,21 @@ keychain if you tick the box, and is never written to the file. Next time,
 
 ### Use the local emulator
 
-The emulator targets need a clone of the repository, and `make emulator-seed` needs
-Go 1.26 or newer. `make emulator-up` starts the Cosmos DB emulator in Docker on port
-8081, and `make emulator-seed` loads it with sample `sales`, `telemetry` and `hr`
-databases. Use the emulator's
-[well-known key](https://learn.microsoft.com/azure/cosmos-db/emulator#authentication)
-when asked:
+The Cosmos DB emulator runs in a container, so it needs Docker or Podman. These
+commands start it on port 8081, load it with sample `sales`, `telemetry` and `hr`
+databases, and open the app on it:
 
 ```sh
-git clone https://github.com/colbytimm/Alchemist.git
-cd Alchemist
-make emulator-up
-make emulator-seed
-alchemist profile add emulator --endpoint http://localhost:8081
+alchemist emulator start
+alchemist emulator seed
 alchemist emulator
 ```
 
-The emulator is local, so its profile allows writes.
+From a clone, run `./bin/alchemist` in place of `alchemist`.
+
+`start` adds the `emulator` profile, which uses the emulator's well-known key, so there
+is no key to paste. The emulator is local, so its profile allows writes. See
+[the local emulator](docs/data/emulator.md) for ports, data and troubleshooting.
 
 ### Run a query
 
@@ -110,10 +108,10 @@ SELECT o.id, o.total FROM sales.orders o WHERE o.status = "open"
 | Installing | [Install, verify and uninstall](docs/install.md) |
 | Editor | [Writing queries](docs/using/editor.md), [Results and export](docs/using/results.md), [History and saved queries](docs/using/history.md), [Themes](docs/using/themes.md) |
 | Query language | [Queries across containers](docs/language/cross-container.md), [Transactional batches](docs/language/transactions.md), [Updating by query](docs/language/update.md), [Deleting by query](docs/language/delete.md) |
-| Accounts and data | [Profiles and accounts](docs/data/profiles.md), [Managing the catalog](docs/data/catalog.md), [Cloning](docs/data/cloning.md), [Snapshots](docs/data/snapshots.md) |
+| Accounts and data | [Profiles and accounts](docs/data/profiles.md), [The local emulator](docs/data/emulator.md), [Managing the catalog](docs/data/catalog.md), [Cloning](docs/data/cloning.md), [Snapshots](docs/data/snapshots.md) |
 | Reference | [Keys](docs/reference/keys.md), [Statements](docs/reference/statements.md), [Commands](docs/reference/cli.md), [Configuration](docs/reference/configuration.md) |
 
-The examples use the sample data from `make emulator-seed`. `sales.orders` is the
+The examples use the sample data from `alchemist emulator seed`. `sales.orders` is the
 `orders` container in the `sales` database.
 
 ## Credits
