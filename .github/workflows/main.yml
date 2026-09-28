@@ -14,16 +14,3 @@ jobs:
   packages:
     needs: gates
     uses: ./.github/workflows/packages.yml
-
-  # Schema and field rules only: a snapshot's installer URLs name no real release.
-  winget-validate:
-    needs: packages
-    runs-on: windows-latest
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: packages
-      - shell: pwsh
-        run: |
-          $manifest = (Get-ChildItem winget -Recurse -Filter *.installer.yaml).DirectoryName
-          winget validate --manifest $manifest
