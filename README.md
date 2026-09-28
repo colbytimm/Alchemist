@@ -36,15 +36,22 @@ On macOS and Linux, install with [Homebrew](https://brew.sh):
 brew install colbytimm/tap/alchemist
 ```
 
-Download the file for your platform from the
+On Windows, install with
+[winget](https://learn.microsoft.com/windows/package-manager/winget/), then open a
+new terminal:
+
+```powershell
+winget install --id ColbyTimm.Alchemist -e
+```
+
+Or download the file for your platform from the
 [releases page](https://github.com/colbytimm/Alchemist/releases):
 
 | Platform | File | Install |
 |---|---|---|
 | macOS | `alchemist_<version>_darwin_universal.tar.gz` | `tar -xzf` it and move `alchemist` to a directory on your `PATH` |
 | Linux | the `.deb`, `.rpm` or `.apk` for your architecture | `sudo apt install ./<file>.deb`, `sudo dnf install ./<file>.rpm` or `sudo apk add --allow-untrusted ./<file>.apk` |
-| Windows | none, winget downloads it | `winget install --id ColbyTimm.Alchemist -e`, then open a new terminal |
-| Windows, without winget | `alchemist_<version>_windows_amd64.msi`, or the `.zip` | run the MSI, then open a new terminal |
+| Windows | `alchemist_<version>_windows_amd64.msi`, or the `.zip` | run the MSI, then open a new terminal |
 
 On Windows, install with winget or the MSI, not both.
 
