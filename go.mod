@@ -3,7 +3,7 @@ module github.com/colbytimm/alchemist
 go 1.26.8
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.2
 	github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos v1.5.0
 	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/bubbles v1.0.0
