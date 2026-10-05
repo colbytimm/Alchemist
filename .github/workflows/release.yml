@@ -3,6 +3,8 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # Run with --ref <tag>: goreleaser releases the tag at HEAD.
+  workflow_dispatch:
 
 permissions:
   contents: read
